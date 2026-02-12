@@ -1,0 +1,162 @@
+[
+  {
+    "generic_name": "metformin",
+    "min_single_dose_mg": 250.0,
+    "max_single_dose_mg": 2000.0,
+    "max_daily_dose_mg": 2550.0,
+    "common_doses": ["500mg", "850mg", "1000mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "lisinopril",
+    "min_single_dose_mg": 2.5,
+    "max_single_dose_mg": 40.0,
+    "max_daily_dose_mg": 80.0,
+    "common_doses": ["5mg", "10mg", "20mg", "40mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "atorvastatin",
+    "min_single_dose_mg": 10.0,
+    "max_single_dose_mg": 80.0,
+    "max_daily_dose_mg": 80.0,
+    "common_doses": ["10mg", "20mg", "40mg", "80mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "amoxicillin",
+    "min_single_dose_mg": 250.0,
+    "max_single_dose_mg": 1000.0,
+    "max_daily_dose_mg": 3000.0,
+    "common_doses": ["250mg", "500mg", "875mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "amlodipine",
+    "min_single_dose_mg": 2.5,
+    "max_single_dose_mg": 10.0,
+    "max_daily_dose_mg": 10.0,
+    "common_doses": ["2.5mg", "5mg", "10mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "omeprazole",
+    "min_single_dose_mg": 10.0,
+    "max_single_dose_mg": 40.0,
+    "max_daily_dose_mg": 40.0,
+    "common_doses": ["10mg", "20mg", "40mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "simvastatin",
+    "min_single_dose_mg": 5.0,
+    "max_single_dose_mg": 40.0,
+    "max_daily_dose_mg": 80.0,
+    "common_doses": ["10mg", "20mg", "40mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "losartan",
+    "min_single_dose_mg": 25.0,
+    "max_single_dose_mg": 100.0,
+    "max_daily_dose_mg": 100.0,
+    "common_doses": ["25mg", "50mg", "100mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "gabapentin",
+    "min_single_dose_mg": 100.0,
+    "max_single_dose_mg": 800.0,
+    "max_daily_dose_mg": 3600.0,
+    "common_doses": ["100mg", "300mg", "400mg", "600mg", "800mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "levothyroxine",
+    "min_single_dose_mg": 0.025,
+    "max_single_dose_mg": 0.3,
+    "max_daily_dose_mg": 0.3,
+    "common_doses": ["25mcg", "50mcg", "75mcg", "100mcg", "125mcg", "150mcg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "sertraline",
+    "min_single_dose_mg": 25.0,
+    "max_single_dose_mg": 200.0,
+    "max_daily_dose_mg": 200.0,
+    "common_doses": ["25mg", "50mg", "100mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "escitalopram",
+    "min_single_dose_mg": 5.0,
+    "max_single_dose_mg": 20.0,
+    "max_daily_dose_mg": 20.0,
+    "common_doses": ["5mg", "10mg", "20mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "furosemide",
+    "min_single_dose_mg": 20.0,
+    "max_single_dose_mg": 80.0,
+    "max_daily_dose_mg": 600.0,
+    "common_doses": ["20mg", "40mg", "80mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "metoprolol",
+    "min_single_dose_mg": 12.5,
+    "max_single_dose_mg": 200.0,
+    "max_daily_dose_mg": 400.0,
+    "common_doses": ["25mg", "50mg", "100mg", "200mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "warfarin",
+    "min_single_dose_mg": 1.0,
+    "max_single_dose_mg": 10.0,
+    "max_daily_dose_mg": 10.0,
+    "common_doses": ["1mg", "2mg", "2.5mg", "5mg", "7.5mg", "10mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "prednisone",
+    "min_single_dose_mg": 1.0,
+    "max_single_dose_mg": 60.0,
+    "max_daily_dose_mg": 80.0,
+    "common_doses": ["5mg", "10mg", "20mg", "40mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "ibuprofen",
+    "min_single_dose_mg": 200.0,
+    "max_single_dose_mg": 800.0,
+    "max_daily_dose_mg": 3200.0,
+    "common_doses": ["200mg", "400mg", "600mg", "800mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "naproxen",
+    "min_single_dose_mg": 220.0,
+    "max_single_dose_mg": 500.0,
+    "max_daily_dose_mg": 1250.0,
+    "common_doses": ["220mg", "250mg", "375mg", "500mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "ciprofloxacin",
+    "min_single_dose_mg": 250.0,
+    "max_single_dose_mg": 750.0,
+    "max_daily_dose_mg": 1500.0,
+    "common_doses": ["250mg", "500mg", "750mg"],
+    "route": "oral"
+  },
+  {
+    "generic_name": "azithromycin",
+    "min_single_dose_mg": 250.0,
+    "max_single_dose_mg": 500.0,
+    "max_daily_dose_mg": 500.0,
+    "common_doses": ["250mg", "500mg"],
+    "route": "oral"
+  }
+]

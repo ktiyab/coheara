@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+/* Atkinson Hyperlegible — bundled in Phase 1 P2 (i18n)
+   For now, use system font stack optimized for readability */
+:root {
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --color-primary: #4A6FA5;    /* Calm blue — not medical-alarm blue */
+  --color-surface: #FAFAF9;    /* Warm stone-50 */
+  --color-text: #1C1917;       /* Stone-900 */
+  --color-muted: #78716C;      /* Stone-500 */
+}
+
+/* Minimum font size enforcement (accessibility) */
+html {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Focus visible for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Minimum touch target (44x44) for interactive elements */
+button, a, input, select, textarea, [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}

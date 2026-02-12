@@ -1,0 +1,55 @@
+[package]
+name = "coheara"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Coheara — Patient's Personal MedAI"
+
+[lib]
+name = "coheara_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+dirs = "6"
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha2 = "0.10"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+bip39 = "2"
+base64 = "0.22"
+tempfile = "3"
+img_hash = "3"
+tauri-plugin-dialog = "2"
+# Explicit image v0.23 dep to enable format decoders for img_hash's re-export
+image = { version = "0.23", default-features = false, features = ["jpeg", "png", "tiff"] }
+pdf-extract = "0.10"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+lopdf = "0.34"
+tesseract = { version = "0.15", optional = true }
+regex = "1"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+ocr = ["tesseract"]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
