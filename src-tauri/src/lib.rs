@@ -10,7 +10,7 @@ pub mod chat; // L3-03: Chat Interface
 pub mod review; // L3-04: Review Screen
 pub mod medications; // L3-05: Medication List
 pub mod journal; // L4-01: Symptom Journal
-// pub mod export;      // L4-02: Appointment Prep PDF
+pub mod appointment; // L4-02: Appointment Prep
 // pub mod transfer;    // L4-03: WiFi Transfer
 
 use tracing_subscriber::EnvFilter;
@@ -67,6 +67,11 @@ pub fn run() {
             commands::journal::delete_symptom,
             commands::journal::check_journal_nudge,
             commands::journal::get_symptom_categories,
+            commands::appointment::list_professionals,
+            commands::appointment::prepare_appointment,
+            commands::appointment::export_prep_pdf,
+            commands::appointment::save_appointment_notes,
+            commands::appointment::list_appointments,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

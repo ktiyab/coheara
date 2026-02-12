@@ -1,3 +1,4 @@
+pub mod appointment;
 pub mod chat;
 pub mod home;
 pub mod journal;
