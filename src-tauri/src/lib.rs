@@ -8,6 +8,7 @@ pub mod intelligence; // L2-01 through L2-03: RAG + Safety + Coherence
 pub mod home; // L3-02: Home & Document Feed
 pub mod chat; // L3-03: Chat Interface
 pub mod review; // L3-04: Review Screen
+pub mod medications; // L3-05: Medication List
 // pub mod export;      // L4-02: Appointment Prep PDF
 // pub mod transfer;    // L4-03: WiFi Transfer
 
@@ -54,6 +55,11 @@ pub fn run() {
             commands::review::update_extracted_field,
             commands::review::confirm_review,
             commands::review::reject_review,
+            commands::medications::get_medications,
+            commands::medications::get_medication_detail,
+            commands::medications::add_otc_medication,
+            commands::medications::get_dose_history,
+            commands::medications::search_medication_alias,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

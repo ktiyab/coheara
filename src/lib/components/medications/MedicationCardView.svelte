@@ -1,0 +1,111 @@
+<!-- L3-05: Single medication card in the list view. Safety-critical display. -->
+<script lang="ts">
+  import type { MedicationCard } from '$lib/types/medication';
+
+  interface Props {
+    medication: MedicationCard;
+    onTap: (medication: MedicationCard) => void;
+  }
+  let { medication, onTap }: Props = $props();
+
+  let statusBadge = $derived.by(() => {
+    switch (medication.status) {
+      case 'active': return { text: 'Active', color: 'bg-green-100 text-green-700' };
+      case 'paused': return { text: 'Paused', color: 'bg-amber-100 text-amber-700' };
+      case 'stopped': return { text: 'Stopped', color: 'bg-stone-100 text-stone-500' };
+      default: return { text: medication.status, color: 'bg-stone-100 text-stone-500' };
+    }
+  });
+
+  let frequencyDisplay = $derived.by(() => {
+    if (medication.frequency_type === 'as_needed') return 'As needed';
+    if (medication.frequency_type === 'tapering') return 'Tapering';
+    return medication.frequency;
+  });
+
+  let prescriberDisplay = $derived.by(() => {
+    if (medication.is_otc) return 'OTC';
+    if (medication.prescriber_name) return medication.prescriber_name;
+    return 'Unknown prescriber';
+  });
+
+  function formatRoute(route: string): string {
+    if (!route) return '';
+    return route.charAt(0).toUpperCase() + route.slice(1).toLowerCase();
+  }
+</script>
+
+<button
+  class="w-full text-left bg-white rounded-xl p-4 shadow-sm border border-stone-100
+         hover:shadow-md transition-shadow min-h-[44px]"
+  onclick={() => onTap(medication)}
+  aria-label="Medication: {medication.generic_name} {medication.dose}"
+>
+  <!-- Row 1: Generic name + Dose -->
+  <div class="flex items-baseline justify-between gap-3">
+    <span class="text-lg font-semibold text-stone-800 truncate">
+      {medication.generic_name}
+    </span>
+    <span class="text-lg font-semibold text-stone-800 flex-shrink-0">
+      {medication.dose}
+    </span>
+  </div>
+
+  <!-- Row 2: Brand name + Frequency -->
+  <div class="flex items-baseline justify-between gap-3 mt-0.5">
+    {#if medication.brand_name}
+      <span class="text-sm text-stone-500 truncate">
+        ({medication.brand_name})
+      </span>
+    {:else}
+      <span></span>
+    {/if}
+    <span class="text-sm text-stone-600 flex-shrink-0">
+      {frequencyDisplay}
+    </span>
+  </div>
+
+  <!-- Row 3: Prescriber + Route + Status badge -->
+  <div class="flex items-center justify-between gap-2 mt-2">
+    <div class="flex items-center gap-1 text-xs text-stone-400 truncate">
+      <span>{prescriberDisplay}</span>
+      <span aria-hidden="true">&middot;</span>
+      <span>{formatRoute(medication.route)}</span>
+      {#if medication.is_compound}
+        <span aria-hidden="true">&middot;</span>
+        <span class="text-indigo-500">Compound</span>
+      {/if}
+      {#if medication.has_tapering}
+        <span aria-hidden="true">&middot;</span>
+        <span class="text-blue-500">Tapering</span>
+      {/if}
+    </div>
+    <span class="text-xs px-2 py-0.5 rounded-full flex-shrink-0 {statusBadge.color}">
+      {statusBadge.text}
+    </span>
+  </div>
+
+  <!-- Row 4: Condition -->
+  {#if medication.condition}
+    <p class="text-xs text-stone-500 italic mt-1">
+      {medication.condition}
+    </p>
+  {/if}
+
+  <!-- Row 5: Coherence alerts -->
+  {#if medication.coherence_alerts.length > 0}
+    {#each medication.coherence_alerts as alert}
+      <div
+        class="mt-2 px-3 py-2 rounded-lg text-xs
+               {alert.severity === 'Critical'
+                 ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                 : alert.severity === 'Warning'
+                   ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                   : 'bg-stone-50 text-stone-600 border border-stone-100'}"
+        role="status"
+      >
+        {alert.summary}
+      </div>
+    {/each}
+  {/if}
+</button>

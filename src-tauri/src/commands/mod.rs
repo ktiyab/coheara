@@ -1,5 +1,6 @@
 pub mod chat;
 pub mod home;
+pub mod medications;
 pub mod profile;
 pub mod review;
 pub mod state;
