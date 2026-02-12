@@ -9,6 +9,7 @@ pub mod home; // L3-02: Home & Document Feed
 pub mod chat; // L3-03: Chat Interface
 pub mod review; // L3-04: Review Screen
 pub mod medications; // L3-05: Medication List
+pub mod journal; // L4-01: Symptom Journal
 // pub mod export;      // L4-02: Appointment Prep PDF
 // pub mod transfer;    // L4-03: WiFi Transfer
 
@@ -60,6 +61,12 @@ pub fn run() {
             commands::medications::add_otc_medication,
             commands::medications::get_dose_history,
             commands::medications::search_medication_alias,
+            commands::journal::record_symptom,
+            commands::journal::get_symptom_history,
+            commands::journal::resolve_symptom,
+            commands::journal::delete_symptom,
+            commands::journal::check_journal_nudge,
+            commands::journal::get_symptom_categories,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");
