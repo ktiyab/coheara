@@ -4,17 +4,20 @@ use std::time::Instant;
 
 use crate::config;
 use crate::crypto::profile::ProfileSession;
+use crate::wifi_transfer::TransferServer;
 
 /// Default inactivity timeout: 15 minutes.
 const DEFAULT_INACTIVITY_TIMEOUT_SECS: u64 = 900;
 
 /// Global application state managed by Tauri.
-/// Holds the active profile session and inactivity timer.
+/// Holds the active profile session, inactivity timer, and transfer server handle.
 pub struct AppState {
     pub active_session: Mutex<Option<ProfileSession>>,
     pub profiles_dir: PathBuf,
     pub inactivity_timeout_secs: u64,
     pub last_activity: Mutex<Instant>,
+    /// WiFi transfer server handle (L4-03). Uses tokio Mutex for async access.
+    pub transfer_server: tokio::sync::Mutex<Option<TransferServer>>,
 }
 
 impl AppState {
@@ -24,6 +27,7 @@ impl AppState {
             profiles_dir: config::profiles_dir(),
             inactivity_timeout_secs: DEFAULT_INACTIVITY_TIMEOUT_SECS,
             last_activity: Mutex::new(Instant::now()),
+            transfer_server: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -96,6 +100,7 @@ mod tests {
             profiles_dir: PathBuf::from("/tmp"),
             inactivity_timeout_secs: 0,
             last_activity: Mutex::new(Instant::now() - std::time::Duration::from_secs(1)),
+            transfer_server: tokio::sync::Mutex::new(None),
         };
         assert!(state.check_timeout());
     }

@@ -11,7 +11,9 @@ pub mod review; // L3-04: Review Screen
 pub mod medications; // L3-05: Medication List
 pub mod journal; // L4-01: Symptom Journal
 pub mod appointment; // L4-02: Appointment Prep
-// pub mod transfer;    // L4-03: WiFi Transfer
+pub mod wifi_transfer; // L4-03: WiFi Transfer
+pub mod timeline; // L4-04: Timeline View
+pub mod trust; // L5-01: Trust & Safety
 
 use tracing_subscriber::EnvFilter;
 
@@ -72,6 +74,20 @@ pub fn run() {
             commands::appointment::export_prep_pdf,
             commands::appointment::save_appointment_notes,
             commands::appointment::list_appointments,
+            commands::timeline::get_timeline_data,
+            commands::transfer::start_wifi_transfer,
+            commands::transfer::stop_wifi_transfer,
+            commands::transfer::get_transfer_status,
+            commands::transfer::process_staged_files,
+            commands::trust::get_critical_alerts,
+            commands::trust::dismiss_critical,
+            commands::trust::check_dose,
+            commands::trust::create_backup,
+            commands::trust::preview_backup_file,
+            commands::trust::restore_from_backup,
+            commands::trust::erase_profile_data,
+            commands::trust::get_privacy_info_cmd,
+            commands::trust::open_data_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

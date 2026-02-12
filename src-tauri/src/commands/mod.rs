@@ -6,6 +6,9 @@ pub mod medications;
 pub mod profile;
 pub mod review;
 pub mod state;
+pub mod timeline;
+pub mod transfer;
+pub mod trust;
 
 /// Health check IPC command — verifies backend is running
 #[tauri::command]

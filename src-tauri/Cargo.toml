@@ -43,6 +43,11 @@ lopdf = "0.34"
 tesseract = { version = "0.15", optional = true }
 regex = "1"
 printpdf = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
+qrcode = "0.14"
+local-ip-address = "0.6"
+tar = "0.4"
+flate2 = "1"
 
 [features]
 default = ["custom-protocol"]
