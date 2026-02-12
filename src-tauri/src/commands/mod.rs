@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod home;
 pub mod profile;
+pub mod review;
 pub mod state;
 
 /// Health check IPC command — verifies backend is running

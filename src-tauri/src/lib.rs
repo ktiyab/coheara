@@ -7,6 +7,7 @@ pub mod pipeline;
 pub mod intelligence; // L2-01 through L2-03: RAG + Safety + Coherence
 pub mod home; // L3-02: Home & Document Feed
 pub mod chat; // L3-03: Chat Interface
+pub mod review; // L3-04: Review Screen
 // pub mod export;      // L4-02: Appointment Prep PDF
 // pub mod transfer;    // L4-03: WiFi Transfer
 
@@ -48,6 +49,11 @@ pub fn run() {
             commands::chat::delete_conversation,
             commands::chat::set_message_feedback,
             commands::chat::get_prompt_suggestions,
+            commands::review::get_review_data,
+            commands::review::get_original_file,
+            commands::review::update_extracted_field,
+            commands::review::confirm_review,
+            commands::review::reject_review,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");
