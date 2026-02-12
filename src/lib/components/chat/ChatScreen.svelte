@@ -1,0 +1,364 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
+  import {
+    startConversation,
+    sendChatMessage,
+    getConversationMessages,
+    listConversations,
+    getPromptSuggestions,
+    deleteConversation,
+  } from '$lib/api/chat';
+  import type {
+    Message,
+    ConversationSummary,
+    ChatStreamEvent,
+    CitationView,
+    PromptSuggestion,
+  } from '$lib/types/chat';
+  import MessageBubble from './MessageBubble.svelte';
+  import StreamingIndicator from './StreamingIndicator.svelte';
+  import ConversationList from './ConversationList.svelte';
+  import ChatEmptyState from './ChatEmptyState.svelte';
+
+  interface Props {
+    profileName: string;
+    onNavigate: (screen: string, params?: Record<string, string>) => void;
+    initialConversationId?: string;
+  }
+  let { profileName, onNavigate, initialConversationId }: Props = $props();
+
+  // Conversation state
+  let currentConversationId: string | null = $state(initialConversationId ?? null);
+  let messages: Message[] = $state([]);
+  let conversations: ConversationSummary[] = $state([]);
+  let suggestions: PromptSuggestion[] = $state([]);
+
+  // Input state
+  let inputText = $state('');
+  let isSending = $state(false);
+
+  // Streaming state
+  let isStreaming = $state(false);
+  let streamingText = $state('');
+  let pendingCitations: CitationView[] = $state([]);
+  let responseConfidence: number | null = $state(null);
+  let streamError: string | null = $state(null);
+
+  // UI state
+  let showConversationList = $state(false);
+  let messageContainer: HTMLElement | undefined = $state(undefined);
+
+  // Derived
+  let hasMessages = $derived(messages.length > 0);
+  let conversationTitle = $derived(
+    conversations.find(c => c.id === currentConversationId)?.title ?? 'New conversation'
+  );
+  let canSend = $derived(inputText.trim().length > 0 && !isSending && !isStreaming);
+
+  function scrollToBottom() {
+    if (messageContainer) {
+      requestAnimationFrame(() => {
+        messageContainer!.scrollTop = messageContainer!.scrollHeight;
+      });
+    }
+  }
+
+  async function loadMessages(convId: string) {
+    try {
+      messages = await getConversationMessages(convId);
+      scrollToBottom();
+    } catch (e) {
+      console.error('Failed to load messages:', e);
+    }
+  }
+
+  async function loadConversations() {
+    try {
+      conversations = await listConversations();
+    } catch (e) {
+      console.error('Failed to load conversations:', e);
+    }
+  }
+
+  async function handleNewConversation() {
+    try {
+      const id = await startConversation();
+      currentConversationId = id;
+      messages = [];
+      streamingText = '';
+      pendingCitations = [];
+      responseConfidence = null;
+      streamError = null;
+      showConversationList = false;
+      await loadConversations();
+    } catch (e) {
+      console.error('Failed to start conversation:', e);
+    }
+  }
+
+  async function handleSelectConversation(convId: string) {
+    if (isStreaming) return;
+    currentConversationId = convId;
+    streamingText = '';
+    pendingCitations = [];
+    responseConfidence = null;
+    streamError = null;
+    showConversationList = false;
+    await loadMessages(convId);
+  }
+
+  async function handleSend() {
+    if (!canSend) return;
+
+    const text = inputText.trim();
+    inputText = '';
+
+    if (!currentConversationId) {
+      try {
+        const id = await startConversation();
+        currentConversationId = id;
+      } catch (e) {
+        streamError = 'Could not start a conversation. Please try again.';
+        return;
+      }
+    }
+
+    const patientMessage: Message = {
+      id: crypto.randomUUID(),
+      conversation_id: currentConversationId!,
+      role: 'patient',
+      content: text,
+      timestamp: new Date().toISOString(),
+      source_chunks: null,
+      confidence: null,
+      feedback: null,
+    };
+    messages = [...messages, patientMessage];
+    scrollToBottom();
+
+    isSending = true;
+    isStreaming = true;
+    streamingText = '';
+    pendingCitations = [];
+    responseConfidence = null;
+    streamError = null;
+
+    const unlisten = await listen<ChatStreamEvent>('chat-stream', (event) => {
+      const { conversation_id, chunk } = event.payload;
+      if (conversation_id !== currentConversationId) return;
+
+      switch (chunk.type) {
+        case 'Token':
+          streamingText += chunk.text;
+          scrollToBottom();
+          break;
+        case 'Citation':
+          pendingCitations = [...pendingCitations, chunk.citation];
+          break;
+        case 'Done':
+          streamingText = chunk.full_text;
+          responseConfidence = chunk.confidence;
+          isStreaming = false;
+
+          const cohearaMessage: Message = {
+            id: crypto.randomUUID(),
+            conversation_id: currentConversationId!,
+            role: 'coheara',
+            content: chunk.full_text,
+            timestamp: new Date().toISOString(),
+            source_chunks: pendingCitations.length > 0 ? JSON.stringify(pendingCitations) : null,
+            confidence: chunk.confidence,
+            feedback: null,
+          };
+          messages = [...messages, cohearaMessage];
+          streamingText = '';
+          pendingCitations = [];
+          scrollToBottom();
+          break;
+        case 'Error':
+          streamError = chunk.message;
+          isStreaming = false;
+          break;
+      }
+    });
+
+    try {
+      await sendChatMessage(currentConversationId!, text);
+    } catch (e) {
+      streamError = e instanceof Error ? e.message : String(e);
+      isStreaming = false;
+    } finally {
+      unlisten();
+      isSending = false;
+      await loadConversations();
+    }
+  }
+
+  function handleSuggestionTap(suggestion: PromptSuggestion) {
+    inputText = suggestion.text;
+    handleSend();
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  onMount(async () => {
+    await loadConversations();
+    suggestions = await getPromptSuggestions();
+
+    if (currentConversationId) {
+      await loadMessages(currentConversationId);
+    }
+  });
+</script>
+
+<div class="flex flex-col h-full bg-stone-50">
+  <!-- Header -->
+  <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200">
+    <button
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
+             hover:text-stone-600"
+      onclick={() => showConversationList = !showConversationList}
+      aria-label="Toggle conversation list"
+    >
+      <span class="text-xl">&equiv;</span>
+    </button>
+
+    <h1 class="flex-1 text-base font-medium text-stone-800 truncate">
+      {conversationTitle}
+    </h1>
+
+    <button
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
+             hover:text-teal-600"
+      onclick={handleNewConversation}
+      aria-label="Start new conversation"
+    >
+      <span class="text-xl">+</span>
+    </button>
+  </header>
+
+  <!-- Conversation list drawer -->
+  {#if showConversationList}
+    <div class="absolute inset-0 z-40 flex">
+      <button
+        class="absolute inset-0 bg-black/20"
+        onclick={() => showConversationList = false}
+        aria-label="Close conversation list"
+      ></button>
+      <div class="relative z-50 w-[280px] bg-white h-full shadow-xl overflow-y-auto">
+        <ConversationList
+          {conversations}
+          activeConversationId={currentConversationId}
+          onSelect={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+          onDelete={async (id) => {
+            await deleteConversation(id);
+            if (currentConversationId === id) {
+              currentConversationId = null;
+              messages = [];
+            }
+            await loadConversations();
+          }}
+        />
+      </div>
+    </div>
+  {/if}
+
+  <!-- Messages area -->
+  <div
+    class="flex-1 overflow-y-auto px-4 py-4"
+    bind:this={messageContainer}
+    role="log"
+    aria-label="Conversation messages"
+    aria-live="polite"
+  >
+    {#if !hasMessages && !isStreaming}
+      <ChatEmptyState
+        {profileName}
+        {suggestions}
+        onSuggestionTap={handleSuggestionTap}
+      />
+    {:else}
+      <div class="flex flex-col gap-4 max-w-2xl mx-auto">
+        {#each messages as message (message.id)}
+          <MessageBubble
+            {message}
+            {onNavigate}
+          />
+        {/each}
+
+        {#if isStreaming && streamingText}
+          <div class="flex items-start gap-2">
+            <div class="w-8 h-8 rounded-full bg-teal-600 flex items-center
+                        justify-center text-white text-sm font-bold flex-shrink-0 mt-1">
+              C
+            </div>
+            <div class="max-w-[85%] bg-white border border-stone-100 rounded-2xl rounded-bl-md
+                        px-4 py-3 shadow-sm">
+              <p class="text-stone-800 text-base leading-relaxed whitespace-pre-wrap">
+                {streamingText}<span class="animate-pulse text-teal-600">|</span>
+              </p>
+            </div>
+          </div>
+        {:else if isStreaming && !streamingText}
+          <StreamingIndicator />
+        {/if}
+
+        {#if streamError}
+          <div class="flex items-start gap-2">
+            <div class="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center
+                        text-stone-500 text-sm font-bold flex-shrink-0 mt-1">
+              C
+            </div>
+            <div class="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl rounded-bl-md
+                        px-4 py-3">
+              <p class="text-amber-800 text-sm">{streamError}</p>
+              <button
+                class="text-amber-700 text-sm font-medium mt-2 underline min-h-[44px]"
+                onclick={() => { streamError = null; }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Input bar -->
+  <div class="bg-white border-t border-stone-200 px-4 py-3">
+    <div class="flex items-end gap-2 max-w-2xl mx-auto">
+      <textarea
+        class="flex-1 px-4 py-3 rounded-xl border border-stone-200 text-base
+               resize-none min-h-[44px] max-h-[120px]
+               focus:border-teal-600 focus:outline-none
+               placeholder:text-stone-400"
+        placeholder="Ask about your documents..."
+        bind:value={inputText}
+        onkeydown={handleKeydown}
+        rows={1}
+        disabled={isStreaming}
+        aria-label="Type your question"
+      ></textarea>
+      <button
+        class="min-h-[44px] min-w-[44px] px-4 py-3 rounded-xl font-medium text-base
+               transition-colors
+               {canSend
+                 ? 'bg-teal-600 text-white hover:bg-teal-700'
+                 : 'bg-stone-100 text-stone-400 cursor-not-allowed'}"
+        onclick={handleSend}
+        disabled={!canSend}
+        aria-label="Send message"
+      >
+        Send
+      </button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,118 @@
+//! L3-02 Home & Document Feed — Tauri IPC commands.
+//!
+//! Three commands:
+//! - `get_home_data`: unified fetch for the entire home screen
+//! - `get_more_documents`: paginated document feed for infinite scroll
+//! - `dismiss_alert`: dismiss a coherence observation
+
+use rusqlite::params;
+use tauri::State;
+use uuid::Uuid;
+
+use crate::db::sqlite::open_database;
+use crate::home::{
+    compute_onboarding, fetch_profile_stats, fetch_recent_documents, DocumentCard, HomeData,
+};
+
+use super::state::AppState;
+
+/// Valid alert types matching the dismissed_alerts CHECK constraint.
+const VALID_ALERT_TYPES: &[&str] = &[
+    "conflict",
+    "gap",
+    "drift",
+    "ambiguity",
+    "duplicate",
+    "allergy",
+    "dose",
+    "critical",
+    "temporal",
+];
+
+/// Fetches all home screen data in a single call.
+#[tauri::command]
+pub fn get_home_data(state: State<'_, AppState>) -> Result<HomeData, String> {
+    let guard = state
+        .active_session
+        .lock()
+        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let session = guard
+        .as_ref()
+        .ok_or_else(|| "No active profile session".to_string())?;
+
+    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+
+    let stats = fetch_profile_stats(&conn).map_err(|e| e.to_string())?;
+    let recent_documents = fetch_recent_documents(&conn, 20, 0).map_err(|e| e.to_string())?;
+    let onboarding = compute_onboarding(&conn).map_err(|e| e.to_string())?;
+
+    state.update_activity();
+
+    Ok(HomeData {
+        stats,
+        recent_documents,
+        onboarding,
+    })
+}
+
+/// Fetches more documents for infinite scroll.
+#[tauri::command]
+pub fn get_more_documents(
+    offset: u32,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> Result<Vec<DocumentCard>, String> {
+    let guard = state
+        .active_session
+        .lock()
+        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let session = guard
+        .as_ref()
+        .ok_or_else(|| "No active profile session".to_string())?;
+
+    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let clamped_limit = limit.min(50);
+
+    state.update_activity();
+
+    fetch_recent_documents(&conn, clamped_limit, offset).map_err(|e| e.to_string())
+}
+
+/// Dismisses a coherence observation with reason.
+/// `alert_type` must be a valid AlertType string (e.g., "conflict", "dose", "critical").
+#[tauri::command]
+pub fn dismiss_alert(
+    alert_id: String,
+    alert_type: String,
+    reason: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let guard = state
+        .active_session
+        .lock()
+        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let session = guard
+        .as_ref()
+        .ok_or_else(|| "No active profile session".to_string())?;
+
+    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let _alert_uuid =
+        Uuid::parse_str(&alert_id).map_err(|e| format!("Invalid alert ID: {e}"))?;
+
+    if !VALID_ALERT_TYPES.contains(&alert_type.as_str()) {
+        return Err(format!("Invalid alert type: {alert_type}"));
+    }
+
+    let dismiss_id = Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO dismissed_alerts (id, alert_type, entity_ids, dismissed_date, reason, dismissed_by)
+         VALUES (?1, ?2, '[]', datetime('now'), ?3, 'patient')",
+        params![dismiss_id, alert_type, reason],
+    )
+    .map_err(|e| format!("Failed to dismiss alert: {e}"))?;
+
+    state.update_activity();
+
+    Ok(())
+}
