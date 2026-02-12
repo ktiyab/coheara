@@ -95,7 +95,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Coheara ${{ github.ref_name }}'
           releaseBody: |
-            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+            See the [CHANGELOG](https://github.com/ktiyab/coheara/blob/main/CHANGELOG.md) for details.
 
             ## Install
 
