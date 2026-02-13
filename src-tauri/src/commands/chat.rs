@@ -22,7 +22,6 @@ use crate::core_state::CoreState;
 use crate::models::enums::{MessageFeedback, MessageRole};
 use crate::pipeline::rag::conversation::ConversationManager;
 use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
-use crate::pipeline::rag::retrieval::InMemoryVectorSearch;
 use crate::pipeline::rag::types::{PatientQuery, RagResponse};
 use crate::pipeline::safety::orchestrator::SafetyFilterImpl;
 use crate::pipeline::safety::types::{FilterOutcome, SafetyFilter};
@@ -55,6 +54,7 @@ pub fn send_chat_message(
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
 ) -> Result<(), String> {
+    let db_path = state.db_path().map_err(|e| e.to_string())?;
     let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let conv_uuid =
@@ -92,7 +92,7 @@ pub fn send_chat_message(
     }
 
     // 4. Attempt RAG pipeline; fall back to placeholder if unavailable
-    match try_rag_query(&sanitized.text, conv_uuid, &conn) {
+    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path) {
         Some(rag_response) => {
             // 5. Filter RAG response through safety layers
             emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
@@ -108,25 +108,29 @@ pub fn send_chat_message(
 
 /// Attempt to run the RAG pipeline. Returns `None` if AI services unavailable.
 ///
-/// Currently checks for Ollama availability at runtime. When production
-/// embedder (ONNX) and vector store (LanceDB) are implemented, this
-/// function will construct the full pipeline.
+/// Uses production components:
+/// - **LLM**: OllamaRagGenerator (MedGemma via local Ollama)
+/// - **Embedder**: OnnxEmbedder when `onnx-embeddings` feature enabled + model present;
+///   falls back to MockEmbedder (deterministic vectors — no real semantic search)
+/// - **Vector store**: SqliteVectorStore (persistent, brute-force cosine similarity)
 fn try_rag_query(
     query_text: &str,
     conversation_id: Uuid,
     conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
 ) -> Option<RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
+    use crate::pipeline::storage::vectordb::SqliteVectorStore;
 
     // Check if Ollama is available with a MedGemma model
     let generator = OllamaRagGenerator::try_auto_detect()?;
 
-    // TODO(L1-04): Replace with production ONNX embedder when implemented (RS-L1-04-001)
-    // TODO(L1-04): Replace with production LanceDB vector store when implemented (RS-L1-04-002)
-    // For now, use in-memory stubs — semantic search will return no results,
-    // but structured data (medications, labs, etc.) will still be retrieved.
-    let embedder = crate::pipeline::storage::embedder::MockEmbedder::new();
-    let vector_store = InMemoryVectorSearch::new();
+    // Production vector store — persistent SQLite-backed chunk storage
+    let vector_store = SqliteVectorStore::new(db_path.to_path_buf());
+
+    // Production embedder — ONNX when available, deterministic mock otherwise
+    let embedder: Box<dyn crate::pipeline::storage::types::EmbeddingModel> =
+        build_embedder();
 
     let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
     let query = PatientQuery {
@@ -150,6 +154,39 @@ fn try_rag_query(
             None
         }
     }
+}
+
+/// Build the best available embedding model.
+///
+/// When `onnx-embeddings` feature is enabled and model files are present,
+/// loads the real all-MiniLM-L6-v2 ONNX model. Otherwise falls back to
+/// MockEmbedder which produces deterministic vectors (structured data
+/// retrieval still works via SQLite, only semantic search is degraded).
+fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> {
+    #[cfg(feature = "onnx-embeddings")]
+    {
+        let model_dir = crate::config::embedding_model_dir();
+        if model_dir.join("model.onnx").exists() && model_dir.join("tokenizer.json").exists() {
+            match crate::pipeline::storage::embedder::OnnxEmbedder::load(&model_dir) {
+                Ok(e) => {
+                    tracing::info!(dir = %model_dir.display(), "ONNX embedder loaded");
+                    return Box::new(e);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "ONNX embedder failed to load, using mock");
+                }
+            }
+        } else {
+            tracing::info!("ONNX model files not found at {}, using mock embedder", model_dir.display());
+        }
+    }
+
+    #[cfg(not(feature = "onnx-embeddings"))]
+    {
+        tracing::debug!("onnx-embeddings feature not enabled, using mock embedder");
+    }
+
+    Box::new(crate::pipeline::storage::embedder::MockEmbedder::new())
 }
 
 /// Emit a RAG response filtered through safety layers.

@@ -63,7 +63,7 @@ http-body-util = "0.1"
 tokio-tungstenite = "0.24"
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "ocr"]
 custom-protocol = ["tauri/custom-protocol"]
 ocr = ["tesseract"]
 onnx-embeddings = ["ort", "ndarray", "tokenizers"]

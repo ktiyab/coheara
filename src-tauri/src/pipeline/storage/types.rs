@@ -59,6 +59,21 @@ pub trait EmbeddingModel {
     fn dimension(&self) -> usize;
 }
 
+/// Allow `Box<dyn EmbeddingModel>` to be used as `&impl EmbeddingModel`.
+impl EmbeddingModel for Box<dyn EmbeddingModel> {
+    fn embed(&self, text: &str) -> Result<Vec<f32>, StorageError> {
+        (**self).embed(text)
+    }
+
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, StorageError> {
+        (**self).embed_batch(texts)
+    }
+
+    fn dimension(&self) -> usize {
+        (**self).dimension()
+    }
+}
+
 /// Vector store abstraction
 #[allow(clippy::too_many_arguments)]
 pub trait VectorStore {

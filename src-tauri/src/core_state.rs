@@ -87,6 +87,15 @@ impl CoreState {
         db::open_database(session.db_path()).map_err(CoreError::Database)
     }
 
+    /// Get the database path for the active session (owned copy).
+    ///
+    /// Needed by components that open their own connections (e.g. SqliteVectorStore).
+    pub fn db_path(&self) -> Result<std::path::PathBuf, CoreError> {
+        let guard = self.session.read().map_err(|_| CoreError::LockPoisoned)?;
+        let session = guard.as_ref().ok_or(CoreError::NoActiveSession)?;
+        Ok(session.db_path().to_path_buf())
+    }
+
     // ── Session mutation (write path) ───────────────────────
 
     /// Acquire a write lock on the session.
