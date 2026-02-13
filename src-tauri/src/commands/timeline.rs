@@ -1,11 +1,11 @@
 //! L4-04: Timeline View — Tauri IPC commands.
 
+use std::sync::Arc;
+
 use tauri::State;
 
-use crate::db::open_database;
+use crate::core_state::CoreState;
 use crate::timeline::{self, TimelineData, TimelineFilter};
-
-use super::state::AppState;
 
 /// Fetches all timeline data in a single call.
 /// Assembles events from all entity tables, detects correlations,
@@ -13,17 +13,9 @@ use super::state::AppState;
 #[tauri::command]
 pub fn get_timeline_data(
     filter: TimelineFilter,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<TimelineData, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let data = timeline::get_timeline_data(&conn, &filter).map_err(|e| e.to_string())?;
 

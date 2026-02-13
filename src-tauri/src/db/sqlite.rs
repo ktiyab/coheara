@@ -35,6 +35,8 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
 
     let migrations: Vec<(i64, &str)> = vec![
         (1, include_str!("../../resources/migrations/001_initial.sql")),
+        (2, include_str!("../../resources/migrations/002_device_pairing.sql")),
+        (3, include_str!("../../resources/migrations/003_sync_versions.sql")),
     ];
 
     for (version, sql) in migrations {
@@ -77,18 +79,18 @@ mod tests {
     #[test]
     fn database_initializes_all_tables() {
         let conn = open_memory_database().unwrap();
-        // 18 entity tables + schema_version + dose_references = 20 total
+        // 18 entity tables + schema_version + dose_references + 3 device pairing + sync_versions = 24 total
         let count = count_tables(&conn).unwrap();
-        assert!(count >= 18, "Expected at least 18 tables, got {count}");
+        assert!(count >= 22, "Expected at least 22 tables, got {count}");
     }
 
     #[test]
-    fn schema_version_is_one() {
+    fn schema_version_is_current() {
         let conn = open_memory_database().unwrap();
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 3);
     }
 
     #[test]

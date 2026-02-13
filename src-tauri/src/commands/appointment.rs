@@ -7,24 +7,22 @@
 //! - `save_appointment_notes`: post-appointment guided notes
 //! - `list_appointments`: appointment history
 
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::appointment::{
     self, AppointmentPrep, AppointmentRequest, PostAppointmentNotes,
     ProfessionalInfo, StoredAppointment, SPECIALTIES,
 };
-use crate::db::sqlite::open_database;
-
-use super::state::AppState;
+use crate::core_state::CoreState;
 
 /// Lists known professionals ordered by last_seen_date DESC.
 #[tauri::command]
 pub fn list_professionals(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<ProfessionalInfo>, String> {
-    let guard = state.active_session.lock().map_err(|e| format!("Lock error: {e}"))?;
-    let session = guard.as_ref().ok_or("No active profile session")?;
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     state.update_activity();
 
     appointment::list_professionals(&conn).map_err(|e| e.to_string())
@@ -34,7 +32,7 @@ pub fn list_professionals(
 #[tauri::command]
 pub fn prepare_appointment(
     request: AppointmentRequest,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<AppointmentPrep, String> {
     // Validate date format
     let date = chrono::NaiveDate::parse_from_str(&request.date, "%Y-%m-%d")
@@ -66,9 +64,7 @@ pub fn prepare_appointment(
         }
     }
 
-    let guard = state.active_session.lock().map_err(|e| format!("Lock error: {e}"))?;
-    let session = guard.as_ref().ok_or("No active profile session")?;
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     // Resolve professional (existing or create new)
     let professional_id = match request.professional_id {
@@ -96,17 +92,18 @@ pub fn prepare_appointment(
 pub fn export_prep_pdf(
     prep: AppointmentPrep,
     copy_type: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<String>, String> {
     if !["patient", "professional", "both"].contains(&copy_type.as_str()) {
         return Err("copy_type must be 'patient', 'professional', or 'both'".into());
     }
 
-    let guard = state.active_session.lock().map_err(|e| format!("Lock error: {e}"))?;
+    let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard.as_ref().ok_or("No active profile session")?;
     let db_path = session.db_path().to_owned();
-    state.update_activity();
     drop(guard);
+
+    state.update_activity();
 
     let safe_name = prep.professional_name.replace(' ', "-");
     let mut paths = Vec::new();
@@ -136,7 +133,7 @@ pub fn export_prep_pdf(
 #[tauri::command]
 pub fn save_appointment_notes(
     notes: PostAppointmentNotes,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
     // Validate required fields
     if notes.appointment_id.trim().is_empty() {
@@ -165,9 +162,7 @@ pub fn save_appointment_notes(
         }
     }
 
-    let guard = state.active_session.lock().map_err(|e| format!("Lock error: {e}"))?;
-    let session = guard.as_ref().ok_or("No active profile session")?;
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     state.update_activity();
 
     appointment::save_post_notes(&conn, &notes).map_err(|e| e.to_string())
@@ -176,11 +171,9 @@ pub fn save_appointment_notes(
 /// Lists all appointments with professional info, ordered by date DESC.
 #[tauri::command]
 pub fn list_appointments(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<StoredAppointment>, String> {
-    let guard = state.active_session.lock().map_err(|e| format!("Lock error: {e}"))?;
-    let session = guard.as_ref().ok_or("No active profile session")?;
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     state.update_activity();
 
     appointment::list_appointments(&conn).map_err(|e| e.to_string())

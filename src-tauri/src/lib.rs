@@ -1,5 +1,10 @@
+pub mod api; // M0-01: Mobile API Router
 pub mod commands;
 pub mod config;
+pub mod core_state; // ME-01: Transport-agnostic state
+pub mod device_manager; // ME-02: Multi-Device Session Manager
+pub mod pairing; // M0-02: Device Pairing Protocol
+pub mod tls_cert; // M0-02: TLS Certificate Management
 pub mod models;
 pub mod db;
 pub mod crypto;
@@ -13,8 +18,10 @@ pub mod journal; // L4-01: Symptom Journal
 pub mod appointment; // L4-02: Appointment Prep
 pub mod wifi_transfer; // L4-03: WiFi Transfer
 pub mod timeline; // L4-04: Timeline View
+pub mod sync; // M0-04: Sync Engine
 pub mod trust; // L5-01: Trust & Safety
 
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,7 +38,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(commands::state::AppState::new())
+        .manage(Arc::new(core_state::CoreState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::health_check,
             commands::profile::list_profiles,
@@ -88,6 +95,15 @@ pub fn run() {
             commands::trust::erase_profile_data,
             commands::trust::get_privacy_info_cmd,
             commands::trust::open_data_folder,
+            commands::devices::list_paired_devices,
+            commands::devices::unpair_device,
+            commands::devices::get_device_count,
+            commands::devices::get_inactive_warnings,
+            commands::pairing::start_pairing,
+            commands::pairing::cancel_pairing,
+            commands::pairing::get_pending_approval,
+            commands::pairing::approve_pairing,
+            commands::pairing::deny_pairing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

@@ -1,0 +1,197 @@
+// M1-01: HTTP + WebSocket API client — replaces Tauri invoke() for mobile
+import { secureGet, STORAGE_KEYS } from '$lib/utils/secure-storage.js';
+
+/** API client configuration */
+export interface ApiClientConfig {
+	baseUrl: string;
+	deviceId: string;
+	sessionToken: string;
+}
+
+/** WebSocket message handler */
+export type WsMessageHandler = (data: unknown) => void;
+
+/** HTTP response wrapper */
+export interface ApiResponse<T> {
+	ok: boolean;
+	status: number;
+	data?: T;
+	error?: string;
+}
+
+/**
+ * Mobile API client — communicates with desktop over local WiFi.
+ * Handles auth headers, nonce generation, and error mapping.
+ */
+export class MobileApiClient {
+	private config: ApiClientConfig | null = null;
+	private ws: WebSocket | null = null;
+	private wsHandlers = new Map<string, WsMessageHandler[]>();
+	private nonce = 0;
+
+	/** Initialize with connection details from pairing */
+	configure(config: ApiClientConfig): void {
+		this.config = config;
+	}
+
+	/** Check if client is configured */
+	get isConfigured(): boolean {
+		return this.config !== null;
+	}
+
+	/** Load configuration from secure storage */
+	async loadFromStorage(): Promise<boolean> {
+		const baseUrl = await secureGet(STORAGE_KEYS.DESKTOP_URL);
+		const deviceId = await secureGet(STORAGE_KEYS.DEVICE_ID);
+		const token = await secureGet(STORAGE_KEYS.SESSION_TOKEN);
+
+		if (!baseUrl || !deviceId || !token) return false;
+
+		this.config = { baseUrl, deviceId, sessionToken: token };
+		return true;
+	}
+
+	/** Make an authenticated GET request */
+	async get<T>(path: string): Promise<ApiResponse<T>> {
+		return this.request<T>('GET', path);
+	}
+
+	/** Make an authenticated POST request */
+	async post<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+		return this.request<T>('POST', path, body);
+	}
+
+	/** Make an authenticated PUT request */
+	async put<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+		return this.request<T>('PUT', path, body);
+	}
+
+	/** Make an authenticated DELETE request */
+	async delete<T>(path: string): Promise<ApiResponse<T>> {
+		return this.request<T>('DELETE', path);
+	}
+
+	/** Core request method with auth headers */
+	private async request<T>(
+		method: string,
+		path: string,
+		body?: unknown
+	): Promise<ApiResponse<T>> {
+		if (!this.config) {
+			return { ok: false, status: 0, error: 'Client not configured' };
+		}
+
+		const url = `${this.config.baseUrl}${path}`;
+		const currentNonce = ++this.nonce;
+
+		const headers: Record<string, string> = {
+			'X-Device-Id': this.config.deviceId,
+			'Authorization': `Bearer ${this.config.sessionToken}`,
+			'X-Nonce': currentNonce.toString()
+		};
+
+		if (body !== undefined) {
+			headers['Content-Type'] = 'application/json';
+		}
+
+		try {
+			const response = await fetch(url, {
+				method,
+				headers,
+				body: body !== undefined ? JSON.stringify(body) : undefined
+			});
+
+			if (response.status === 204) {
+				return { ok: true, status: 204 };
+			}
+
+			if (!response.ok) {
+				const errorText = await response.text().catch(() => 'Unknown error');
+				return { ok: false, status: response.status, error: errorText };
+			}
+
+			const data = await response.json() as T;
+			return { ok: true, status: response.status, data };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Network error';
+			return { ok: false, status: 0, error: message };
+		}
+	}
+
+	// --- WebSocket ---
+
+	/** Connect WebSocket for real-time updates */
+	async connectWebSocket(): Promise<boolean> {
+		if (!this.config) return false;
+
+		const wsUrl = this.config.baseUrl
+			.replace('https://', 'wss://')
+			.replace('http://', 'ws://');
+
+		try {
+			this.ws = new WebSocket(
+				`${wsUrl}/api/ws?device_id=${encodeURIComponent(this.config.deviceId)}&token=${encodeURIComponent(this.config.sessionToken)}`
+			);
+
+			return new Promise((resolve) => {
+				if (!this.ws) { resolve(false); return; }
+
+				this.ws.onopen = () => resolve(true);
+				this.ws.onerror = () => resolve(false);
+				this.ws.onclose = () => { this.ws = null; };
+				this.ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data as string) as { type: string; payload: unknown };
+						const handlers = this.wsHandlers.get(msg.type);
+						if (handlers) {
+							for (const handler of handlers) {
+								handler(msg.payload);
+							}
+						}
+					} catch {
+						// Ignore malformed messages
+					}
+				};
+			});
+		} catch {
+			return false;
+		}
+	}
+
+	/** Register a WebSocket message handler */
+	onMessage(type: string, handler: WsMessageHandler): () => void {
+		const handlers = this.wsHandlers.get(type) ?? [];
+		handlers.push(handler);
+		this.wsHandlers.set(type, handlers);
+
+		return () => {
+			const current = this.wsHandlers.get(type);
+			if (current) {
+				this.wsHandlers.set(type, current.filter((h) => h !== handler));
+			}
+		};
+	}
+
+	/** Disconnect WebSocket */
+	disconnectWebSocket(): void {
+		if (this.ws) {
+			this.ws.close();
+			this.ws = null;
+		}
+	}
+
+	/** Check if WebSocket is connected */
+	get isWsConnected(): boolean {
+		return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+	}
+
+	/** Clean up all resources */
+	destroy(): void {
+		this.disconnectWebSocket();
+		this.wsHandlers.clear();
+		this.config = null;
+	}
+}
+
+/** Singleton API client instance */
+export const apiClient = new MobileApiClient();

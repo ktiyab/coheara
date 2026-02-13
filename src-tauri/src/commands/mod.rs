@@ -1,8 +1,10 @@
 pub mod appointment;
 pub mod chat;
+pub mod devices;
 pub mod home;
 pub mod journal;
 pub mod medications;
+pub mod pairing;
 pub mod profile;
 pub mod review;
 pub mod state;

@@ -46,6 +46,11 @@ impl ProfileSession {
     pub fn db_path(&self) -> &Path {
         &self.db_path
     }
+
+    /// Access the raw profile key bytes (for TLS cert encryption).
+    pub(crate) fn key_bytes(&self) -> &[u8; 32] {
+        self.key.as_bytes()
+    }
 }
 
 impl Drop for ProfileSession {

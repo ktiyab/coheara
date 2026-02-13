@@ -1,0 +1,32 @@
+//! M0-01: Critical alerts endpoint.
+//!
+//! `GET /api/alerts/critical` — active critical alerts for mobile.
+
+use axum::extract::State;
+use axum::Extension;
+use axum::Json;
+use serde::Serialize;
+
+use crate::api::error::ApiError;
+use crate::api::types::{ApiContext, DeviceContext};
+use crate::trust;
+
+#[derive(Serialize)]
+pub struct AlertsResponse {
+    pub alerts: Vec<trust::CriticalLabAlert>,
+}
+
+/// `GET /api/alerts/critical` — critical alerts requiring patient awareness.
+pub async fn critical(
+    State(ctx): State<ApiContext>,
+    Extension(_device): Extension<DeviceContext>,
+) -> Result<Json<AlertsResponse>, ApiError> {
+    let conn = ctx.core.open_db()?;
+
+    let alerts = trust::fetch_critical_alerts(&conn)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    ctx.core.update_activity();
+
+    Ok(Json(AlertsResponse { alerts }))
+}

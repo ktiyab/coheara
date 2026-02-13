@@ -8,20 +8,20 @@
 //! - `check_journal_nudge`: determines whether to show a check-in nudge
 //! - `get_symptom_categories`: returns categories with subcategories (static data)
 
+use std::sync::Arc;
+
 use tauri::State;
 
-use crate::db::sqlite::open_database;
+use crate::core_state::CoreState;
 use crate::journal::{
     self, CategoryInfo, NudgeDecision, RecordResult, StoredSymptom, SymptomEntry, SymptomFilter,
 };
-
-use super::state::AppState;
 
 /// Records a new symptom and returns the ID plus any temporal correlations.
 #[tauri::command]
 pub fn record_symptom(
     entry: SymptomEntry,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<RecordResult, String> {
     // Validate severity
     if entry.severity < 1 || entry.severity > 5 {
@@ -59,15 +59,7 @@ pub fn record_symptom(
         }
     }
 
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let symptom_id = journal::record_symptom(&conn, &entry).map_err(|e| e.to_string())?;
 
@@ -87,17 +79,9 @@ pub fn record_symptom(
 #[tauri::command]
 pub fn get_symptom_history(
     filter: Option<SymptomFilter>,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<StoredSymptom>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let symptoms = journal::fetch_symptoms_filtered(&conn, &filter).map_err(|e| e.to_string())?;
 
@@ -109,21 +93,13 @@ pub fn get_symptom_history(
 #[tauri::command]
 pub fn resolve_symptom(
     symptom_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
     if symptom_id.trim().is_empty() {
         return Err("Symptom ID is required".into());
     }
 
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     journal::resolve_symptom(&conn, &symptom_id).map_err(|e| e.to_string())?;
 
@@ -135,21 +111,13 @@ pub fn resolve_symptom(
 #[tauri::command]
 pub fn delete_symptom(
     symptom_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
     if symptom_id.trim().is_empty() {
         return Err("Symptom ID is required".into());
     }
 
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     journal::delete_symptom(&conn, &symptom_id).map_err(|e| e.to_string())?;
 
@@ -160,17 +128,9 @@ pub fn delete_symptom(
 /// Checks if a nudge should be shown to the patient.
 #[tauri::command]
 pub fn check_journal_nudge(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<NudgeDecision, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let nudge = journal::check_nudge(&conn).map_err(|e| e.to_string())?;
 

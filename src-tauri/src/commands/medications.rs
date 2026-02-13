@@ -7,12 +7,14 @@
 //! - `get_dose_history`: dose change timeline for a medication
 //! - `search_medication_alias`: autocomplete for OTC form
 
+use std::sync::Arc;
+
 use chrono::NaiveDate;
 use rusqlite::params;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::db::sqlite::open_database;
+use crate::core_state::CoreState;
 use crate::medications::{
     enrich_medication_cards, fetch_compound_ingredients, fetch_dose_history,
     fetch_medication_aliases, fetch_medication_instructions,
@@ -23,23 +25,13 @@ use crate::medications::{
     OtcMedicationInput,
 };
 
-use super::state::AppState;
-
 /// Fetches all medication list data in a single call.
 #[tauri::command]
 pub fn get_medications(
     filter: MedicationListFilter,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<MedicationListData, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let cards = fetch_medications_filtered(&conn, &filter).map_err(|e| e.to_string())?;
     let medications = enrich_medication_cards(&conn, cards);
@@ -64,17 +56,9 @@ pub fn get_medications(
 #[tauri::command]
 pub fn get_medication_detail(
     medication_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<MedicationDetail, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let med_uuid =
         Uuid::parse_str(&medication_id).map_err(|e| format!("Invalid medication ID: {e}"))?;
 
@@ -122,17 +106,9 @@ pub fn get_medication_detail(
 #[tauri::command]
 pub fn add_otc_medication(
     input: OtcMedicationInput,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<String, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     // Validate required fields
     if input.name.trim().is_empty() {
@@ -239,17 +215,9 @@ pub fn add_otc_medication(
 #[tauri::command]
 pub fn get_dose_history(
     medication_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<DoseChangeView>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let med_uuid =
         Uuid::parse_str(&medication_id).map_err(|e| format!("Invalid medication ID: {e}"))?;
 
@@ -265,17 +233,9 @@ pub fn get_dose_history(
 pub fn search_medication_alias(
     query: String,
     limit: Option<u32>,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<AliasSearchResult>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let clamped_limit = limit.unwrap_or(10).min(50);
 
     let results =

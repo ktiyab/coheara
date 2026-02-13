@@ -9,6 +9,8 @@
 //! - `set_message_feedback`: save helpful/not_helpful/clear
 //! - `get_prompt_suggestions`: contextual prompt suggestions
 
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
@@ -16,24 +18,14 @@ use crate::chat::{
     self, generate_title, update_conversation_title, ChatStreamEvent, ConversationSummary,
     PromptSuggestion, StreamChunkPayload,
 };
-use crate::db::sqlite::open_database;
+use crate::core_state::CoreState;
 use crate::models::enums::{MessageFeedback, MessageRole};
 use crate::pipeline::rag::conversation::ConversationManager;
 
-use super::state::AppState;
-
 /// Start a new conversation. Returns the conversation ID.
 #[tauri::command]
-pub fn start_conversation(state: State<'_, AppState>) -> Result<String, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+pub fn start_conversation(state: State<'_, Arc<CoreState>>) -> Result<String, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let manager = ConversationManager::new(&conn);
     let conv_id = manager
         .start(Some("New conversation"))
@@ -57,21 +49,14 @@ pub fn start_conversation(state: State<'_, AppState>) -> Result<String, String> 
 pub fn send_chat_message(
     conversation_id: String,
     text: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let conv_uuid =
         Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
     let manager = ConversationManager::new(&conn);
 
     // 1. Save patient message
@@ -130,20 +115,13 @@ pub fn send_chat_message(
 #[tauri::command]
 pub fn get_conversation_messages(
     conversation_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<MessageView>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let conv_uuid =
         Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
     let manager = ConversationManager::new(&conn);
     let messages = manager
         .get_history(conv_uuid)
@@ -157,16 +135,8 @@ pub fn get_conversation_messages(
 
 /// List all conversations with summaries, ordered by last_message_at DESC.
 #[tauri::command]
-pub fn list_conversations(state: State<'_, AppState>) -> Result<Vec<ConversationSummary>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+pub fn list_conversations(state: State<'_, Arc<CoreState>>) -> Result<Vec<ConversationSummary>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let summaries = chat::list_conversation_summaries(&conn).map_err(|e| e.to_string())?;
 
     state.update_activity();
@@ -177,19 +147,11 @@ pub fn list_conversations(state: State<'_, AppState>) -> Result<Vec<Conversation
 #[tauri::command]
 pub fn delete_conversation(
     conversation_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
     Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     chat::delete_conversation(&conn, &conversation_id).map_err(|e| e.to_string())?;
 
     state.update_activity();
@@ -202,19 +164,10 @@ pub fn delete_conversation(
 pub fn set_message_feedback(
     message_id: String,
     feedback: Option<String>,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let msg_uuid = Uuid::parse_str(&message_id).map_err(|e| format!("Invalid message ID: {e}"))?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
 
     match feedback.as_deref() {
         Some("Helpful") => {
@@ -241,17 +194,9 @@ pub fn set_message_feedback(
 /// Get prompt suggestions based on the patient's data.
 #[tauri::command]
 pub fn get_prompt_suggestions(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<PromptSuggestion>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let suggestions = chat::get_contextual_suggestions(&conn).map_err(|e| e.to_string())?;
 
     state.update_activity();

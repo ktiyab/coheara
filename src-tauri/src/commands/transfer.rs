@@ -5,10 +5,11 @@
 //! the L1-01 document import pipeline on demand.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::State;
 
-use crate::commands::state::AppState;
+use crate::core_state::CoreState;
 use crate::db::sqlite::open_database;
 use crate::pipeline::import::importer::import_file;
 use crate::wifi_transfer::{
@@ -30,15 +31,12 @@ fn staging_dir_from_db_path(db_path: &Path) -> Result<std::path::PathBuf, String
 /// Start the WiFi transfer server. Returns QR code data for display.
 #[tauri::command]
 pub async fn start_wifi_transfer(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<QrCodeData, String> {
     // Verify active session
     let staging_dir = {
-        let session_guard = state
-            .active_session
-            .lock()
-            .map_err(|e| format!("Lock error: {e}"))?;
-        let session = session_guard
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard
             .as_ref()
             .ok_or("No active profile session")?;
         staging_dir_from_db_path(session.db_path())?
@@ -73,7 +71,7 @@ pub async fn start_wifi_transfer(
 /// Stop the WiFi transfer server.
 #[tauri::command]
 pub async fn stop_wifi_transfer(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
     let mut server_opt = state.transfer_server.lock().await;
     if let Some(server) = server_opt.as_mut() {
@@ -88,7 +86,7 @@ pub async fn stop_wifi_transfer(
 /// Returns None if no server is running.
 #[tauri::command]
 pub async fn get_transfer_status(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Option<TransferStatusResponse>, String> {
     let server_opt = state.transfer_server.lock().await;
     match server_opt.as_ref() {
@@ -101,14 +99,11 @@ pub async fn get_transfer_status(
 /// Returns the number of files successfully imported.
 #[tauri::command]
 pub async fn process_staged_files(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<u32, String> {
     let (staging_dir, db_path) = {
-        let session_guard = state
-            .active_session
-            .lock()
-            .map_err(|e| format!("Lock error: {e}"))?;
-        let session = session_guard
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard
             .as_ref()
             .ok_or("No active profile session")?;
         let staging = staging_dir_from_db_path(session.db_path())?;
@@ -129,11 +124,8 @@ pub async fn process_staged_files(
     }
 
     // Re-acquire session for import_file (needs ProfileSession reference)
-    let session_guard = state
-        .active_session
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?;
-    let session = session_guard
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard
         .as_ref()
         .ok_or("No active profile session")?;
 

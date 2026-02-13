@@ -7,9 +7,12 @@
 //! - `confirm_review`: apply corrections, run storage pipeline, update trust
 //! - `reject_review`: reject with retry or remove action
 
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+use crate::core_state::CoreState;
 use crate::crypto::encryption::EncryptedData;
 use crate::db::repository::{
     get_document, update_profile_trust_corrected, update_profile_trust_verified,
@@ -21,8 +24,6 @@ use crate::review::{
     update_document_rejected, update_document_verified, EntitiesStoredSummary, FieldCorrection,
     ReviewConfirmResult, ReviewData, ReviewOutcome, ReviewRejectResult,
 };
-
-use super::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Structuring result persistence (encrypted JSON in profile directory)
@@ -105,12 +106,9 @@ fn remove_pending_structuring(
 #[tauri::command]
 pub fn get_review_data(
     document_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<ReviewData, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No active profile session".to_string())?;
@@ -162,12 +160,9 @@ pub fn get_review_data(
 #[tauri::command]
 pub fn get_original_file(
     document_id: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<String, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No active profile session".to_string())?;
@@ -205,7 +200,7 @@ pub fn update_extracted_field(
     document_id: String,
     field_id: String,
     new_value: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
     let _doc_id =
         Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
@@ -233,12 +228,9 @@ pub fn confirm_review(
     app: AppHandle,
     document_id: String,
     corrections: Vec<FieldCorrection>,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<ReviewConfirmResult, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No active profile session".to_string())?;
@@ -327,12 +319,9 @@ pub fn reject_review(
     document_id: String,
     reason: Option<String>,
     action: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<ReviewRejectResult, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
+    let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No active profile session".to_string())?;

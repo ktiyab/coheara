@@ -5,16 +5,16 @@
 //! - `get_more_documents`: paginated document feed for infinite scroll
 //! - `dismiss_alert`: dismiss a coherence observation
 
+use std::sync::Arc;
+
 use rusqlite::params;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::db::sqlite::open_database;
+use crate::core_state::CoreState;
 use crate::home::{
     compute_onboarding, fetch_profile_stats, fetch_recent_documents, DocumentCard, HomeData,
 };
-
-use super::state::AppState;
 
 /// Valid alert types matching the dismissed_alerts CHECK constraint.
 const VALID_ALERT_TYPES: &[&str] = &[
@@ -31,16 +31,8 @@ const VALID_ALERT_TYPES: &[&str] = &[
 
 /// Fetches all home screen data in a single call.
 #[tauri::command]
-pub fn get_home_data(state: State<'_, AppState>) -> Result<HomeData, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+pub fn get_home_data(state: State<'_, Arc<CoreState>>) -> Result<HomeData, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
 
     let stats = fetch_profile_stats(&conn).map_err(|e| e.to_string())?;
     let recent_documents = fetch_recent_documents(&conn, 20, 0).map_err(|e| e.to_string())?;
@@ -60,17 +52,9 @@ pub fn get_home_data(state: State<'_, AppState>) -> Result<HomeData, String> {
 pub fn get_more_documents(
     offset: u32,
     limit: u32,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<DocumentCard>, String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let clamped_limit = limit.min(50);
 
     state.update_activity();
@@ -85,17 +69,9 @@ pub fn dismiss_alert(
     alert_id: String,
     alert_type: String,
     reason: String,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
-    let guard = state
-        .active_session
-        .lock()
-        .map_err(|_| "Failed to acquire session lock".to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No active profile session".to_string())?;
-
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
     let _alert_uuid =
         Uuid::parse_str(&alert_id).map_err(|e| format!("Invalid alert ID: {e}"))?;
 
