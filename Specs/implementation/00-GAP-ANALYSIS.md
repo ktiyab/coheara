@@ -58,7 +58,7 @@
 | ID | Title | Domain | File | Impact | Status |
 |----|-------|--------|------|--------|--------|
 | IMP-003 | Implement ONNX embedding model | embedding | `src-tauri/src/pipeline/storage/embedder.rs` | No semantic search; RAG returns only structured data | **RESOLVED** |
-| IMP-004 | Implement LanceDB vector store | vectordb | `src-tauri/src/pipeline/storage/vectordb.rs` | Chunks stored in memory only; lost on restart | PENDING |
+| IMP-004 | Implement persistent vector store | vectordb | `src-tauri/src/pipeline/storage/vectordb.rs` | Chunks stored in memory only; lost on restart | **RESOLVED** |
 | IMP-005 | Enable OCR feature by default | ocr | `src-tauri/Cargo.toml` | OCR disabled unless explicit `--features ocr` | PENDING |
 | IMP-006 | Wire production pipeline in chat | pipeline | `src-tauri/src/commands/chat.rs` | Chat uses mock pipeline; no real RAG | PENDING |
 
@@ -142,6 +142,7 @@
 
 | Date | IMP-IDs | Tests Added | Total Tests | Notes |
 |------|---------|-------------|-------------|-------|
+| 2026-02-12 | IMP-004 | +8 | 931 Rust / 481 mobile | SQLite vector store: persistent chunks + search + migration 006 |
 | 2026-02-12 | IMP-003 | +0 | 923 Rust / 481 mobile | ONNX embedder: ort v2 + tokenizers behind onnx-embeddings flag |
 | 2026-02-12 | IMP-002 | +1 | 923 Rust / 481 mobile | Audit auto-flush: threshold-based + auto-lock + manual lock |
 | 2026-02-12 | IMP-001 | +5 | 922 Rust / 481 mobile | Fixed alert assembly: queries coherence_alerts (active) + dismissed_alerts (history) |
@@ -153,6 +154,6 @@
 
 ```
 Total gaps: 24 (P0: 2, P1: 4, P2: 7, P3: 4, P4: 3, P5: 4)
-Resolved: 3/24 (IMP-001, IMP-002, IMP-003)
+Resolved: 4/24 (IMP-001, IMP-002, IMP-003, IMP-004)
 In Progress: 0/24
 ```
