@@ -368,17 +368,55 @@ pub fn assemble_recent_timeline(
 
 /// Assemble alerts for phone cache.
 ///
-/// Currently returns dismissed alerts only (with `dismissed: true`).
-/// Active (non-dismissed) coherence alerts will be added when the alert store
-/// is persisted to DB (RS-L2-03-001).
+/// Returns both active coherence alerts and dismissed alerts for the phone cache.
+/// Active alerts come from `coherence_alerts` (WHERE dismissed = 0).
+/// Dismissed alerts come from `dismissed_alerts` (legacy table).
+/// Active alerts sort first (by severity desc, then detected_at desc).
+///
+/// IMP-001: Previously returned only dismissed alerts — phone missed active health alerts.
 pub fn assemble_alerts(conn: &Connection) -> Result<Vec<CachedAlert>, DatabaseError> {
+    let mut alerts = Vec::new();
+
+    // 1. Active alerts from coherence_alerts (IMP-001 fix)
+    if table_exists(conn, "coherence_alerts") {
+        let mut stmt = conn.prepare(
+            "SELECT id, alert_type, severity, patient_message, detected_at
+             FROM coherence_alerts
+             WHERE dismissed = 0
+             ORDER BY
+                 CASE severity WHEN 'critical' THEN 0 WHEN 'standard' THEN 1 ELSE 2 END,
+                 detected_at DESC",
+        )?;
+
+        let active_rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let alert_type: String = row.get(1)?;
+            let severity: String = row.get(2)?;
+            let patient_message: String = row.get(3)?;
+            let detected_at: String = row.get(4)?;
+            Ok(CachedAlert {
+                id,
+                title: format_alert_title(&alert_type),
+                description: patient_message,
+                severity,
+                created_at: detected_at,
+                dismissed: false,
+            })
+        })?;
+
+        for row in active_rows {
+            alerts.push(row.map_err(DatabaseError::from)?);
+        }
+    }
+
+    // 2. Dismissed alerts from dismissed_alerts (legacy, kept for history)
     let mut stmt = conn.prepare(
         "SELECT id, alert_type, reason, dismissed_date
          FROM dismissed_alerts
          ORDER BY dismissed_date DESC",
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let dismissed_rows = stmt.query_map([], |row| {
         let id: String = row.get(0)?;
         let alert_type: String = row.get(1)?;
         let reason: Option<String> = row.get(2)?;
@@ -398,7 +436,20 @@ pub fn assemble_alerts(conn: &Connection) -> Result<Vec<CachedAlert>, DatabaseEr
         })
     })?;
 
-    rows.map(|r| r.map_err(DatabaseError::from)).collect()
+    for row in dismissed_rows {
+        alerts.push(row.map_err(DatabaseError::from)?);
+    }
+
+    Ok(alerts)
+}
+
+/// Check if a table exists (graceful for DB versions without coherence_alerts).
+fn table_exists(conn: &Connection, name: &str) -> bool {
+    conn.prepare(&format!(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='{name}'"
+    ))
+    .and_then(|mut s| s.query_row([], |_| Ok(())))
+    .is_ok()
 }
 
 /// Format alert type string into a human-readable title.
@@ -1125,6 +1176,143 @@ mod tests {
         assert_eq!(alerts[0].severity, "warning");
         assert!(alerts[0].dismissed);
     }
+
+    // -----------------------------------------------------------------------
+    // IMP-001: Active alerts from coherence_alerts
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn assemble_alerts_returns_active_from_coherence_alerts() {
+        let conn = test_db();
+        let alert_id = Uuid::new_v4().to_string();
+
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'conflict', 'critical', '[]', '[]', 'Metformin conflicts with Glyburide', '{}', datetime('now'), 0)",
+            params![alert_id],
+        )
+        .unwrap();
+
+        let alerts = assemble_alerts(&conn).unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].title, "Medication Conflict");
+        assert_eq!(alerts[0].description, "Metformin conflicts with Glyburide");
+        assert_eq!(alerts[0].severity, "critical");
+        assert!(!alerts[0].dismissed);
+    }
+
+    #[test]
+    fn assemble_alerts_excludes_dismissed_coherence_alerts() {
+        let conn = test_db();
+
+        // Active alert
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'gap', 'standard', '[]', '[]', 'Missing lab result', '{}', datetime('now'), 0)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        // Dismissed alert (should NOT appear as active)
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'duplicate', 'info', '[]', '[]', 'Duplicate entry', '{}', datetime('now'), 1)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        let alerts = assemble_alerts(&conn).unwrap();
+        // Only the active alert (dismissed coherence_alerts excluded, no dismissed_alerts entries)
+        assert_eq!(alerts.len(), 1);
+        assert!(!alerts[0].dismissed);
+        assert_eq!(alerts[0].description, "Missing lab result");
+    }
+
+    #[test]
+    fn assemble_alerts_mixed_active_and_dismissed() {
+        let conn = test_db();
+
+        // Active alert in coherence_alerts
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'critical', 'critical', '[]', '[]', 'Dangerous interaction', '{}', datetime('now'), 0)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        // Dismissed alert in dismissed_alerts
+        conn.execute(
+            "INSERT INTO dismissed_alerts (id, alert_type, entity_ids, dismissed_date, reason, dismissed_by)
+             VALUES (?1, 'conflict', 'med1', datetime('now'), 'Resolved', 'patient')",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        let alerts = assemble_alerts(&conn).unwrap();
+        assert_eq!(alerts.len(), 2);
+
+        // Active comes first (from coherence_alerts)
+        assert!(!alerts[0].dismissed);
+        assert_eq!(alerts[0].description, "Dangerous interaction");
+
+        // Dismissed second (from dismissed_alerts)
+        assert!(alerts[1].dismissed);
+        assert_eq!(alerts[1].description, "Resolved");
+    }
+
+    #[test]
+    fn assemble_alerts_severity_ordering_critical_first() {
+        let conn = test_db();
+
+        // Insert standard severity first (chronologically earlier)
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'gap', 'standard', '[]', '[]', 'Standard alert', '{}', datetime('now', '-1 hour'), 0)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        // Insert critical severity second
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'critical', 'critical', '[]', '[]', 'Critical alert', '{}', datetime('now'), 0)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        // Insert info severity
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids,
+             patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'duplicate', 'info', '[]', '[]', 'Info alert', '{}', datetime('now'), 0)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        let alerts = assemble_alerts(&conn).unwrap();
+        assert_eq!(alerts.len(), 3);
+        // Critical sorts first regardless of insert order
+        assert_eq!(alerts[0].severity, "critical");
+        assert_eq!(alerts[1].severity, "standard");
+        assert_eq!(alerts[2].severity, "info");
+    }
+
+    #[test]
+    fn assemble_alerts_empty_when_no_alerts_exist() {
+        let conn = test_db();
+        let alerts = assemble_alerts(&conn).unwrap();
+        assert!(alerts.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Appointments
+    // -----------------------------------------------------------------------
 
     #[test]
     fn assemble_next_appointment_within_7_days() {
