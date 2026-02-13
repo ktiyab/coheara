@@ -60,6 +60,7 @@ pub trait EmbeddingModel {
 }
 
 /// Vector store abstraction
+#[allow(clippy::too_many_arguments)]
 pub trait VectorStore {
     fn store_chunks(
         &self,
@@ -69,6 +70,7 @@ pub trait VectorStore {
         doc_type: &str,
         doc_date: Option<&str>,
         professional_name: Option<&str>,
+        session: Option<&ProfileSession>,
     ) -> Result<usize, StorageError>;
 
     fn delete_by_document(&self, document_id: &Uuid) -> Result<(), StorageError>;

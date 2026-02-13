@@ -1,12 +1,11 @@
 <!-- M1-04: Journal tab — entry history list + new entry button -->
 <script lang="ts">
 	import {
-		journalEntries,
 		entriesByDate,
 		unsyncedCount,
 		hasEntries
 	} from '$lib/stores/journal.js';
-	import JournalEntryCard from '$lib/components/journal/JournalEntryCard.svelte';
+	import JournalEntryList from '$lib/components/journal/JournalEntryList.svelte';
 	import SyncIndicator from '$lib/components/journal/SyncIndicator.svelte';
 
 	function handleTapEntry(id: string): void {
@@ -29,18 +28,7 @@
 			<a class="empty-cta" href="/journal/new">Create your first entry</a>
 		</div>
 	{:else}
-		<div class="entry-list" role="list" aria-label="Journal entries">
-			{#each $entriesByDate as group (group.date)}
-				<div class="date-group">
-					<h3 class="date-label">{group.label}</h3>
-					<div class="group-entries">
-						{#each group.entries as entry (entry.id)}
-							<JournalEntryCard {entry} onTap={handleTapEntry} />
-						{/each}
-					</div>
-				</div>
-			{/each}
-		</div>
+		<JournalEntryList groups={$entriesByDate} onTapEntry={handleTapEntry} />
 	{/if}
 </div>
 
@@ -73,27 +61,6 @@
 		min-height: var(--min-touch-target);
 		display: flex;
 		align-items: center;
-	}
-
-	.date-group {
-		margin-bottom: 16px;
-	}
-
-	.date-label {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--color-text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		margin: 0 0 8px 4px;
-		padding-bottom: 4px;
-		border-bottom: 1px solid #E7E5E4;
-	}
-
-	.group-entries {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
 	}
 
 	.empty-state {

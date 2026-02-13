@@ -91,6 +91,7 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
             doc_type_str,
             doc_date_str.as_deref(),
             professional_name.as_deref(),
+            Some(session),
         )?;
 
         // Step 4: Open database connection and store entities
