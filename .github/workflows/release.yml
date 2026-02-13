@@ -74,7 +74,18 @@ jobs:
             librsvg2-dev \
             patchelf \
             libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
+            libjavascriptcoregtk-4.1-dev \
+            tesseract-ocr \
+            libtesseract-dev \
+            leptonica-progs
+
+      - name: Install macOS Tesseract
+        if: startsWith(matrix.platform, 'macos')
+        run: brew install tesseract
+
+      - name: Install Windows Tesseract
+        if: matrix.platform == 'windows-latest'
+        run: choco install tesseract --no-progress
 
       - run: npm ci
 
