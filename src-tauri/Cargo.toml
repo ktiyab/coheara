@@ -42,6 +42,9 @@ pdf-extract = "0.10"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 lopdf = "0.34"
 tesseract = { version = "0.15", optional = true }
+ort = { version = "2.0.0-rc.11", features = ["download-binaries", "ndarray"], optional = true }
+ndarray = { version = "0.17", optional = true }
+tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }
 regex = "1"
 printpdf = "0.7"
 axum = { version = "0.7", features = ["multipart", "ws"] }
@@ -63,6 +66,7 @@ tokio-tungstenite = "0.24"
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 ocr = ["tesseract"]
+onnx-embeddings = ["ort", "ndarray", "tokenizers"]
 
 [profile.release]
 strip = true

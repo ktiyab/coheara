@@ -16,6 +16,16 @@ pub fn profiles_dir() -> PathBuf {
     app_data_dir().join("profiles")
 }
 
+/// Get the models directory (for ONNX embeddings, etc.)
+pub fn models_dir() -> PathBuf {
+    app_data_dir().join("models")
+}
+
+/// Get the embedding model directory (all-MiniLM-L6-v2)
+pub fn embedding_model_dir() -> PathBuf {
+    models_dir().join("all-MiniLM-L6-v2")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
