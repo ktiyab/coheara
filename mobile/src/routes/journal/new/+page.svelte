@@ -1,6 +1,5 @@
 <!-- M1-04: New journal entry — funnel flow (Lena: severity faces first) -->
 <script lang="ts">
-	import { isConnected } from '$lib/stores/connection.js';
 	import { saveEntry, emptyDraft, isDraftValid } from '$lib/stores/journal.js';
 	import type { JournalEntryDraft, SymptomChip, BodyRegion, OldcartsData } from '$lib/types/journal.js';
 	import SeverityPicker from '$lib/components/journal/SeverityPicker.svelte';
@@ -37,7 +36,7 @@
 	function handleSave(): void {
 		if (!canSave) return;
 
-		const result = saveEntry(draft, $isConnected);
+		const result = saveEntry(draft);
 		saved = true;
 
 		switch (result) {

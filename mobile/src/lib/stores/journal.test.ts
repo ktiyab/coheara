@@ -1,4 +1,4 @@
-// M1-04: Journal store tests — 36 tests
+// M1-04: Journal store tests — 29 tests
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -331,7 +331,7 @@ describe('journal — offline behavior', () => {
 	beforeEach(() => resetJournalState());
 
 	it('saves offline entry with saved_offline status', () => {
-		const result = saveEntry(makeDraft({ severity: 6 }), false);
+		const result = saveEntry(makeDraft({ severity: 6 }));
 		expect(result).toBe('saved_offline');
 		expect(get(journalEntries)).toHaveLength(1);
 		expect(get(journalEntries)[0].synced).toBe(false);

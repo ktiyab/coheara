@@ -34,8 +34,6 @@ pub enum DeviceError {
     NotFound(String),
     #[error("Device is revoked: {0}")]
     Revoked(String),
-    #[error("WebSocket channel closed for device: {0}")]
-    ChannelClosed(String),
     #[error("Database error: {0}")]
     Database(String),
 }

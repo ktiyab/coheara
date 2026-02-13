@@ -111,9 +111,9 @@ export function matchQueryToCache(query: string): CacheMatchResult {
 		return { scope, confidence: 0.0 };
 	}
 
-	// Verify matched sections have data
-	const dataExists = verifyScopeHasData(scope);
-	if (!dataExists) {
+	// Verify matched sections have data (refine scope to data-backed sections)
+	const refined = refineScope(scope);
+	if (!refined) {
 		return { scope, confidence: 0.1 };
 	}
 
@@ -121,18 +121,20 @@ export function matchQueryToCache(query: string): CacheMatchResult {
 		: matchCount >= 2 ? 0.85
 		: 0.7;
 
-	return { scope, confidence };
+	return { scope: refined, confidence };
 }
 
-/** Check that matched cache sections actually contain data */
-function verifyScopeHasData(scope: CacheScope): boolean {
-	if (scope.medications && get(medications).length === 0) scope.medications = false;
-	if (scope.labs && get(labResults).length === 0) scope.labs = false;
-	if (scope.timeline && get(timelineEvents).length === 0) scope.timeline = false;
-	if (scope.alerts && get(activeAlerts).length === 0) scope.alerts = false;
-	if (scope.appointment && get(nextAppointment) === null) scope.appointment = false;
+/** Refine scope to only sections that have cached data. Returns null if no data. */
+function refineScope(scope: CacheScope): CacheScope | null {
+	const out: CacheScope = { ...scope };
+	if (out.medications && get(medications).length === 0) out.medications = false;
+	if (out.labs && get(labResults).length === 0) out.labs = false;
+	if (out.timeline && get(timelineEvents).length === 0) out.timeline = false;
+	if (out.alerts && get(activeAlerts).length === 0) out.alerts = false;
+	if (out.appointment && get(nextAppointment) === null) out.appointment = false;
 
-	return scope.medications || scope.labs || scope.timeline || scope.alerts || scope.appointment;
+	const hasData = out.medications || out.labs || out.timeline || out.alerts || out.appointment;
+	return hasData ? out : null;
 }
 
 // === TAB REDIRECT ===

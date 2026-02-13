@@ -90,12 +90,9 @@ export function createEntry(draft: JournalEntryDraft): JournalEntry {
 }
 
 /** Save entry (create + return save status) */
-export function saveEntry(draft: JournalEntryDraft, connected: boolean): SaveResult {
+export function saveEntry(draft: JournalEntryDraft): SaveResult {
 	createEntry(draft);
-
-	if (!connected) return 'saved_offline';
-	// In real implementation, would attempt immediate sync
-	return 'saved_offline'; // Default to offline until sync engine runs
+	return 'saved_offline';
 }
 
 /** Update an unsynced entry */
