@@ -161,6 +161,14 @@ pub fn is_profile_active(state: State<'_, Arc<CoreState>>) -> bool {
     !state.is_locked()
 }
 
+/// Get the active profile's display name.
+#[tauri::command]
+pub fn get_active_profile_name(state: State<'_, Arc<CoreState>>) -> Result<String, String> {
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard.as_ref().ok_or("No active session")?;
+    Ok(session.profile_name.clone())
+}
+
 /// Delete a profile and all its data (cryptographic erasure).
 #[tauri::command]
 pub fn delete_profile(profile_id: String, state: State<'_, Arc<CoreState>>) -> Result<(), String> {

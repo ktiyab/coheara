@@ -40,6 +40,21 @@ export async function isProfileActive(): Promise<boolean> {
   return invoke<boolean>('is_profile_active');
 }
 
+export async function getActiveProfileName(): Promise<string> {
+  return invoke<string>('get_active_profile_name');
+}
+
+export interface AiStatus {
+  ollama_available: boolean;
+  ollama_model: string | null;
+  embedder_type: string;
+  summary: string;
+}
+
+export async function checkAiStatus(): Promise<AiStatus> {
+  return invoke<AiStatus>('check_ai_status');
+}
+
 export async function deleteProfile(profileId: string): Promise<void> {
   return invoke('delete_profile', { profileId });
 }

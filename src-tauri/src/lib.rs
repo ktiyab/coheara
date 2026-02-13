@@ -41,6 +41,7 @@ pub fn run() {
         .manage(Arc::new(core_state::CoreState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::health_check,
+            commands::check_ai_status,
             commands::profile::list_profiles,
             commands::profile::create_profile,
             commands::profile::unlock_profile,
@@ -48,6 +49,7 @@ pub fn run() {
             commands::profile::change_profile_password,
             commands::profile::recover_profile,
             commands::profile::is_profile_active,
+            commands::profile::get_active_profile_name,
             commands::profile::delete_profile,
             commands::profile::check_inactivity,
             commands::profile::update_activity,

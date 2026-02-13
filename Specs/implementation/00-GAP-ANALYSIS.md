@@ -78,8 +78,8 @@
 
 | ID | Title | Domain | File | Impact | Status |
 |----|-------|--------|------|--------|--------|
-| IMP-014 | First-run onboarding flow | ux | `src/routes/+page.svelte` | No guidance for new users | PENDING |
-| IMP-015 | Graceful degradation when Ollama missing | ux | `src-tauri/src/commands/chat.rs` | Hard error if Ollama not running | PENDING |
+| IMP-014 | First-run onboarding flow | ux | `src/routes/+page.svelte` | No guidance for new users | **RESOLVED** |
+| IMP-015 | Graceful degradation when Ollama missing | ux | `src-tauri/src/commands/chat.rs` | Hard error if Ollama not running | **RESOLVED** |
 | IMP-016 | Auto-updater plugin | infra | `src-tauri/Cargo.toml` | No update mechanism | PENDING |
 | IMP-017 | Tested installer builds | qa | `.github/workflows/release.yml` | Untested installers | PENDING |
 
@@ -142,6 +142,7 @@
 
 | Date | IMP-IDs | Tests Added | Total Tests | Notes |
 |------|---------|-------------|-------------|-------|
+| 2026-02-13 | IMP-014, IMP-015 | +2 | 935 Rust / 481 mobile | App shell with TabBar routing + AI status command + Ollama degradation banner |
 | 2026-02-13 | IMP-005, IMP-006 | +2 | 933 Rust / 481 mobile | OCR default; chat wired to SqliteVectorStore + conditional OnnxEmbedder + Box<dyn> blanket impl |
 | 2026-02-12 | IMP-004 | +8 | 931 Rust / 481 mobile | SQLite vector store: persistent chunks + search + migration 006 |
 | 2026-02-12 | IMP-003 | +0 | 923 Rust / 481 mobile | ONNX embedder: ort v2 + tokenizers behind onnx-embeddings flag |
@@ -155,7 +156,9 @@
 
 ```
 Total gaps: 24 (P0: 2, P1: 4, P2: 7, P3: 4, P4: 3, P5: 4)
-Resolved: 6/24 (IMP-001, IMP-002, IMP-003, IMP-004, IMP-005, IMP-006)
+Resolved: 8/24 (IMP-001 through IMP-006, IMP-014, IMP-015)
 In Progress: 0/24
+Phase 1 (Critical Fixes): COMPLETE ✓
 Phase 2 (Production Pipeline): COMPLETE ✓
+Phase 4 (Desktop Polish): 2/4 complete
 ```
