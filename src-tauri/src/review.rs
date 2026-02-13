@@ -322,6 +322,92 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
     fields
 }
 
+/// Generate plausibility warnings for extracted medication doses (RS-L3-04-001).
+///
+/// Checks each medication's dose against known reference ranges using the
+/// dose_references table. Returns warnings for unusual doses.
+pub fn generate_plausibility_warnings(
+    conn: &Connection,
+    structuring: &StructuringResult,
+    fields: &[ExtractedField],
+) -> Vec<PlausibilityWarning> {
+    let mut warnings = Vec::new();
+
+    for field in fields {
+        if field.entity_type != EntityCategory::Medication || field.field_name != "dose" {
+            continue;
+        }
+
+        // Get the medication at this entity_index
+        let med = match structuring.extracted_entities.medications.get(field.entity_index) {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let med_name = match &med.generic_name {
+            Some(n) => n.as_str(),
+            None => continue,
+        };
+
+        // Parse numeric dose value from the dose string (e.g., "500mg" → 500.0)
+        let dose_value = match parse_dose_value(&med.dose) {
+            Some(v) => v,
+            None => continue, // Can't parse — skip
+        };
+
+        // Check against reference ranges
+        let result = match crate::trust::check_dose_plausibility(conn, med_name, dose_value, "mg")
+        {
+            Ok(r) => r,
+            Err(_) => continue, // Reference lookup failed — skip gracefully
+        };
+
+        // Map the result to a PlausibilityWarning
+        let (warning_type, severity, message) = match &result.plausibility {
+            crate::trust::PlausibilityResult::Plausible => continue,
+            crate::trust::PlausibilityResult::VeryHighDose { message } => (
+                PlausibilityType::DoseUnusuallyHigh,
+                WarningSeverity::Critical,
+                message.clone(),
+            ),
+            crate::trust::PlausibilityResult::HighDose { message } => (
+                PlausibilityType::DoseUnusuallyHigh,
+                WarningSeverity::Warning,
+                message.clone(),
+            ),
+            crate::trust::PlausibilityResult::LowDose { message } => (
+                PlausibilityType::DoseUnusuallyLow,
+                WarningSeverity::Info,
+                message.clone(),
+            ),
+            crate::trust::PlausibilityResult::UnknownMedication => continue,
+        };
+
+        warnings.push(PlausibilityWarning {
+            field_id: field.id,
+            warning_type,
+            message,
+            severity,
+        });
+    }
+
+    warnings
+}
+
+/// Parse a numeric dose value from a dose string.
+///
+/// Handles formats like "500mg", "500 mg", "0.5mg", "10", "500".
+fn parse_dose_value(dose: &str) -> Option<f64> {
+    let numeric: String = dose
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+        .collect();
+    if numeric.is_empty() {
+        return None;
+    }
+    numeric.replace(',', ".").parse::<f64>().ok()
+}
+
 /// Apply field corrections to extracted entities before storage.
 ///
 /// Matches each correction by `entity_type + entity_index + field_name` encoded
@@ -981,5 +1067,114 @@ mod tests {
             ReviewOutcome::Corrected
         };
         assert_eq!(outcome, ReviewOutcome::Corrected);
+    }
+
+    // --- parse_dose_value ---
+
+    #[test]
+    fn parse_dose_value_with_unit_suffix() {
+        assert_eq!(parse_dose_value("500mg"), Some(500.0));
+        assert_eq!(parse_dose_value("20 mg"), Some(20.0));
+        assert_eq!(parse_dose_value("0.5mg"), Some(0.5));
+    }
+
+    #[test]
+    fn parse_dose_value_plain_number() {
+        assert_eq!(parse_dose_value("100"), Some(100.0));
+        assert_eq!(parse_dose_value("7.5"), Some(7.5));
+    }
+
+    #[test]
+    fn parse_dose_value_with_comma() {
+        assert_eq!(parse_dose_value("1,5mg"), Some(1.5));
+    }
+
+    #[test]
+    fn parse_dose_value_empty_or_text() {
+        assert_eq!(parse_dose_value(""), None);
+        assert_eq!(parse_dose_value("unknown"), None);
+        assert_eq!(parse_dose_value("as needed"), None);
+    }
+
+    // --- generate_plausibility_warnings ---
+
+    fn insert_dose_reference(conn: &Connection, name: &str, min: f64, max: f64, abs_max: f64) {
+        conn.execute(
+            "INSERT INTO dose_references (generic_name, typical_min_mg, typical_max_mg, absolute_max_mg, unit, source)
+             VALUES (?1, ?2, ?3, ?4, 'mg', 'test')",
+            params![name, min, max, abs_max],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn plausibility_no_warnings_for_normal_doses() {
+        let conn = open_memory_database().unwrap();
+        insert_dose_reference(&conn, "metformin", 500.0, 2550.0, 1000.0);
+
+        let result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+
+        // Metformin 500mg is within range; atorvastatin has no dose_reference → no warnings
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn plausibility_warns_on_very_high_dose() {
+        let conn = open_memory_database().unwrap();
+        // absolute_max is 1000mg, so >5000mg triggers VeryHighDose
+        insert_dose_reference(&conn, "metformin", 500.0, 2550.0, 1000.0);
+
+        let mut result = make_structuring_result();
+        result.extracted_entities.medications[0].dose = "50000mg".into();
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, WarningSeverity::Critical);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::DoseUnusuallyHigh);
+    }
+
+    #[test]
+    fn plausibility_warns_on_low_dose() {
+        let conn = open_memory_database().unwrap();
+        insert_dose_reference(&conn, "metformin", 500.0, 2550.0, 1000.0);
+
+        let mut result = make_structuring_result();
+        result.extracted_entities.medications[0].dose = "1mg".into();
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, WarningSeverity::Info);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::DoseUnusuallyLow);
+    }
+
+    #[test]
+    fn plausibility_skips_medications_without_generic_name() {
+        let conn = open_memory_database().unwrap();
+        insert_dose_reference(&conn, "metformin", 500.0, 2550.0, 1000.0);
+
+        let mut result = make_structuring_result();
+        // Remove generic_name from first medication
+        result.extracted_entities.medications[0].generic_name = None;
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn plausibility_skips_unparseable_doses() {
+        let conn = open_memory_database().unwrap();
+        insert_dose_reference(&conn, "metformin", 500.0, 2550.0, 1000.0);
+
+        let mut result = make_structuring_result();
+        result.extracted_entities.medications[0].dose = "as needed".into();
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+        assert!(warnings.is_empty());
     }
 }

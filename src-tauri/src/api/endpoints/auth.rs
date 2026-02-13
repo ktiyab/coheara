@@ -23,6 +23,17 @@ pub async fn pair(
     State(ctx): State<ApiContext>,
     Json(request): Json<PairRequest>,
 ) -> Result<Json<PairResponse>, ApiError> {
+    // Step 0: Pairing-specific rate limit — 5 req/min (RS-M002-06)
+    {
+        let mut limiter = ctx
+            .pairing_limiter
+            .lock()
+            .map_err(|_| ApiError::Internal("pairing limiter lock".into()))?;
+        limiter
+            .check()
+            .map_err(|retry_after| ApiError::RateLimited { retry_after })?;
+    }
+
     // Step 1: Submit the pairing request (validates token, stores phone info)
     let approval_rx = {
         let mut pairing = ctx
@@ -44,13 +55,15 @@ pub async fn pair(
         return Err(ApiError::PairingDenied);
     }
 
-    // Step 3: Complete the pairing (ECDH, register device)
+    // Step 3: Complete the pairing (ECDH key exchange, generate session token)
+    // Desktop already called signal_approval() which unblocked this handler.
+    // Now we perform the cryptographic handshake and get the session data.
     let approved_data = {
         let mut pairing = ctx
             .core
             .lock_pairing()
             .map_err(|_| ApiError::Internal("pairing lock".into()))?;
-        pairing.approve().map_err(pairing_error_to_api)?
+        pairing.complete_pairing().map_err(pairing_error_to_api)?
     };
 
     // Step 4: Register device in DeviceManager
@@ -70,16 +83,34 @@ pub async fn pair(
             .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
 
-    // Step 5: Persist to database (if profile is active)
-    if let Ok(conn) = ctx.core.open_db() {
-        let _ = pairing::db_store_paired_device(
-            &conn,
-            &device_id,
-            &approved_data.device_name,
-            &approved_data.device_model,
-            &approved_data.phone_public_key,
-        );
-        let _ = pairing::db_store_session(&conn, &device_id, &approved_data.token_hash);
+    // Step 5: Persist to database — rollback DeviceManager if DB fails (RS-M002-05)
+    let conn = ctx
+        .core
+        .open_db()
+        .map_err(|e| ApiError::Internal(format!("db open: {e}")))?;
+
+    if let Err(e) = pairing::db_store_paired_device(
+        &conn,
+        &device_id,
+        &approved_data.device_name,
+        &approved_data.device_model,
+        &approved_data.phone_public_key,
+    ) {
+        // Rollback: remove the in-memory registration
+        if let Ok(mut devices) = ctx.core.write_devices() {
+            devices.remove_device(&device_id);
+        }
+        return Err(ApiError::Internal(format!("db persist device: {e}")));
+    }
+
+    if let Err(e) = pairing::db_store_session(&conn, &device_id, &approved_data.token_hash) {
+        // Rollback: remove both in-memory and DB device record
+        if let Ok(mut devices) = ctx.core.write_devices() {
+            devices.remove_device(&device_id);
+        }
+        // Best-effort cleanup of the device row we just inserted
+        let _ = conn.execute("DELETE FROM paired_devices WHERE device_id = ?1", [&device_id]);
+        return Err(ApiError::Internal(format!("db persist session: {e}")));
     }
 
     // Step 6: Log the pairing event

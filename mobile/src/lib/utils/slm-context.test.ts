@@ -62,7 +62,7 @@ function makeAppt(overrides: Partial<CachedAppointment> = {}): CachedAppointment
 
 function makeProfile(overrides: Partial<CachedProfile> = {}): CachedProfile {
 	return {
-		name: 'Thomas', bloodType: 'O+', allergies: ['Penicillin'],
+		name: 'Thomas', bloodType: 'O+', allergies: ['Penicillin'], emergencyContacts: [],
 		...overrides
 	};
 }

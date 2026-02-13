@@ -157,7 +157,7 @@ describe('cache store — alerts and load/clear', () => {
 			timelineEvents: [],
 			alerts: [],
 			appointment: { id: 'apt-1', doctorName: 'Dr. Chen', date: '2026-02-14', hasPrepData: false },
-			profile: { name: 'Mamadou', allergies: ['Penicillin'] },
+			profile: { name: 'Mamadou', allergies: ['Penicillin'], emergencyContacts: [] },
 			syncTimestamp: '2026-02-12T09:30:00Z'
 		});
 
@@ -175,7 +175,7 @@ describe('cache store — alerts and load/clear', () => {
 			timelineEvents: [],
 			alerts: [],
 			appointment: { id: 'apt-1', doctorName: 'Dr. Chen', date: '2026-02-14', hasPrepData: false },
-			profile: { name: 'Mamadou', allergies: [] },
+			profile: { name: 'Mamadou', allergies: [], emergencyContacts: [] },
 			syncTimestamp: '2026-02-12T09:30:00Z'
 		});
 

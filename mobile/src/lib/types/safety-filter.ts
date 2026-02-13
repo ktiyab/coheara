@@ -19,7 +19,7 @@ export interface PhoneViolation {
 
 // === GROUNDING TYPES ===
 
-export type GroundingIssueType = 'dose_mismatch' | 'unknown_medication' | 'value_mismatch';
+export type GroundingIssueType = 'dose_mismatch' | 'unknown_medication' | 'value_mismatch' | 'unknown_lab';
 
 export interface GroundingIssue {
 	type: GroundingIssueType;

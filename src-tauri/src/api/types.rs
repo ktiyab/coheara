@@ -20,7 +20,10 @@ pub struct ApiContext {
     pub core: Arc<CoreState>,
     pub nonce_cache: Arc<Mutex<NonceCache>>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
+    pub global_limiter: Arc<Mutex<GlobalRateLimiter>>,
     pub ws_tickets: Arc<Mutex<WsTicketStore>>,
+    pub auth_lockout: Arc<Mutex<AuthLockout>>,
+    pub pairing_limiter: Arc<Mutex<PairingRateLimiter>>,
 }
 
 impl ApiContext {
@@ -29,7 +32,10 @@ impl ApiContext {
             core,
             nonce_cache: Arc::new(Mutex::new(NonceCache::new())),
             rate_limiter: Arc::new(Mutex::new(RateLimiter::new())),
+            global_limiter: Arc::new(Mutex::new(GlobalRateLimiter::new())),
             ws_tickets: Arc::new(Mutex::new(WsTicketStore::new())),
+            auth_lockout: Arc::new(Mutex::new(AuthLockout::new())),
+            pairing_limiter: Arc::new(Mutex::new(PairingRateLimiter::new())),
         }
     }
 }
@@ -199,6 +205,133 @@ impl RateLimiter {
 }
 
 impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Global rate limiter — 500 req/min across all devices (RS-M0-01-002)
+// ═══════════════════════════════════════════════════════════
+
+/// Global rate limiter: 500 requests per minute across all devices.
+/// Prevents resource exhaustion on the desktop when multiple devices connect.
+pub struct GlobalRateLimiter {
+    timestamps: Vec<Instant>,
+    pub per_minute: u32,
+}
+
+impl GlobalRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            timestamps: Vec::new(),
+            per_minute: 500,
+        }
+    }
+
+    /// Check if the global rate limit is exceeded. Returns `Ok(())` or
+    /// `Err(retry_after_secs)` if the limit is exceeded.
+    pub fn check(&mut self) -> Result<(), u64> {
+        let now = Instant::now();
+        self.timestamps
+            .retain(|ts| now.duration_since(*ts) < Duration::from_secs(60));
+        if self.timestamps.len() as u32 >= self.per_minute {
+            return Err(60);
+        }
+        self.timestamps.push(now);
+        Ok(())
+    }
+}
+
+impl Default for GlobalRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Auth lockout — per-source failure tracking (RS-M0-01-001)
+// ═══════════════════════════════════════════════════════════
+
+/// Per-source auth failure tracker. Locks out after `max_failures` within `window`.
+pub struct AuthLockout {
+    failures: HashMap<String, Vec<Instant>>,
+    max_failures: u32,
+    window: Duration,
+}
+
+impl AuthLockout {
+    pub fn new() -> Self {
+        Self {
+            failures: HashMap::new(),
+            max_failures: 10,
+            window: Duration::from_secs(15 * 60),
+        }
+    }
+
+    /// Check if a source is currently locked out. Returns `true` if locked.
+    pub fn is_locked(&mut self, source: &str) -> bool {
+        let now = Instant::now();
+        if let Some(attempts) = self.failures.get_mut(source) {
+            attempts.retain(|ts| now.duration_since(*ts) < self.window);
+            attempts.len() as u32 >= self.max_failures
+        } else {
+            false
+        }
+    }
+
+    /// Record an auth failure for a source.
+    pub fn record_failure(&mut self, source: &str) {
+        let now = Instant::now();
+        let attempts = self.failures.entry(source.to_string()).or_default();
+        attempts.retain(|ts| now.duration_since(*ts) < self.window);
+        attempts.push(now);
+    }
+
+    /// Clear failures for a source (e.g., on successful auth).
+    pub fn clear(&mut self, source: &str) {
+        self.failures.remove(source);
+    }
+}
+
+impl Default for AuthLockout {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Pairing rate limiter — stricter limit for /api/auth/pair (RS-M002-06)
+// ═══════════════════════════════════════════════════════════
+
+/// Rate limiter specifically for the pairing endpoint: 5 req/min global.
+pub struct PairingRateLimiter {
+    attempts: Vec<Instant>,
+    max_per_minute: u32,
+}
+
+impl PairingRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            attempts: Vec::new(),
+            max_per_minute: 5,
+        }
+    }
+
+    /// Check if a pairing request is allowed. Returns `Ok(())` or `Err(retry_after)`.
+    pub fn check(&mut self) -> Result<(), u64> {
+        let now = Instant::now();
+        self.attempts
+            .retain(|ts| now.duration_since(*ts) < Duration::from_secs(60));
+        if self.attempts.len() as u32 >= self.max_per_minute {
+            return Err(60);
+        }
+        self.attempts.push(now);
+        Ok(())
+    }
+}
+
+impl Default for PairingRateLimiter {
     fn default() -> Self {
         Self::new()
     }
@@ -421,6 +554,132 @@ mod tests {
         let mut store = WsTicketStore::new();
         let result = store.consume("nonexistent");
         assert!(result.is_none());
+    }
+
+    // ── AuthLockout tests (RS-M0-01-001) ────────────────────
+
+    #[test]
+    fn auth_lockout_allows_under_threshold() {
+        let mut lockout = AuthLockout::new();
+        for _ in 0..9 {
+            lockout.record_failure("device-1");
+        }
+        assert!(!lockout.is_locked("device-1"));
+    }
+
+    #[test]
+    fn auth_lockout_locks_at_threshold() {
+        let mut lockout = AuthLockout::new();
+        for _ in 0..10 {
+            lockout.record_failure("device-1");
+        }
+        assert!(lockout.is_locked("device-1"));
+    }
+
+    #[test]
+    fn auth_lockout_isolates_sources() {
+        let mut lockout = AuthLockout::new();
+        for _ in 0..10 {
+            lockout.record_failure("device-1");
+        }
+        assert!(lockout.is_locked("device-1"));
+        assert!(!lockout.is_locked("device-2"));
+    }
+
+    #[test]
+    fn auth_lockout_clear_resets() {
+        let mut lockout = AuthLockout::new();
+        for _ in 0..10 {
+            lockout.record_failure("device-1");
+        }
+        assert!(lockout.is_locked("device-1"));
+        lockout.clear("device-1");
+        assert!(!lockout.is_locked("device-1"));
+    }
+
+    // ── PairingRateLimiter tests (RS-M002-06) ────────────────
+
+    #[test]
+    fn pairing_limiter_allows_under_threshold() {
+        let mut limiter = PairingRateLimiter::new();
+        for _ in 0..5 {
+            assert!(limiter.check().is_ok());
+        }
+    }
+
+    #[test]
+    fn pairing_limiter_rejects_at_threshold() {
+        let mut limiter = PairingRateLimiter::new();
+        for _ in 0..5 {
+            assert!(limiter.check().is_ok());
+        }
+        assert_eq!(limiter.check(), Err(60));
+    }
+
+    #[test]
+    fn pairing_limiter_window_expires() {
+        let mut limiter = PairingRateLimiter {
+            attempts: Vec::new(),
+            max_per_minute: 2,
+        };
+        assert!(limiter.check().is_ok());
+        assert!(limiter.check().is_ok());
+        assert_eq!(limiter.check(), Err(60));
+        // Manually expire all attempts
+        limiter.attempts.clear();
+        assert!(limiter.check().is_ok());
+    }
+
+    #[test]
+    fn auth_lockout_window_expires() {
+        let mut lockout = AuthLockout {
+            failures: HashMap::new(),
+            max_failures: 10,
+            window: Duration::from_millis(1),
+        };
+        for _ in 0..10 {
+            lockout.record_failure("device-1");
+        }
+        // Sleep past the window
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!lockout.is_locked("device-1"));
+    }
+
+    // ── GlobalRateLimiter tests (RS-M0-01-002) ─────────────
+
+    #[test]
+    fn global_limiter_allows_under_limit() {
+        let mut limiter = GlobalRateLimiter::new();
+        for _ in 0..499 {
+            assert!(limiter.check().is_ok());
+        }
+        assert!(limiter.check().is_ok()); // 500th request OK
+    }
+
+    #[test]
+    fn global_limiter_rejects_at_threshold() {
+        let mut limiter = GlobalRateLimiter {
+            timestamps: Vec::new(),
+            per_minute: 3,
+        };
+        assert!(limiter.check().is_ok());
+        assert!(limiter.check().is_ok());
+        assert!(limiter.check().is_ok());
+        assert_eq!(limiter.check(), Err(60)); // 4th request blocked
+    }
+
+    #[test]
+    fn global_limiter_window_expires() {
+        let mut limiter = GlobalRateLimiter {
+            timestamps: Vec::new(),
+            per_minute: 2,
+        };
+        assert!(limiter.check().is_ok());
+        assert!(limiter.check().is_ok());
+        assert_eq!(limiter.check(), Err(60));
+        // Manually expire all timestamps
+        limiter.timestamps.clear();
+        assert!(limiter.check().is_ok());
     }
 
     #[test]

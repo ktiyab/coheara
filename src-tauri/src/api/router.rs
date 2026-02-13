@@ -27,7 +27,19 @@ use crate::core_state::CoreState;
 /// Endpoint handlers use `State<ApiContext>` (provided via `with_state`).
 pub fn mobile_api_router(core: Arc<CoreState>) -> Router {
     let ctx = ApiContext::new(core);
+    build_router(ctx)
+}
 
+/// Build router from pre-constructed `ApiContext`.
+///
+/// Used by integration tests that need access to the shared `ApiContext`
+/// (e.g. to issue WS tickets directly).
+#[cfg(test)]
+pub(crate) fn mobile_api_router_with_ctx(ctx: ApiContext) -> Router {
+    build_router(ctx)
+}
+
+fn build_router(ctx: ApiContext) -> Router {
     // Protected routes — require auth + full middleware stack
     //
     // Layers are applied from bottom (innermost) to top (outermost):
@@ -121,6 +133,51 @@ mod tests {
         }
 
         (state, token)
+    }
+
+    /// Create a CoreState backed by a temp profile directory with an active session + DB.
+    /// Returns (Arc<CoreState>, token, _tempdir_guard).
+    /// The tempdir guard must be kept alive for the duration of the test.
+    fn test_core_state_with_profile() -> (Arc<CoreState>, String, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut core = CoreState::new();
+        core.profiles_dir = tmp.path().to_path_buf();
+        let core = Arc::new(core);
+
+        // Create a real profile with password
+        let (info, _phrase) = crate::crypto::profile::create_profile(
+            &core.profiles_dir,
+            "TestPatient",
+            "test-password-123",
+            None,
+        )
+        .unwrap();
+
+        // Open the profile to get a session
+        let session = crate::crypto::profile::open_profile(
+            &core.profiles_dir,
+            &info.id,
+            "test-password-123",
+        )
+        .unwrap();
+        core.set_session(session).unwrap();
+
+        // Register a paired device
+        let token = generate_token();
+        let hash = hash_token(&token);
+        {
+            let mut devices = core.write_devices().unwrap();
+            devices
+                .register_device(
+                    "test-device".to_string(),
+                    "Test Phone".to_string(),
+                    "TestModel".to_string(),
+                    hash,
+                )
+                .unwrap();
+        }
+
+        (core, token, tmp)
     }
 
     fn make_request(
@@ -334,5 +391,174 @@ mod tests {
             status == StatusCode::BAD_REQUEST || status == StatusCode::SERVICE_UNAVAILABLE,
             "Expected 400 or 503, got {status}"
         );
+    }
+
+    // ── RS-M0-01-005: Endpoint handler response shape tests ──────
+
+    async fn response_json(response: axum::http::Response<axum::body::Body>) -> serde_json::Value {
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn health_response_shape() {
+        let (core, token) = test_core_state_with_device();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/health", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["status"], "ok");
+        assert!(json["profile_active"].is_boolean());
+        assert!(json["version"].is_string());
+        assert!(!json["version"].as_str().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn health_response_shape_with_active_profile() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/health", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["profile_active"], true);
+    }
+
+    #[tokio::test]
+    async fn home_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/home", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["stats"].is_object(), "stats should be an object");
+        assert!(json["recent_documents"].is_array(), "recent_documents should be array");
+        assert!(json["onboarding"].is_object(), "onboarding should be object");
+        assert!(json["critical_alerts"].is_array(), "critical_alerts should be array");
+        assert!(json["last_sync"].is_string(), "last_sync should be string");
+    }
+
+    #[tokio::test]
+    async fn medications_list_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/medications", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["medications"].is_array());
+        assert!(json["total_active"].is_number());
+        assert!(json["total_paused"].is_number());
+        assert!(json["total_stopped"].is_number());
+        assert!(json["prescribers"].is_array());
+        assert!(json["last_updated"].is_string());
+    }
+
+    #[tokio::test]
+    async fn labs_recent_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/labs/recent", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["results"].is_array());
+        assert!(json["last_updated"].is_string());
+    }
+
+    #[tokio::test]
+    async fn alerts_critical_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/alerts/critical", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert!(json["alerts"].is_array());
+    }
+
+    #[tokio::test]
+    async fn chat_send_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat/send")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"message":"What medications am I taking?"}"#))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert!(json["conversation_id"].is_string());
+        assert!(!json["conversation_id"].as_str().unwrap().is_empty());
+        assert!(json["message_id"].is_string());
+        assert!(json["disclaimer"].is_string());
+    }
+
+    #[tokio::test]
+    async fn journal_record_validates_severity() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/journal/record")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"severity":10,"category":"pain","specific":"headache","onset_date":"2025-01-01","onset_time":null,"body_region":null,"duration":null,"character":null,"aggravating":[],"relieving":[],"timing_pattern":null,"notes":null}"#,
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let json = response_json(response).await;
+        assert_eq!(json["error"]["code"], "BAD_REQUEST");
+        assert!(json["error"]["message"].as_str().unwrap().contains("Severity"));
+    }
+
+    #[tokio::test]
+    async fn error_503_response_shape() {
+        let (core, token) = test_core_state_with_device();
+        let app = mobile_api_router(core);
+
+        // No active profile → 503
+        let req = make_request("GET", "/api/home", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let json = response_json(response).await;
+        assert_eq!(json["error"]["code"], "PROFILE_LOCKED");
+        assert!(json["error"]["message"].is_string());
     }
 }

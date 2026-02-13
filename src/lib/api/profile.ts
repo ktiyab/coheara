@@ -43,3 +43,10 @@ export async function isProfileActive(): Promise<boolean> {
 export async function deleteProfile(profileId: string): Promise<void> {
   return invoke('delete_profile', { profileId });
 }
+
+export async function changeProfilePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return invoke('change_profile_password', { currentPassword, newPassword });
+}

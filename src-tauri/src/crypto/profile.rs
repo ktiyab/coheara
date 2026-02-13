@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use super::encryption::EncryptedData;
 use super::keys::{generate_salt, ProfileKey, SALT_LENGTH};
@@ -148,13 +149,18 @@ pub fn open_profile(
         return Err(CryptoError::WrongPassword);
     }
 
+    // Resolve actual master key: if password_blob.enc exists, the password-derived
+    // key is a wrapper — decrypt it to get the real master key. This indirection
+    // is created by change_password() (RS-L3-01-001).
+    let master_key = resolve_master_key(&profile_dir, key)?;
+
     // Load profile info
     let info = load_profile_info(profiles_dir, profile_id)?;
 
     Ok(ProfileSession {
         profile_id: *profile_id,
         profile_name: info.name,
-        key,
+        key: master_key,
         db_path: profile_dir.join("database/coheara.db"),
     })
 }
@@ -179,7 +185,7 @@ pub fn recover_profile(
     // Decrypt recovery blob to get master key bytes
     let recovery_blob_bytes = std::fs::read(profile_dir.join("recovery_blob.enc"))?;
     let recovery_blob = EncryptedData::from_bytes(&recovery_blob_bytes)?;
-    let master_key_bytes = recovery_key.decrypt(&recovery_blob)?;
+    let master_key_bytes = Zeroizing::new(recovery_key.decrypt(&recovery_blob)?);
 
     if master_key_bytes.len() != 32 {
         return Err(CryptoError::CorruptedProfile);
@@ -189,11 +195,18 @@ pub fn recover_profile(
     key_array.copy_from_slice(&master_key_bytes);
     let master_key = ProfileKey::from_bytes_internal(key_array);
 
-    // Verify the recovered key works
-    let verification_bytes = std::fs::read(profile_dir.join("verification.enc"))?;
-    let verification = EncryptedData::from_bytes(&verification_bytes)?;
-    if !verify_password(&master_key, &verification) {
-        return Err(CryptoError::CorruptedProfile);
+    // Verify the recovered key.
+    // If password_blob.enc exists (password was changed), verification.enc is encrypted
+    // with the password-derived key, not the master key. In that case, the AES-GCM
+    // authenticated decryption of recovery_blob already proves correctness.
+    // Without password_blob.enc, the master key IS the password-derived key,
+    // so we can verify against verification.enc directly.
+    if !profile_dir.join("password_blob.enc").exists() {
+        let verification_bytes = std::fs::read(profile_dir.join("verification.enc"))?;
+        let verification = EncryptedData::from_bytes(&verification_bytes)?;
+        if !verify_password(&master_key, &verification) {
+            return Err(CryptoError::CorruptedProfile);
+        }
     }
 
     let info = load_profile_info(profiles_dir, profile_id)?;
@@ -205,6 +218,69 @@ pub fn recover_profile(
         key: master_key,
         db_path: profile_dir.join("database/coheara.db"),
     })
+}
+
+/// Change profile password (RS-L3-01-001).
+///
+/// Requires an active session. Verifies the current password, then:
+/// 1. Generates a new salt and derives a new password key
+/// 2. Re-encrypts the verification token with the new password key
+/// 3. Stores the master key encrypted with the new password key in `password_blob.enc`
+/// 4. The actual master key (used for data) is unchanged — only the wrapping changes
+///
+/// After this, `open_profile` will detect `password_blob.enc` and use indirection.
+pub fn change_password(
+    profiles_dir: &Path,
+    profile_id: &Uuid,
+    current_password: &str,
+    new_password: &str,
+    master_key_bytes: &[u8; 32],
+) -> Result<(), CryptoError> {
+    let profile_dir = profiles_dir.join(profile_id.to_string());
+    if !profile_dir.exists() {
+        return Err(CryptoError::ProfileNotFound(*profile_id));
+    }
+
+    // Verify current password
+    let old_salt = load_salt(&profile_dir.join("salt.bin"))?;
+    let old_key = ProfileKey::derive(current_password, &old_salt);
+    let verification_bytes = std::fs::read(profile_dir.join("verification.enc"))?;
+    let verification = EncryptedData::from_bytes(&verification_bytes)?;
+    if !verify_password(&old_key, &verification) {
+        return Err(CryptoError::WrongPassword);
+    }
+
+    // Generate new salt and derive new password key
+    let new_salt = generate_salt();
+    let new_key = ProfileKey::derive(new_password, &new_salt);
+
+    // Write new salt
+    std::fs::write(profile_dir.join("salt.bin"), new_salt)?;
+
+    // Write new verification token (encrypted with new password key)
+    let new_verification = new_key.encrypt(VERIFICATION_PLAINTEXT)?;
+    std::fs::write(
+        profile_dir.join("verification.enc"),
+        new_verification.to_bytes(),
+    )?;
+
+    // Write password blob: master key encrypted with new password key.
+    // This enables open_profile to recover the original master key from the new password.
+    let password_blob = new_key.encrypt(master_key_bytes)?;
+    std::fs::write(
+        profile_dir.join("password_blob.enc"),
+        password_blob.to_bytes(),
+    )?;
+
+    // Update recovery blob: master key encrypted with recovery key.
+    // This ensures recovery still works with the original master key.
+    // Recovery blob was originally created with the password-derived key bytes
+    // as the "master key". Since we're keeping those same bytes, the recovery
+    // blob is still valid. But if this is the first password change (no prior
+    // password_blob), the recovery_blob already stores the right master key.
+
+    tracing::info!(profile_id = %profile_id, "Password changed successfully");
+    Ok(())
 }
 
 /// List available profiles (names and IDs only)
@@ -249,6 +325,28 @@ pub fn delete_profile(profiles_dir: &Path, profile_id: &Uuid) -> Result<(), Cryp
 // ═══════════════════════════════════════════
 // Internal helpers
 // ═══════════════════════════════════════════
+
+/// Resolve the actual master key from a password-derived key.
+///
+/// If `password_blob.enc` exists (created by `change_password`), the password-derived
+/// key is a wrapper — decrypt the blob to get the real master key.
+/// If the blob doesn't exist, the password-derived key IS the master key (original behavior).
+fn resolve_master_key(profile_dir: &Path, password_key: ProfileKey) -> Result<ProfileKey, CryptoError> {
+    let blob_path = profile_dir.join("password_blob.enc");
+    if blob_path.exists() {
+        let blob_bytes = std::fs::read(&blob_path)?;
+        let blob = EncryptedData::from_bytes(&blob_bytes)?;
+        let master_key_bytes = Zeroizing::new(password_key.decrypt(&blob)?);
+        if master_key_bytes.len() != 32 {
+            return Err(CryptoError::CorruptedProfile);
+        }
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&master_key_bytes);
+        Ok(ProfileKey::from_bytes_internal(key_array))
+    } else {
+        Ok(password_key)
+    }
+}
 
 fn load_salt(path: &Path) -> Result<[u8; SALT_LENGTH], CryptoError> {
     let bytes = std::fs::read(path)?;
@@ -466,5 +564,118 @@ mod tests {
 
         let profiles = list_profiles(dir.path()).unwrap();
         assert_eq!(profiles[0].managed_by.as_deref(), Some("Dr. Smith"));
+    }
+
+    // ── Password change tests (RS-L3-01-001) ─────────────
+
+    #[test]
+    fn change_password_allows_new_login() {
+        let dir = test_dir();
+        let (info, _phrase) = create_profile(dir.path(), "Alice", "old_pass", None).unwrap();
+
+        // Open with old password to get master key
+        let session = open_profile(dir.path(), &info.id, "old_pass").unwrap();
+        let key_bytes = *session.key_bytes();
+        drop(session);
+
+        // Change password
+        change_password(dir.path(), &info.id, "old_pass", "new_pass", &key_bytes).unwrap();
+
+        // New password works
+        let session = open_profile(dir.path(), &info.id, "new_pass").unwrap();
+        assert_eq!(session.profile_name, "Alice");
+    }
+
+    #[test]
+    fn change_password_rejects_wrong_current() {
+        let dir = test_dir();
+        let (info, _phrase) = create_profile(dir.path(), "Bob", "correct", None).unwrap();
+        let key_bytes = [42u8; 32]; // dummy — won't reach this
+
+        let result = change_password(dir.path(), &info.id, "wrong", "new_pass", &key_bytes);
+        assert!(matches!(result, Err(CryptoError::WrongPassword)));
+    }
+
+    #[test]
+    fn old_password_fails_after_change() {
+        let dir = test_dir();
+        let (info, _phrase) = create_profile(dir.path(), "Carol", "old_pass", None).unwrap();
+
+        let session = open_profile(dir.path(), &info.id, "old_pass").unwrap();
+        let key_bytes = *session.key_bytes();
+        drop(session);
+
+        change_password(dir.path(), &info.id, "old_pass", "new_pass", &key_bytes).unwrap();
+
+        let result = open_profile(dir.path(), &info.id, "old_pass");
+        assert!(matches!(result, Err(CryptoError::WrongPassword)));
+    }
+
+    #[test]
+    fn data_accessible_after_password_change() {
+        let dir = test_dir();
+        let (info, _phrase) = create_profile(dir.path(), "Dave", "pass1", None).unwrap();
+
+        // Encrypt data with original session
+        let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
+        let encrypted = session.encrypt(b"medical record").unwrap();
+        let key_bytes = *session.key_bytes();
+        drop(session);
+
+        // Change password
+        change_password(dir.path(), &info.id, "pass1", "pass2", &key_bytes).unwrap();
+
+        // Decrypt data with new session — master key unchanged
+        let session = open_profile(dir.path(), &info.id, "pass2").unwrap();
+        let decrypted = session.decrypt(&encrypted).unwrap();
+        assert_eq!(&decrypted, b"medical record");
+    }
+
+    #[test]
+    fn recovery_still_works_after_password_change() {
+        let dir = test_dir();
+        let (info, phrase) = create_profile(dir.path(), "Eve", "pass1", None).unwrap();
+        let phrase_str = phrase.as_str().to_string();
+        drop(phrase);
+
+        // Encrypt data, change password
+        let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
+        let encrypted = session.encrypt(b"sensitive data").unwrap();
+        let key_bytes = *session.key_bytes();
+        drop(session);
+
+        change_password(dir.path(), &info.id, "pass1", "pass2", &key_bytes).unwrap();
+
+        // Recovery phrase still restores access
+        let session = recover_profile(dir.path(), &info.id, &phrase_str).unwrap();
+        let decrypted = session.decrypt(&encrypted).unwrap();
+        assert_eq!(&decrypted, b"sensitive data");
+    }
+
+    #[test]
+    fn multiple_password_changes() {
+        let dir = test_dir();
+        let (info, _phrase) = create_profile(dir.path(), "Frank", "pass1", None).unwrap();
+
+        let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
+        let encrypted = session.encrypt(b"data").unwrap();
+        let key_bytes = *session.key_bytes();
+        drop(session);
+
+        // Change 1→2
+        change_password(dir.path(), &info.id, "pass1", "pass2", &key_bytes).unwrap();
+        // Change 2→3
+        change_password(dir.path(), &info.id, "pass2", "pass3", &key_bytes).unwrap();
+        // Change 3→4
+        change_password(dir.path(), &info.id, "pass3", "pass4", &key_bytes).unwrap();
+
+        // Only pass4 works
+        assert!(open_profile(dir.path(), &info.id, "pass1").is_err());
+        assert!(open_profile(dir.path(), &info.id, "pass2").is_err());
+        assert!(open_profile(dir.path(), &info.id, "pass3").is_err());
+
+        let session = open_profile(dir.path(), &info.id, "pass4").unwrap();
+        let decrypted = session.decrypt(&encrypted).unwrap();
+        assert_eq!(&decrypted, b"data");
     }
 }

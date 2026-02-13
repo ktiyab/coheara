@@ -95,6 +95,7 @@ pub struct HomeData {
     pub stats: ProfileStats,
     pub recent_documents: Vec<DocumentCard>,
     pub onboarding: OnboardingProgress,
+    pub critical_alerts: Vec<crate::trust::CriticalLabAlert>,
 }
 
 // ---------------------------------------------------------------------------

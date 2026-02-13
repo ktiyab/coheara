@@ -393,3 +393,154 @@ describe('cache-manager — first sync progress', () => {
 		expect(get(firstSyncProgress)).toBeNull();
 	});
 });
+
+// === COMBINED DELTA SYNC (RS-M1-06-002) ===
+
+describe('cache-manager — combined delta sync', () => {
+	beforeEach(() => {
+		resetCacheManagerState();
+		applySyncPayload(makePayload({
+			medications: [makeMed({ id: 'med-1' }), makeMed({ id: 'med-2', name: 'Metformin' })],
+			labs: [makeLab({ id: 'lab-1' }), makeLab({ id: 'lab-2', testName: 'Creatinine' })],
+			timeline: [makeEvent({ id: 'event-1' })],
+			alerts: [makeAlert({ id: 'alert-1' }), makeAlert({ id: 'alert-2', title: 'Drug allergy' })]
+		}));
+	});
+
+	it('applies upserts and tombstones across multiple entity types simultaneously', () => {
+		const delta: DeltaPayload = {
+			medications: [makeMed({ id: 'med-3', name: 'Aspirin' })],
+			removed_medication_ids: ['med-1'],
+			labs: [makeLab({ id: 'lab-1', value: 6.5 })],
+			removed_alert_ids: ['alert-2'],
+			timeline: [makeEvent({ id: 'event-2', title: 'New event' })],
+			versions: makeVersions(2),
+			synced_at: '2026-02-15T12:00:00Z'
+		};
+		applyDeltaPayload(delta);
+
+		// med-1 removed, med-2 kept, med-3 added
+		const meds = get(medications);
+		expect(meds).toHaveLength(2);
+		expect(meds.map((m) => m.id).sort()).toEqual(['med-2', 'med-3']);
+
+		// lab-1 updated (value changed), lab-2 untouched
+		const labs = get(labResults);
+		expect(labs).toHaveLength(2);
+		expect(labs.find((l) => l.id === 'lab-1')?.value).toBe(6.5);
+
+		// alert-2 removed, alert-1 kept
+		expect(get(activeAlerts)).toHaveLength(1);
+		expect(get(activeAlerts)[0].id).toBe('alert-1');
+
+		// event-2 added to existing event-1
+		expect(get(timelineEvents)).toHaveLength(2);
+	});
+
+	it('handles upsert and tombstone for same entity type in one delta', () => {
+		const delta: DeltaPayload = {
+			medications: [makeMed({ id: 'med-1', dose: '20mg' })],
+			removed_medication_ids: ['med-2'],
+			versions: makeVersions(2),
+			synced_at: new Date().toISOString()
+		};
+		applyDeltaPayload(delta);
+
+		const meds = get(medications);
+		expect(meds).toHaveLength(1);
+		expect(meds[0].id).toBe('med-1');
+		expect(meds[0].dose).toBe('20mg');
+	});
+
+	it('delta with profile update preserves other entity stores', () => {
+		const delta: DeltaPayload = {
+			profile: { name: 'Thomas K.', blood_type: 'A+', allergies: ['Sulfa'], emergency_contacts: [] },
+			versions: makeVersions(2),
+			synced_at: new Date().toISOString()
+		};
+		applyDeltaPayload(delta);
+
+		expect(get(profile)?.name).toBe('Thomas K.');
+		expect(get(profile)?.bloodType).toBe('A+');
+		// Other stores untouched
+		expect(get(medications)).toHaveLength(2);
+		expect(get(labResults)).toHaveLength(2);
+		expect(get(activeAlerts)).toHaveLength(2);
+	});
+
+	it('empty delta (versions-only) leaves stores unchanged', () => {
+		const delta: DeltaPayload = {
+			versions: makeVersions(2),
+			synced_at: '2026-02-15T12:00:00Z'
+		};
+		applyDeltaPayload(delta);
+
+		expect(get(medications)).toHaveLength(2);
+		expect(get(labResults)).toHaveLength(2);
+		expect(get(activeAlerts)).toHaveLength(2);
+		expect(get(syncState).versions.medications).toBe(2);
+		expect(get(lastSyncTimestamp)).toBe('2026-02-15T12:00:00Z');
+	});
+});
+
+// === EMERGENCY CONTACTS SYNC (RS-M1-06-003) ===
+
+describe('cache-manager — emergency contacts', () => {
+	beforeEach(() => resetCacheManagerState());
+
+	it('preserves emergency contacts through full sync', () => {
+		applySyncPayload(makePayload({
+			profile: {
+				name: 'Thomas',
+				blood_type: 'O+',
+				allergies: ['Penicillin'],
+				emergency_contacts: [
+					{ name: 'Amina K.', phone: '+221771234567', relation: 'spouse' },
+					{ name: 'Dr. Diallo', phone: '+221779876543', relation: 'physician' }
+				]
+			}
+		}));
+
+		const p = get(profile);
+		expect(p?.emergencyContacts).toHaveLength(2);
+		expect(p?.emergencyContacts[0].name).toBe('Amina K.');
+		expect(p?.emergencyContacts[0].phone).toBe('+221771234567');
+		expect(p?.emergencyContacts[0].relation).toBe('spouse');
+		expect(p?.emergencyContacts[1].relation).toBe('physician');
+	});
+
+	it('preserves emergency contacts through delta sync', () => {
+		applySyncPayload(makePayload());
+
+		const delta: DeltaPayload = {
+			profile: {
+				name: 'Thomas',
+				allergies: ['Penicillin', 'Sulfa'],
+				emergency_contacts: [
+					{ name: 'Amina K.', phone: '+221771234567', relation: 'spouse' }
+				]
+			},
+			versions: makeVersions(2),
+			synced_at: new Date().toISOString()
+		};
+		applyDeltaPayload(delta);
+
+		const p = get(profile);
+		expect(p?.emergencyContacts).toHaveLength(1);
+		expect(p?.emergencyContacts[0].name).toBe('Amina K.');
+		expect(p?.allergies).toEqual(['Penicillin', 'Sulfa']);
+	});
+
+	it('handles empty emergency contacts', () => {
+		applySyncPayload(makePayload({
+			profile: {
+				name: 'Thomas',
+				blood_type: 'O+',
+				allergies: [],
+				emergency_contacts: []
+			}
+		}));
+
+		expect(get(profile)?.emergencyContacts).toEqual([]);
+	});
+});

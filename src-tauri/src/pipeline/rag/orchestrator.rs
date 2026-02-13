@@ -2,6 +2,7 @@ use rusqlite::Connection;
 
 use super::citation::{
     calculate_confidence, clean_citations_for_display, extract_citations, parse_boundary_check,
+    validate_citations,
 };
 use super::classify::{classify_query, retrieval_strategy};
 use super::context::assemble_context;
@@ -45,7 +46,39 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
     }
 
     /// Execute the full RAG pipeline for a patient query.
+    ///
+    /// Generates a response AND persists both patient message and response
+    /// to the database. Use `generate()` when the caller manages persistence
+    /// separately (e.g., after safety filtering).
     pub fn query(&self, query: &PatientQuery) -> Result<RagResponse, RagError> {
+        let response = self.generate(query)?;
+
+        // Persist patient message + response
+        let conversation_mgr = ConversationManager::new(self.conn);
+        conversation_mgr.add_patient_message(query.conversation_id, &query.text)?;
+
+        let chunk_ids: Vec<&str> = response
+            .citations
+            .iter()
+            .map(|c| c.document_title.as_str())
+            .collect();
+        let source_chunks_json = serde_json::to_string(&chunk_ids).ok();
+
+        conversation_mgr.add_response(
+            query.conversation_id,
+            &response.text,
+            source_chunks_json.as_deref(),
+            response.confidence,
+        )?;
+
+        Ok(response)
+    }
+
+    /// Generate a RAG response without persisting to the database.
+    ///
+    /// Use this when the caller manages persistence separately,
+    /// e.g., after applying safety filtering to the response text.
+    pub fn generate(&self, query: &PatientQuery) -> Result<RagResponse, RagError> {
         // Step 1: Classify query
         let query_type = query
             .query_type
@@ -101,7 +134,10 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         let (boundary_check, cleaned_response) = parse_boundary_check(&raw_response);
 
         // Step 10: Extract citations
-        let citations = extract_citations(&cleaned_response, &assembled.chunks_included);
+        let raw_citations = extract_citations(&cleaned_response, &assembled.chunks_included);
+
+        // Step 10b: Validate citation document_ids against DB (RS-L2-01-002)
+        let citations = validate_citations(self.conn, raw_citations);
 
         // Step 11: Clean citation markers from display text
         let display_text = clean_citations_for_display(&cleaned_response);
@@ -113,10 +149,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             assembled.chunks_included.len(),
         );
 
-        // Step 13: Persist messages
-        self.persist_exchange(query, &display_text, &assembled, confidence)?;
-
-        // Step 14: Build response
+        // Step 13: Build response
         let context_used = build_context_summary(&assembled, &retrieved.structured_data);
 
         Ok(RagResponse {
@@ -144,36 +177,6 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         }
     }
 
-    fn persist_exchange(
-        &self,
-        query: &PatientQuery,
-        response_text: &str,
-        assembled: &AssembledContext,
-        confidence: f32,
-    ) -> Result<(), RagError> {
-        let conversation_mgr = ConversationManager::new(self.conn);
-
-        // Persist patient message
-        conversation_mgr.add_patient_message(query.conversation_id, &query.text)?;
-
-        // Build source chunks JSON (chunk IDs for traceability)
-        let chunk_ids: Vec<&str> = assembled
-            .chunks_included
-            .iter()
-            .map(|c| c.chunk_id.as_str())
-            .collect();
-        let source_chunks_json = serde_json::to_string(&chunk_ids).ok();
-
-        // Persist response
-        conversation_mgr.add_response(
-            query.conversation_id,
-            response_text,
-            source_chunks_json.as_deref(),
-            confidence,
-        )?;
-
-        Ok(())
-    }
 }
 
 fn build_context_summary(

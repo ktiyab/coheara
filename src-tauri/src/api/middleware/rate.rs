@@ -50,6 +50,19 @@ async fn limit_inner(
 
     // MutexGuard is !Send — must drop before .await via block scope
     {
+        // Global rate limit: 500 req/min across all devices (RS-M0-01-002)
+        let mut global = ctx
+            .global_limiter
+            .lock()
+            .map_err(|_| ApiError::Internal("global limiter lock".into()))?;
+
+        global
+            .check()
+            .map_err(|retry_after| ApiError::RateLimited { retry_after })?;
+    }
+
+    {
+        // Per-device rate limit: 100/min, 1000/hour
         let mut limiter = ctx
             .rate_limiter
             .lock()

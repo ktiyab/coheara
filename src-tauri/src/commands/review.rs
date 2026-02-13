@@ -21,8 +21,9 @@ use crate::db::sqlite::open_database;
 use crate::pipeline::structuring::types::StructuringResult;
 use crate::review::{
     apply_corrections, count_extracted_fields, detect_file_type, flatten_entities_to_fields,
-    update_document_rejected, update_document_verified, EntitiesStoredSummary, FieldCorrection,
-    ReviewConfirmResult, ReviewData, ReviewOutcome, ReviewRejectResult,
+    generate_plausibility_warnings, update_document_rejected, update_document_verified,
+    EntitiesStoredSummary, FieldCorrection, ReviewConfirmResult, ReviewData, ReviewOutcome,
+    ReviewRejectResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,10 @@ pub fn get_review_data(
     // Flatten entities into ExtractedField list
     let extracted_fields = flatten_entities_to_fields(&structuring);
 
+    // Generate plausibility warnings before moving fields into struct
+    let plausibility_warnings =
+        generate_plausibility_warnings(&conn, &structuring, &extracted_fields);
+
     // Determine original file type
     let original_file_type = detect_file_type(&doc.source_file);
 
@@ -151,7 +156,7 @@ pub fn get_review_data(
         professional_specialty,
         structured_markdown: structuring.structured_markdown,
         extracted_fields,
-        plausibility_warnings: vec![], // Plausibility checks deferred to coherence engine post-confirm
+        plausibility_warnings,
         overall_confidence: doc.ocr_confidence.unwrap_or(0.0),
     })
 }

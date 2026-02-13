@@ -8,6 +8,7 @@ use tauri::State;
 
 use crate::core_state::CoreState;
 use crate::device_manager::{DeviceCount, DeviceSummary, InactiveWarning};
+use crate::pairing;
 
 /// List all paired devices with connection status.
 #[tauri::command]
@@ -36,6 +37,13 @@ pub fn unpair_device(
             .unpair_device(&device_id)
             .map_err(|e| e.to_string())?
     };
+
+    // Persist revocation to database (RS-ME-02-001)
+    if let Ok(conn) = state.open_db() {
+        if let Err(e) = pairing::db_revoke_device(&conn, &device_id) {
+            tracing::warn!("Failed to persist device revocation: {e}");
+        }
+    }
 
     // Send revocation to connected device if it has a WebSocket
     if let Some(tx) = ws_tx {

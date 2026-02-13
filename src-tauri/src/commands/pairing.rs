@@ -82,52 +82,26 @@ pub fn get_pending_approval(
 
 /// Approve the pending pairing request.
 ///
-/// Completes the ECDH key exchange and registers the device.
+/// Signals approval to the phone's waiting HTTP handler. The actual
+/// ECDH key exchange and device registration happens in the HTTP
+/// endpoint (`POST /api/auth/pair`) after the phone receives this signal.
+///
+/// This split avoids a race condition where both the desktop IPC and
+/// HTTP endpoint would call `approve()`, consuming the pairing state
+/// and causing the second call to fail (RS-M002-01).
 #[tauri::command]
 pub fn approve_pairing(state: State<'_, Arc<CoreState>>) -> Result<(), String> {
-    let approved = {
-        let mut pairing = state.lock_pairing().map_err(|e| e.to_string())?;
-        pairing.approve().map_err(|e| e.to_string())?
-    };
-
-    // Register device in DeviceManager
-    let device_id = uuid::Uuid::new_v4().to_string();
-    {
-        let mut devices = state.write_devices().map_err(|e| e.to_string())?;
-        devices
-            .register_device(
-                device_id.clone(),
-                approved.device_name.clone(),
-                approved.device_model.clone(),
-                approved.token_hash,
-            )
-            .map_err(|e| e.to_string())?;
-    }
-
-    // Persist to database
-    if let Ok(conn) = state.open_db() {
-        let _ = crate::pairing::db_store_paired_device(
-            &conn,
-            &device_id,
-            &approved.device_name,
-            &approved.device_model,
-            &approved.phone_public_key,
-        );
-        let _ = crate::pairing::db_store_session(&conn, &device_id, &approved.token_hash);
-    }
+    let mut pairing = state.lock_pairing().map_err(|e| e.to_string())?;
+    pairing.signal_approval().map_err(|e| e.to_string())?;
 
     // Audit log
     state.log_access(
         crate::core_state::AccessSource::DesktopUi,
         "approve_pairing",
-        &format!("device:{device_id}"),
+        "pairing_signal",
     );
 
-    tracing::info!(
-        device_id,
-        device_name = approved.device_name,
-        "Device pairing approved"
-    );
+    tracing::info!("Desktop user approved pairing — phone handler will complete ECDH");
 
     Ok(())
 }

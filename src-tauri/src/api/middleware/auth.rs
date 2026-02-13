@@ -35,6 +35,25 @@ async fn require_auth_inner(
         .cloned()
         .ok_or(ApiError::Internal("missing API context".into()))?;
 
+    // 0. Extract source identifier for lockout tracking (RS-M0-01-001)
+    let lockout_source = req
+        .headers()
+        .get("X-Device-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("anonymous")
+        .to_string();
+
+    // 0b. Check if source is locked out
+    {
+        let mut lockout = ctx
+            .auth_lockout
+            .lock()
+            .map_err(|_| ApiError::Internal("lockout lock".into()))?;
+        if lockout.is_locked(&lockout_source) {
+            return Err(ApiError::Unauthorized);
+        }
+    }
+
     // 1. Extract bearer token
     let token = req
         .headers()
@@ -51,10 +70,22 @@ async fn require_auth_inner(
             .write_devices()
             .map_err(|_| ApiError::Internal("device lock".into()))?;
 
-        devices
-            .validate_and_rotate(&token)
-            .ok_or(ApiError::Unauthorized)?
+        match devices.validate_and_rotate(&token) {
+            Some(result) => result,
+            None => {
+                // Record auth failure for lockout tracking
+                if let Ok(mut lockout) = ctx.auth_lockout.lock() {
+                    lockout.record_failure(&lockout_source);
+                }
+                return Err(ApiError::Unauthorized);
+            }
+        }
     }; // RwLockWriteGuard dropped here, before any .await
+
+    // 2b. Clear lockout on successful auth
+    if let Ok(mut lockout) = ctx.auth_lockout.lock() {
+        lockout.clear(&lockout_source);
+    }
 
     // 3. Inject device context for downstream handlers
     req.extensions_mut().insert(DeviceContext {

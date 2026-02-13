@@ -15,12 +15,17 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::chat::{
-    self, generate_title, update_conversation_title, ChatStreamEvent, ConversationSummary,
-    PromptSuggestion, StreamChunkPayload,
+    self, generate_title, update_conversation_title, ChatStreamEvent, CitationView,
+    ConversationSummary, PromptSuggestion, StreamChunkPayload,
 };
 use crate::core_state::CoreState;
 use crate::models::enums::{MessageFeedback, MessageRole};
 use crate::pipeline::rag::conversation::ConversationManager;
+use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
+use crate::pipeline::rag::retrieval::InMemoryVectorSearch;
+use crate::pipeline::rag::types::{PatientQuery, RagResponse};
+use crate::pipeline::safety::orchestrator::SafetyFilterImpl;
+use crate::pipeline::safety::types::{FilterOutcome, SafetyFilter};
 
 /// Start a new conversation. Returns the conversation ID.
 #[tauri::command]
@@ -38,13 +43,11 @@ pub fn start_conversation(state: State<'_, Arc<CoreState>>) -> Result<String, St
 /// Send a patient message and stream the response via Tauri events.
 ///
 /// Flow:
-/// 1. Saves the patient message in the database
-/// 2. Updates the conversation title from the first message
-/// 3. Streams the RAG response via `chat-stream` events
-///
-/// Currently: RAG pipeline is not wired into AppState, so a placeholder
-/// response is emitted. When the pipeline is integrated, this command
-/// will call `RagPipeline::query()` and stream tokens.
+/// 1. Sanitize patient input (L2-02 safety filter)
+/// 2. Save the patient message in the database
+/// 3. Update conversation title from first message
+/// 4. Try RAG pipeline if Ollama is available; otherwise emit placeholder
+/// 5. Filter RAG response through safety layers before emitting
 #[tauri::command]
 pub fn send_chat_message(
     conversation_id: String,
@@ -58,32 +61,203 @@ pub fn send_chat_message(
         Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
     let manager = ConversationManager::new(&conn);
+    let safety = SafetyFilterImpl::new();
 
-    // 1. Save patient message
+    // 1. Sanitize patient input (L2-02: remove injection patterns, control chars)
+    let sanitized = safety
+        .sanitize_input(&text)
+        .map_err(|e| format!("Input sanitization failed: {e}"))?;
+
+    if sanitized.was_modified {
+        tracing::info!(
+            modifications = sanitized.modifications.len(),
+            "Patient input sanitized before processing"
+        );
+    }
+
+    // 2. Save patient message (sanitized)
     manager
-        .add_patient_message(conv_uuid, &text)
+        .add_patient_message(conv_uuid, &sanitized.text)
         .map_err(|e| e.to_string())?;
 
-    // 2. Update conversation title from first message if still default
+    // 3. Update conversation title from first message if still default
     let history = manager.get_history(conv_uuid).map_err(|e| e.to_string())?;
     let patient_messages: Vec<_> = history
         .iter()
         .filter(|m| m.role == MessageRole::Patient)
         .collect();
     if patient_messages.len() == 1 {
-        let title = generate_title(&text);
+        let title = generate_title(&sanitized.text);
         let _ = update_conversation_title(&conn, &conversation_id, &title);
     }
 
-    // 3. Stream response (placeholder until RAG pipeline is wired into AppState)
-    //    When integrated: call rag_pipeline.query() → stream tokens → safety filter → emit Done
+    // 4. Attempt RAG pipeline; fall back to placeholder if unavailable
+    match try_rag_query(&sanitized.text, conv_uuid, &conn) {
+        Some(rag_response) => {
+            // 5. Filter RAG response through safety layers
+            emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
+        }
+        None => {
+            emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid)?;
+        }
+    }
+
+    state.update_activity();
+    Ok(())
+}
+
+/// Attempt to run the RAG pipeline. Returns `None` if AI services unavailable.
+///
+/// Currently checks for Ollama availability at runtime. When production
+/// embedder (ONNX) and vector store (LanceDB) are implemented, this
+/// function will construct the full pipeline.
+fn try_rag_query(
+    query_text: &str,
+    conversation_id: Uuid,
+    conn: &rusqlite::Connection,
+) -> Option<RagResponse> {
+    use crate::pipeline::rag::ollama::OllamaRagGenerator;
+
+    // Check if Ollama is available with a MedGemma model
+    let generator = OllamaRagGenerator::try_auto_detect()?;
+
+    // TODO(L1-04): Replace with production ONNX embedder when implemented (RS-L1-04-001)
+    // TODO(L1-04): Replace with production LanceDB vector store when implemented (RS-L1-04-002)
+    // For now, use in-memory stubs — semantic search will return no results,
+    // but structured data (medications, labs, etc.) will still be retrieved.
+    let embedder = crate::pipeline::storage::embedder::MockEmbedder::new();
+    let vector_store = InMemoryVectorSearch::new();
+
+    let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
+    let query = PatientQuery {
+        text: query_text.to_string(),
+        conversation_id,
+        query_type: None,
+    };
+
+    match pipeline.generate(&query) {
+        Ok(response) => {
+            tracing::info!(
+                confidence = response.confidence,
+                boundary = ?response.boundary_check,
+                citations = response.citations.len(),
+                "RAG pipeline generated response"
+            );
+            Some(response)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "RAG pipeline failed, falling back to placeholder");
+            None
+        }
+    }
+}
+
+/// Emit a RAG response filtered through safety layers.
+fn emit_filtered_response(
+    app: &AppHandle,
+    conversation_id: &str,
+    rag_response: &RagResponse,
+    safety: &SafetyFilterImpl,
+    manager: &ConversationManager<'_>,
+    conv_uuid: Uuid,
+) -> Result<(), String> {
+    // Run safety filter on RAG output (L2-02: boundary, keyword, grounding checks)
+    let filtered = safety
+        .filter_response(rag_response)
+        .map_err(|e| format!("Safety filter error: {e}"))?;
+
+    let (display_text, confidence, boundary_str) = match &filtered.filter_outcome {
+        FilterOutcome::Passed => (
+            filtered.text.clone(),
+            filtered.confidence,
+            format!("{:?}", filtered.boundary_check),
+        ),
+        FilterOutcome::Rephrased { .. } => {
+            tracing::info!("Safety filter rephrased RAG response");
+            (
+                filtered.text.clone(),
+                filtered.confidence,
+                format!("{:?}", filtered.boundary_check),
+            )
+        }
+        FilterOutcome::Blocked { fallback_message, .. } => {
+            tracing::warn!("Safety filter blocked RAG response");
+            (fallback_message.clone(), 0.0, "OutOfBounds".to_string())
+        }
+    };
+
+    // Emit citations
+    for citation in &rag_response.citations {
+        let _ = app.emit(
+            "chat-stream",
+            &ChatStreamEvent {
+                conversation_id: conversation_id.to_string(),
+                chunk: StreamChunkPayload::Citation {
+                    citation: CitationView::from(citation.clone()),
+                },
+            },
+        );
+    }
+
+    // Emit response text
+    let _ = app.emit(
+        "chat-stream",
+        &ChatStreamEvent {
+            conversation_id: conversation_id.to_string(),
+            chunk: StreamChunkPayload::Token {
+                text: display_text.clone(),
+            },
+        },
+    );
+
+    // Emit done
+    let _ = app.emit(
+        "chat-stream",
+        &ChatStreamEvent {
+            conversation_id: conversation_id.to_string(),
+            chunk: StreamChunkPayload::Done {
+                full_text: display_text.clone(),
+                confidence,
+                boundary_check: boundary_str,
+            },
+        },
+    );
+
+    // Persist the filtered response
+    let source_chunks_json = if rag_response.citations.is_empty() {
+        None
+    } else {
+        serde_json::to_string(
+            &rag_response
+                .citations
+                .iter()
+                .map(|c| c.document_id.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .ok()
+    };
+
+    manager
+        .add_response(conv_uuid, &display_text, source_chunks_json.as_deref(), confidence)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Emit a placeholder response when AI services are unavailable.
+fn emit_placeholder_response(
+    app: &AppHandle,
+    conversation_id: &str,
+    manager: &ConversationManager<'_>,
+    conv_uuid: Uuid,
+) -> Result<(), String> {
     let placeholder = "I'm not connected to the AI assistant yet. \
         Please make sure Ollama is running with the MedGemma model to enable chat responses.";
 
     let _ = app.emit(
         "chat-stream",
         &ChatStreamEvent {
-            conversation_id: conversation_id.clone(),
+            conversation_id: conversation_id.to_string(),
             chunk: StreamChunkPayload::Token {
                 text: placeholder.to_string(),
             },
@@ -93,7 +267,7 @@ pub fn send_chat_message(
     let _ = app.emit(
         "chat-stream",
         &ChatStreamEvent {
-            conversation_id: conversation_id.clone(),
+            conversation_id: conversation_id.to_string(),
             chunk: StreamChunkPayload::Done {
                 full_text: placeholder.to_string(),
                 confidence: 0.0,
@@ -102,12 +276,10 @@ pub fn send_chat_message(
         },
     );
 
-    // Save placeholder response
     manager
         .add_response(conv_uuid, placeholder, None, 0.0)
         .map_err(|e| e.to_string())?;
 
-    state.update_activity();
     Ok(())
 }
 

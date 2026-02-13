@@ -1,12 +1,7 @@
 // M1-02: Chat API functions — HTTP fetching + WebSocket message sending
 import { apiClient } from './client.js';
 import type { ApiResponse } from './client.js';
-import type {
-	ChatMessage,
-	ConversationSummary,
-	WsChatQuery,
-	WsChatFeedback
-} from '$lib/types/chat.js';
+import type { ChatMessage, ConversationSummary } from '$lib/types/chat.js';
 
 /** Fetch conversation list from desktop */
 export async function fetchConversations(): Promise<ApiResponse<ConversationSummary[]>> {
@@ -25,18 +20,11 @@ export function sendChatQuery(
 	conversationId: string | null,
 	message: string
 ): boolean {
-	const payload: WsChatQuery = {
+	return apiClient.sendWsMessage({
 		type: 'ChatQuery',
-		conversationId,
+		conversation_id: conversationId,
 		message
-	};
-
-	if (!apiClient.isWsConnected) return false;
-
-	// WebSocket send handled via the client's message system
-	// The actual WS send would use the native WebSocket instance
-	// For now, we return the structured message to be sent
-	return true;
+	});
 }
 
 /** Send feedback for a message via WebSocket */
@@ -45,15 +33,12 @@ export function sendChatFeedback(
 	messageId: string,
 	helpful: boolean
 ): boolean {
-	const payload: WsChatFeedback = {
+	return apiClient.sendWsMessage({
 		type: 'ChatFeedback',
-		conversationId,
-		messageId,
+		conversation_id: conversationId,
+		message_id: messageId,
 		helpful
-	};
-
-	if (!apiClient.isWsConnected) return false;
-	return true;
+	});
 }
 
 /** Fetch quick question suggestions from desktop */

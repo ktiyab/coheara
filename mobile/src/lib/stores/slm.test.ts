@@ -1,5 +1,5 @@
 // M2-01: SLM Store tests — model lifecycle state machine, device capability, generation
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import {
 	modelState,
@@ -30,7 +30,13 @@ import {
 	completeGeneration,
 	abortGeneration,
 	deleteModel,
-	resetSlmState
+	resetSlmState,
+	computeSha256,
+	verifyChecksum,
+	verifyModelChecksum,
+	completeDownloadVerified,
+	onAppBackground,
+	onAppForeground
 } from './slm.js';
 import { MODEL_SPECS, MIN_RAM_BYTES } from '$lib/types/slm.js';
 
@@ -326,5 +332,116 @@ describe('slm store — derived stores', () => {
 		expect(get(canGenerate)).toBe(true);
 		startGeneration();
 		expect(get(canGenerate)).toBe(false);
+	});
+});
+
+// === SHA-256 CHECKSUM VERIFICATION (RS-M2-01-001) ===
+
+describe('slm store — checksum verification', () => {
+	it('computeSha256 produces correct hex digest', async () => {
+		const data = new TextEncoder().encode('hello world');
+		const hash = await computeSha256(data);
+		expect(hash).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+	});
+
+	it('computeSha256 produces different hash for different data', async () => {
+		const a = await computeSha256(new TextEncoder().encode('data-a'));
+		const b = await computeSha256(new TextEncoder().encode('data-b'));
+		expect(a).not.toBe(b);
+	});
+
+	it('verifyChecksum returns true for matching hash', async () => {
+		const data = new TextEncoder().encode('hello world');
+		const result = await verifyChecksum(data, 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+		expect(result).toBe(true);
+	});
+
+	it('verifyChecksum returns false for mismatching hash', async () => {
+		const data = new TextEncoder().encode('hello world');
+		const result = await verifyChecksum(data, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
+		expect(result).toBe(false);
+	});
+
+	it('verifyModelChecksum skips when no expected hash configured', async () => {
+		const data = new TextEncoder().encode('model data');
+		const result = await verifyModelChecksum(data, 'gemma-2b-q4');
+		expect(result).toBe(true);
+	});
+
+	it('completeDownloadVerified succeeds with valid data', async () => {
+		startDownload('gemma-2b-q4');
+		const data = new TextEncoder().encode('model data');
+		const result = await completeDownloadVerified(data);
+		expect(result).toBe(true);
+		expect(get(modelState)).toBe('downloaded');
+	});
+
+	it('completeDownloadVerified does nothing when not downloading', async () => {
+		const data = new TextEncoder().encode('data');
+		const result = await completeDownloadVerified(data);
+		expect(result).toBe(false);
+		expect(get(modelState)).toBe('not_downloaded');
+	});
+});
+
+// === BACKGROUND UNLOAD TIMER (RS-M2-01-002) ===
+
+describe('slm store — background unload timer', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function setupReady(): void {
+		startDownload('gemma-2b-q4');
+		completeDownload();
+		loadModel();
+	}
+
+	it('unloads model after 30s in background', () => {
+		setupReady();
+		expect(get(modelState)).toBe('ready');
+
+		onAppBackground();
+		vi.advanceTimersByTime(30_000);
+
+		expect(get(modelState)).toBe('downloaded');
+	});
+
+	it('does not unload before 30s', () => {
+		setupReady();
+		onAppBackground();
+		vi.advanceTimersByTime(29_999);
+
+		expect(get(modelState)).toBe('ready');
+	});
+
+	it('cancels unload when returning to foreground', () => {
+		setupReady();
+		onAppBackground();
+		vi.advanceTimersByTime(15_000);
+		onAppForeground();
+		vi.advanceTimersByTime(20_000);
+
+		expect(get(modelState)).toBe('ready');
+	});
+
+	it('does not start timer when model not loaded', () => {
+		startDownload('gemma-2b-q4');
+		completeDownload();
+
+		onAppBackground();
+		vi.advanceTimersByTime(30_000);
+
+		expect(get(modelState)).toBe('downloaded');
+	});
+
+	it('foreground is safe when no timer is running', () => {
+		setupReady();
+		onAppForeground();
+		expect(get(modelState)).toBe('ready');
 	});
 });

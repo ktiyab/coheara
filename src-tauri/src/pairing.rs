@@ -148,7 +148,8 @@ struct PendingPairRequest {
     /// Phone's X25519 public key bytes.
     phone_public_bytes: [u8; 32],
     /// Channel to send approval/denial result.
-    response_tx: oneshot::Sender<bool>,
+    /// `None` after `signal_approval()` has been called.
+    response_tx: Option<oneshot::Sender<bool>>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -283,7 +284,7 @@ impl PairingManager {
             device_name: request.device_name.clone(),
             device_model: request.device_model.clone(),
             phone_public_bytes: phone_public,
-            response_tx: tx,
+            response_tx: Some(tx),
         });
 
         Ok(rx)
@@ -297,11 +298,32 @@ impl PairingManager {
         })
     }
 
-    /// Approve the pending pairing request.
+    /// Signal approval to the waiting phone HTTP handler.
     ///
-    /// Performs ECDH key exchange and returns the data needed to
-    /// register the device and respond to the phone.
-    pub fn approve(&mut self) -> Result<ApprovedPairing, PairingError> {
+    /// Sends `true` on the oneshot channel so the phone's long-poll unblocks.
+    /// Does NOT consume the pairing session — call `complete_pairing()` next
+    /// to perform ECDH and get the session token.
+    ///
+    /// This is called by the **desktop IPC** command. The **HTTP endpoint**
+    /// then calls `complete_pairing()` after receiving the signal.
+    pub fn signal_approval(&mut self) -> Result<(), PairingError> {
+        let pending = self.pending.as_mut().ok_or(PairingError::NoPendingApproval)?;
+        let tx = pending
+            .response_tx
+            .take()
+            .ok_or(PairingError::NoPendingApproval)?;
+        let _ = tx.send(true);
+        Ok(())
+    }
+
+    /// Complete the pairing after approval has been signaled.
+    ///
+    /// Performs ECDH key exchange, derives the cache key, generates a session
+    /// token, and returns all data needed to register the device.
+    ///
+    /// This is called by the **HTTP endpoint** after the phone receives the
+    /// approval signal and the handler unblocks.
+    pub fn complete_pairing(&mut self) -> Result<ApprovedPairing, PairingError> {
         let session = self.active.take().ok_or(PairingError::NoPairingActive)?;
         let pending = self.pending.take().ok_or(PairingError::NoPendingApproval)?;
 
@@ -316,9 +338,6 @@ impl PairingManager {
         let session_token = generate_token();
         let token_hash = hash_token(&session_token);
 
-        // Notify the waiting phone handler
-        let _ = pending.response_tx.send(true);
-
         Ok(ApprovedPairing {
             device_name: pending.device_name,
             device_model: pending.device_model,
@@ -329,10 +348,21 @@ impl PairingManager {
         })
     }
 
+    /// Convenience: signal approval AND complete in one call.
+    ///
+    /// For callers that own both the desktop and phone paths (e.g., tests).
+    /// In production, use `signal_approval()` + `complete_pairing()` separately.
+    pub fn approve(&mut self) -> Result<ApprovedPairing, PairingError> {
+        self.signal_approval()?;
+        self.complete_pairing()
+    }
+
     /// Deny the pending pairing request.
     pub fn deny(&mut self) {
-        if let Some(pending) = self.pending.take() {
-            let _ = pending.response_tx.send(false);
+        if let Some(mut pending) = self.pending.take() {
+            if let Some(tx) = pending.response_tx.take() {
+                let _ = tx.send(false);
+            }
         }
         self.active = None;
     }
@@ -846,6 +876,103 @@ mod tests {
             .unwrap();
         assert!(start.qr_svg.contains("<svg"));
         assert!(start.qr_svg.contains("</svg>"));
+    }
+
+    // ── Database persistence tests ────────────────────────
+
+    /// Tests the production split-approve flow (RS-M002-01 race fix):
+    /// Desktop IPC calls `signal_approval()`, HTTP handler calls `complete_pairing()`.
+    #[test]
+    fn split_approval_flow_signal_then_complete() {
+        let mut mgr = PairingManager::new();
+        let start = mgr
+            .start("https://192.168.1.42:8443".into(), "fp".into())
+            .unwrap();
+
+        let phone_secret = x25519_dalek::StaticSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+
+        let request = PairRequest {
+            token: start.qr_data.token.clone(),
+            phone_pubkey: base64::engine::general_purpose::STANDARD
+                .encode(phone_public.as_bytes()),
+            device_name: "Split Phone".into(),
+            device_model: "SplitModel".into(),
+        };
+
+        let _rx = mgr.submit_pair_request(&request).unwrap();
+
+        // Step 1: Desktop signals approval (does NOT consume pairing state)
+        mgr.signal_approval().unwrap();
+
+        // State should still be active — pending and active remain
+        assert!(mgr.is_active());
+        assert!(mgr.has_pending());
+
+        // Step 2: HTTP handler completes pairing (ECDH + token generation)
+        let approved = mgr.complete_pairing().unwrap();
+
+        assert_eq!(approved.device_name, "Split Phone");
+        assert_eq!(approved.device_model, "SplitModel");
+        assert!(!approved.session_token.is_empty());
+        assert_ne!(approved.cache_key, [0u8; 32]);
+
+        // State is now consumed
+        assert!(!mgr.is_active());
+        assert!(!mgr.has_pending());
+    }
+
+    /// Calling `signal_approval()` twice should fail (sender already taken).
+    #[test]
+    fn signal_approval_twice_fails() {
+        let mut mgr = PairingManager::new();
+        let start = mgr
+            .start("https://192.168.1.42:8443".into(), "fp".into())
+            .unwrap();
+
+        let phone_secret = x25519_dalek::StaticSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+
+        let request = PairRequest {
+            token: start.qr_data.token.clone(),
+            phone_pubkey: base64::engine::general_purpose::STANDARD
+                .encode(phone_public.as_bytes()),
+            device_name: "Phone".into(),
+            device_model: "Model".into(),
+        };
+
+        let _rx = mgr.submit_pair_request(&request).unwrap();
+
+        mgr.signal_approval().unwrap();
+        let result = mgr.signal_approval();
+        assert!(matches!(result, Err(PairingError::NoPendingApproval)));
+    }
+
+    /// Calling `complete_pairing()` without prior `signal_approval()` should still work
+    /// (the state is present, just the sender hasn't been used).
+    #[test]
+    fn complete_pairing_without_signal_works() {
+        let mut mgr = PairingManager::new();
+        let start = mgr
+            .start("https://192.168.1.42:8443".into(), "fp".into())
+            .unwrap();
+
+        let phone_secret = x25519_dalek::StaticSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+
+        let request = PairRequest {
+            token: start.qr_data.token.clone(),
+            phone_pubkey: base64::engine::general_purpose::STANDARD
+                .encode(phone_public.as_bytes()),
+            device_name: "Phone".into(),
+            device_model: "Model".into(),
+        };
+
+        let _rx = mgr.submit_pair_request(&request).unwrap();
+
+        // Skip signal_approval — complete_pairing should still work
+        let approved = mgr.complete_pairing().unwrap();
+        assert!(!approved.session_token.is_empty());
     }
 
     // ── Database persistence tests ────────────────────────

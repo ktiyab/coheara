@@ -1,7 +1,9 @@
 use regex::Regex;
+use rusqlite::Connection;
 use uuid::Uuid;
 
 use super::types::{BoundaryCheck, Citation, ScoredChunk};
+use crate::db::repository::get_document;
 
 /// Extract citations from MedGemma's response and match to source chunks.
 pub fn extract_citations(response_text: &str, context_chunks: &[ScoredChunk]) -> Vec<Citation> {
@@ -60,6 +62,36 @@ pub fn extract_citations(response_text: &str, context_chunks: &[ScoredChunk]) ->
     citations.dedup_by(|a, b| a.document_id == b.document_id);
 
     citations
+}
+
+/// Validate citations against the patient's document database (RS-L2-01-002).
+///
+/// Removes any citation whose `document_id` does not exist in the documents table.
+/// This guards against hallucinated or stale UUIDs reaching the frontend.
+pub fn validate_citations(conn: &Connection, citations: Vec<Citation>) -> Vec<Citation> {
+    citations
+        .into_iter()
+        .filter(|c| {
+            match get_document(conn, &c.document_id) {
+                Ok(Some(_)) => true,
+                Ok(None) => {
+                    tracing::warn!(
+                        document_id = %c.document_id,
+                        "Citation references non-existent document — removed"
+                    );
+                    false
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        document_id = %c.document_id,
+                        error = %e,
+                        "Failed to validate citation document — removed"
+                    );
+                    false
+                }
+            }
+        })
+        .collect()
 }
 
 /// Parse the BOUNDARY_CHECK from MedGemma's response.
@@ -231,5 +263,72 @@ mod tests {
     fn confidence_capped_at_one() {
         let conf = calculate_confidence(&BoundaryCheck::Understanding, 10, 20);
         assert!(conf <= 1.0);
+    }
+
+    // --- validate_citations ---
+
+    #[test]
+    fn validate_citations_keeps_valid_documents() {
+        use crate::db::repository::insert_document;
+        use crate::db::sqlite::open_memory_database;
+        use crate::models::document::Document;
+        use crate::models::enums::DocumentType;
+        use chrono::NaiveDateTime;
+
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4();
+        let doc = Document {
+            id: doc_id,
+            doc_type: DocumentType::Prescription,
+            title: "Test Doc".into(),
+            document_date: None,
+            ingestion_date: NaiveDateTime::parse_from_str(
+                "2024-01-15 10:00:00",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            .unwrap(),
+            professional_id: None,
+            source_file: "/test/doc.enc".into(),
+            markdown_file: None,
+            ocr_confidence: Some(0.9),
+            verified: false,
+            source_deleted: false,
+            perceptual_hash: None,
+            notes: None,
+        };
+        insert_document(&conn, &doc).unwrap();
+
+        let citations = vec![Citation {
+            document_id: doc_id,
+            document_title: "Test".into(),
+            document_date: None,
+            professional_name: None,
+            chunk_text: "Some text".into(),
+            relevance_score: 0.9,
+        }];
+
+        let validated = validate_citations(&conn, citations);
+        assert_eq!(validated.len(), 1);
+        assert_eq!(validated[0].document_id, doc_id);
+    }
+
+    #[test]
+    fn validate_citations_removes_nonexistent_documents() {
+        use crate::db::sqlite::open_memory_database;
+
+        let conn = open_memory_database().unwrap();
+        let fake_id = Uuid::new_v4();
+
+        let citations = vec![Citation {
+            document_id: fake_id,
+            document_title: "Fake".into(),
+            document_date: None,
+            professional_name: None,
+            chunk_text: "Hallucinated".into(),
+            relevance_score: 0.8,
+        }];
+
+        let validated = validate_citations(&conn, citations);
+        assert!(validated.is_empty());
     }
 }

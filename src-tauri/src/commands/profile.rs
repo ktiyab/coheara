@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::core_state::CoreState;
 use crate::crypto::profile::{self, ProfileInfo};
+use crate::device_manager::WsOutgoing;
 
 /// Serializable result for profile creation (includes recovery phrase).
 #[derive(Serialize)]
@@ -43,6 +44,13 @@ pub fn create_profile(
     state.set_session(session).map_err(|e| e.to_string())?;
     state.update_activity();
 
+    // Notify connected phones about profile change (RS-M0-03-003)
+    if let Ok(mut devices) = state.write_devices() {
+        devices.broadcast(WsOutgoing::ProfileChanged {
+            profile_name: info.name.clone(),
+        });
+    }
+
     Ok(ProfileCreateResult {
         profile: info,
         recovery_phrase: phrase.words().iter().map(|w| w.to_string()).collect(),
@@ -72,12 +80,48 @@ pub fn unlock_profile(
     state.set_session(session).map_err(|e| e.to_string())?;
     state.update_activity();
 
+    // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
+    if let Err(e) = state.hydrate_devices() {
+        tracing::warn!("Failed to hydrate devices: {e}");
+    }
+
+    // Notify connected phones about profile change (RS-M0-03-003)
+    if let Ok(mut devices) = state.write_devices() {
+        devices.broadcast(WsOutgoing::ProfileChanged {
+            profile_name: info.name.clone(),
+        });
+    }
+
     Ok(info)
+}
+
+/// Change the password for the currently active profile (RS-L3-01-001).
+#[tauri::command]
+pub fn change_profile_password(
+    current_password: String,
+    new_password: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<(), String> {
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard.as_ref().ok_or("No active profile session")?;
+
+    profile::change_password(
+        &state.profiles_dir,
+        &session.profile_id,
+        &current_password,
+        &new_password,
+        session.key_bytes(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Lock the current profile (zeroes encryption key).
 #[tauri::command]
 pub fn lock_profile(state: State<'_, Arc<CoreState>>) {
+    // Flush audit buffer before clearing session (RS-ME-01-001)
+    if let Err(e) = state.flush_and_prune_audit() {
+        tracing::warn!("Failed to flush audit log on lock: {e}");
+    }
     state.lock();
 }
 
@@ -94,8 +138,19 @@ pub fn recover_profile(
     let session = profile::recover_profile(&state.profiles_dir, &id, &recovery_phrase)
         .map_err(|e| e.to_string())?;
 
+    let profile_name = session.profile_name.clone();
     state.set_session(session).map_err(|e| e.to_string())?;
     state.update_activity();
+
+    // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
+    if let Err(e) = state.hydrate_devices() {
+        tracing::warn!("Failed to hydrate devices: {e}");
+    }
+
+    // Notify connected phones about profile change (RS-M0-03-003)
+    if let Ok(mut devices) = state.write_devices() {
+        devices.broadcast(WsOutgoing::ProfileChanged { profile_name });
+    }
 
     Ok(())
 }

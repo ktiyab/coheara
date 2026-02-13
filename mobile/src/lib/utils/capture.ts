@@ -103,6 +103,86 @@ export function frameBorderColor(check: QualityCheck): string {
 	return check.ready ? 'var(--color-success)' : 'var(--color-warning)';
 }
 
+// === EXIF STRIPPING (BP-02: DATA MINIMIZATION) ===
+
+/**
+ * Strip EXIF metadata from an image data URL while preserving visual content.
+ *
+ * Uses the Canvas API to redraw the image, which inherently removes all
+ * EXIF metadata (GPS coordinates, camera make/model, timestamps, etc.).
+ * Modern browsers automatically apply EXIF orientation when drawing to canvas,
+ * so the visual orientation is preserved even though the EXIF tag is removed.
+ *
+ * @param dataUrl - Base64 data URL of the captured image
+ * @returns Promise resolving to a clean data URL with no EXIF metadata
+ */
+export async function stripExifMetadata(dataUrl: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const img = new Image();
+		img.onload = () => {
+			try {
+				const canvas = document.createElement('canvas');
+				canvas.width = img.naturalWidth;
+				canvas.height = img.naturalHeight;
+
+				const ctx = canvas.getContext('2d');
+				if (!ctx) {
+					// Fallback: return original if canvas context unavailable
+					resolve(dataUrl);
+					return;
+				}
+
+				ctx.drawImage(img, 0, 0);
+
+				// Export as JPEG with the configured quality
+				const cleanDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+				resolve(cleanDataUrl);
+			} catch {
+				// Fallback: return original on any canvas error
+				resolve(dataUrl);
+			}
+		};
+		img.onerror = () => reject(new Error('Failed to load image for EXIF stripping'));
+		img.src = dataUrl;
+	});
+}
+
+/**
+ * Strip EXIF and resize in one pass (combines stripping + optimization).
+ *
+ * @param dataUrl - Base64 data URL of the captured image
+ * @param maxWidth - Maximum output width (preserves aspect ratio)
+ * @returns Promise resolving to a clean, optimized data URL
+ */
+export async function stripAndOptimize(dataUrl: string, maxWidth: number = TARGET_MAX_WIDTH): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const img = new Image();
+		img.onload = () => {
+			try {
+				const { width, height } = calculateOptimizedSize(img.naturalWidth, img.naturalHeight);
+
+				const canvas = document.createElement('canvas');
+				canvas.width = width;
+				canvas.height = height;
+
+				const ctx = canvas.getContext('2d');
+				if (!ctx) {
+					resolve(dataUrl);
+					return;
+				}
+
+				ctx.drawImage(img, 0, 0, width, height);
+				const cleanDataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+				resolve(cleanDataUrl);
+			} catch {
+				resolve(dataUrl);
+			}
+		};
+		img.onerror = () => reject(new Error('Failed to load image for optimization'));
+		img.src = dataUrl;
+	});
+}
+
 // === IMAGE OPTIMIZATION ===
 
 /** Calculate optimized dimensions (max width TARGET_MAX_WIDTH, preserve aspect ratio) */

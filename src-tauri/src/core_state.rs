@@ -155,7 +155,30 @@ impl CoreState {
         self.audit.entries()
     }
 
+    /// Flush audit buffer to DB and prune entries older than 90 days.
+    pub fn flush_and_prune_audit(&self) -> Result<(), CoreError> {
+        let conn = self.open_db()?;
+        self.audit.flush_to_db(&conn)?;
+        if let Err(e) = crate::db::repository::prune_audit_log(&conn, 90) {
+            tracing::warn!("Failed to prune audit log: {e}");
+        }
+        Ok(())
+    }
+
     // ── Device manager (ME-02) ─────────────────────────────
+
+    /// Load paired devices from the database into the DeviceManager.
+    ///
+    /// Call this after profile unlock when the DB is available.
+    /// Restores which devices are paired across app restarts.
+    pub fn hydrate_devices(&self) -> Result<(), CoreError> {
+        let conn = self.open_db()?;
+        let loaded = DeviceManager::load_from_db(&conn)
+            .map_err(|e| CoreError::DeviceLoad(e.to_string()))?;
+        let mut devices = self.devices.write().map_err(|_| CoreError::LockPoisoned)?;
+        *devices = loaded;
+        Ok(())
+    }
 
     /// Read access to device manager.
     pub fn read_devices(
@@ -200,6 +223,8 @@ pub enum CoreError {
     LockPoisoned,
     #[error("Database error: {0}")]
     Database(#[from] db::DatabaseError),
+    #[error("Device load error: {0}")]
+    DeviceLoad(String),
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -284,6 +309,32 @@ impl AuditLogger {
     /// Current buffer size.
     pub fn buffer_len(&self) -> usize {
         self.buffer.lock().map(|buf| buf.len()).unwrap_or(0)
+    }
+
+    /// Flush buffered entries to SQLite and prune old entries (RS-ME-01-001).
+    pub fn flush_to_db(&self, conn: &rusqlite::Connection) -> Result<usize, CoreError> {
+        let entries = self.drain();
+        if entries.is_empty() {
+            return Ok(0);
+        }
+
+        let tuples: Vec<(String, String, String, String)> = entries
+            .iter()
+            .map(|e| {
+                (
+                    e.timestamp.to_rfc3339(),
+                    e.source.to_string(),
+                    e.action.clone(),
+                    e.entity.clone(),
+                )
+            })
+            .collect();
+
+        let count = tuples.len();
+        crate::db::repository::insert_audit_entries(conn, &tuples)?;
+
+        tracing::debug!(count, "Flushed audit entries to database");
+        Ok(count)
     }
 }
 
@@ -451,5 +502,76 @@ mod tests {
 
         let err = CoreError::LockPoisoned;
         assert_eq!(err.to_string(), "Internal lock error");
+    }
+
+    // --- Audit DB persistence (RS-ME-01-001) ---
+
+    #[test]
+    fn audit_flush_to_db_persists_entries() {
+        use crate::db::sqlite::open_memory_database;
+
+        let conn = open_memory_database().unwrap();
+        let logger = AuditLogger::new();
+        logger.log(AccessSource::DesktopUi, "read_meds", "medications");
+        logger.log(
+            AccessSource::MobileDevice {
+                device_id: "phone-1".into(),
+            },
+            "read_home",
+            "home_data",
+        );
+
+        let flushed = logger.flush_to_db(&conn).unwrap();
+        assert_eq!(flushed, 2);
+        assert_eq!(logger.buffer_len(), 0);
+
+        // Verify entries in DB
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn audit_flush_empty_buffer_is_noop() {
+        use crate::db::sqlite::open_memory_database;
+
+        let conn = open_memory_database().unwrap();
+        let logger = AuditLogger::new();
+
+        let flushed = logger.flush_to_db(&conn).unwrap();
+        assert_eq!(flushed, 0);
+    }
+
+    #[test]
+    fn audit_prune_removes_old_entries() {
+        use crate::db::sqlite::open_memory_database;
+        use crate::db::repository::prune_audit_log;
+
+        let conn = open_memory_database().unwrap();
+
+        // Insert an entry dated 100 days ago
+        conn.execute(
+            "INSERT INTO audit_log (timestamp, source, action, entity)
+             VALUES (datetime('now', '-100 days'), 'desktop', 'old_action', 'old_entity')",
+            [],
+        )
+        .unwrap();
+
+        // Insert a recent entry
+        conn.execute(
+            "INSERT INTO audit_log (timestamp, source, action, entity)
+             VALUES (datetime('now'), 'desktop', 'recent_action', 'recent_entity')",
+            [],
+        )
+        .unwrap();
+
+        let deleted = prune_audit_log(&conn, 90).unwrap();
+        assert_eq!(deleted, 1);
+
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1);
     }
 }

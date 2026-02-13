@@ -1,7 +1,7 @@
 // M0-04: Sync Engine types — request/response, sync state, auto-sync
 import type { SyncVersions } from './cache-manager.js';
 import type { JournalEntry, JournalCorrelation } from './journal.js';
-import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment } from './viewer.js';
+import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment, EmergencyContact } from './viewer.js';
 
 // === SYNC REQUEST (phone → desktop) ===
 
@@ -43,12 +43,6 @@ export interface SyncProfile {
 	emergency_contacts: EmergencyContact[];
 }
 
-export interface EmergencyContact {
-	name: string;
-	phone: string;
-	relationship: string;
-}
-
 export interface JournalSyncResponse {
 	synced_ids: string[];
 	correlations: JournalCorrelation[];
@@ -69,6 +63,16 @@ export interface SyncManagerState {
 
 export interface ProfileSwitchEvent {
 	newProfileName: string;
+}
+
+// === AUDIT LOGGING (RS-M0-04-P02) ===
+
+export interface SyncAuditEntry {
+	action: 'sync_applied' | 'sync_no_change' | 'sync_error';
+	entitiesUpdated: string[];
+	newVersions: SyncVersions;
+	timestamp: string;
+	error?: string;
 }
 
 // === CONSTANTS ===

@@ -61,23 +61,32 @@ export interface DeferredQuestion {
 	answered: boolean;
 }
 
-/** WebSocket incoming chat messages (from desktop) */
+/** WebSocket incoming chat messages (from desktop).
+ *  Field names use snake_case to match Rust serde serialization. */
 export type WsChatMessage =
-	| { type: 'ChatToken'; conversationId: string; token: string }
-	| { type: 'ChatComplete'; conversationId: string; messageId: string; citations: Citation[] }
-	| { type: 'ChatError'; conversationId: string; error: string };
+	| { type: 'ChatToken'; conversation_id: string; token: string }
+	| { type: 'ChatComplete'; conversation_id: string; citations: WsCitationRef[] }
+	| { type: 'ChatError'; conversation_id: string; error: string };
 
-/** WebSocket outgoing chat messages (to desktop) */
+/** Citation reference as sent by desktop WsOutgoing::ChatComplete */
+export interface WsCitationRef {
+	document_id: string;
+	document_title: string;
+	chunk_id?: string;
+}
+
+/** WebSocket outgoing chat messages (to desktop).
+ *  Field names use snake_case to match Rust serde deserialization. */
 export interface WsChatQuery {
 	type: 'ChatQuery';
-	conversationId: string | null;
+	conversation_id: string | null;
 	message: string;
 }
 
 export interface WsChatFeedback {
 	type: 'ChatFeedback';
-	conversationId: string;
-	messageId: string;
+	conversation_id: string;
+	message_id: string;
 	helpful: boolean;
 }
 

@@ -13,8 +13,10 @@ import {
 	MODEL_SPECS,
 	DEFAULT_MODEL,
 	DEFAULT_GENERATE_OPTIONS,
-	MIN_RAM_BYTES
+	MIN_RAM_BYTES,
+	BACKGROUND_UNLOAD_MS
 } from '$lib/types/slm.js';
+import type { ModelChoice as ModelChoiceType } from '$lib/types/slm.js';
 
 // === STATE ===
 
@@ -119,6 +121,44 @@ export function completeDownload(): void {
 	});
 }
 
+// === SHA-256 CHECKSUM VERIFICATION (RS-M2-01-001) ===
+
+/** Compute SHA-256 hex digest of binary data */
+export async function computeSha256(data: BufferSource): Promise<string> {
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+	const hashArray = Array.from(new Uint8Array(hashBuffer));
+	return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Verify data integrity against an expected SHA-256 hex digest */
+export async function verifyChecksum(data: BufferSource, expectedHash: string): Promise<boolean> {
+	const actual = await computeSha256(data);
+	return actual === expectedHash;
+}
+
+/** Verify downloaded model file against its expected hash from MODEL_SPECS */
+export async function verifyModelChecksum(data: BufferSource, modelId: ModelChoiceType): Promise<boolean> {
+	const expected = MODEL_SPECS[modelId].expectedSha256;
+	if (!expected) return true; // No expected hash configured yet
+	return verifyChecksum(data, expected);
+}
+
+/** Complete download with SHA-256 verification. Returns false and cancels if hash mismatches. */
+export async function completeDownloadVerified(fileData: BufferSource): Promise<boolean> {
+	if (get(modelState) !== 'downloading') return false;
+
+	const model = get(selectedModel);
+	const isValid = await verifyModelChecksum(fileData, model);
+
+	if (!isValid) {
+		cancelDownload();
+		return false;
+	}
+
+	completeDownload();
+	return true;
+}
+
 export function cancelDownload(): void {
 	if (get(modelState) !== 'downloading') return;
 	modelState.set('not_downloaded');
@@ -172,6 +212,29 @@ export function abortGeneration(): void {
 	modelState.set('ready');
 }
 
+// === BACKGROUND UNLOAD TIMER (RS-M2-01-002) ===
+
+let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Called when app enters background. Starts 30s countdown to unload model from RAM. */
+export function onAppBackground(): void {
+	const state = get(modelState);
+	if (state === 'ready' || state === 'generating') {
+		backgroundTimer = setTimeout(() => {
+			unloadModel();
+			backgroundTimer = null;
+		}, BACKGROUND_UNLOAD_MS);
+	}
+}
+
+/** Called when app returns to foreground. Cancels pending unload timer. */
+export function onAppForeground(): void {
+	if (backgroundTimer !== null) {
+		clearTimeout(backgroundTimer);
+		backgroundTimer = null;
+	}
+}
+
 // === DELETE ===
 
 export function deleteModel(): void {
@@ -191,6 +254,10 @@ export function deleteModel(): void {
 // === RESET (for tests) ===
 
 export function resetSlmState(): void {
+	if (backgroundTimer !== null) {
+		clearTimeout(backgroundTimer);
+		backgroundTimer = null;
+	}
 	deviceRamBytes = 8 * 1024 * 1024 * 1024;
 	deviceFreeStorageBytes = 10 * 1024 * 1024 * 1024;
 	chatSessionCount = 0;

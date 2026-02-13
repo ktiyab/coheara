@@ -5,16 +5,11 @@ import type {
 	CachedTimelineEvent,
 	CachedAlert,
 	CachedAppointment,
-	CachedProfile
+	CachedProfile,
+	EmergencyContact
 } from './viewer.js';
 
 // === SYNC PAYLOAD (from desktop via M0-04) ===
-
-export interface EmergencyContact {
-	name: string;
-	phone: string;
-	relation: string;
-}
 
 export interface SyncProfile {
 	name: string;

@@ -234,6 +234,22 @@ describe('safety-filter — lab grounding', () => {
 		const issues = checkLabGrounding('HbA1c 7.2');
 		expect(issues).toHaveLength(0);
 	});
+
+	it('detects unknown lab test not in cache (RS-M2-03-001)', () => {
+		labResults.set([makeLab({ testName: 'HbA1c', value: 7.2 })]);
+		const issues = checkLabGrounding('Your Creatinine is 1.2 mg/dL');
+		expect(issues.length).toBeGreaterThan(0);
+		expect(issues[0].type).toBe('unknown_lab');
+		expect(issues[0].claimed).toBe('Creatinine');
+	});
+
+	it('catches both unknown lab and value mismatch in same response', () => {
+		labResults.set([makeLab({ testName: 'HbA1c', value: 7.2 })]);
+		const issues = checkLabGrounding('Your HbA1c is 8.1% and Creatinine is 1.2');
+		const types = issues.map(i => i.type);
+		expect(types).toContain('value_mismatch');
+		expect(types).toContain('unknown_lab');
+	});
 });
 
 // === REPHRASE / BLOCK DECISION ===
@@ -351,6 +367,51 @@ describe('safety-filter — full filter', () => {
 		expect(result.outcome).toBe('rephrased');
 		expect(result.text).toContain('check Medications tab');
 		expect(result.groundingIssues!.length).toBeGreaterThan(0);
+	});
+
+	it('rephrased text passes re-validation when clean (RS-M2-03-002)', () => {
+		// A response with one prescriptive violation that gets cleanly removed.
+		// The rephrased result should pass re-validation and be returned as 'rephrased'.
+		medications.set([makeMed({ name: 'Metformin', dose: '500mg' })]);
+		const result = filterResponse(
+			'Your records show Metformin 500mg daily. You should take it before meals. Consider discussing your health data with your healthcare team.'
+		);
+		expect(result.outcome).toBe('rephrased');
+		expect(result.text).not.toContain('you should take');
+		// Re-validation passed: the rephrased text has no violations
+		expect(result.text).toContain('Metformin');
+	});
+});
+
+// === DEDUPLICATION (RS-M2-03-003) ===
+
+describe('safety-filter — deduplication', () => {
+	it('deduplicates overlapping violations at same offset', () => {
+		// "you have been diagnosed with diabetes" triggers two diagnostic patterns:
+		// Pattern 1 (broad): "you have [been] [diagnosed with] d..." (longer match)
+		// Pattern 5: "you have been diagnosed" (shorter match)
+		// Both start at offset 0; dedup keeps only the longer match
+		const violations = scanRegexPatterns('you have been diagnosed with diabetes');
+		expect(violations).toHaveLength(1);
+		expect(violations[0].category).toBe('diagnostic');
+	});
+
+	it('keeps non-overlapping violations from different offsets', () => {
+		// Two violations at separate, non-overlapping offsets should both survive
+		const text = 'you have diabetes. Also you should take aspirin.';
+		const violations = scanRegexPatterns(text);
+		expect(violations).toHaveLength(2);
+		const categories = violations.map(v => v.category);
+		expect(categories).toContain('diagnostic');
+		expect(categories).toContain('prescriptive');
+	});
+
+	it('prefers the longer matched text when patterns overlap', () => {
+		// The kept violation should be the longer of two overlapping matches
+		const violations = scanRegexPatterns('you have been diagnosed with diabetes');
+		expect(violations).toHaveLength(1);
+		// "you have been diagnosed with d" (≈30 chars) beats "you have been diagnosed" (23 chars)
+		expect(violations[0].matchedText.length).toBeGreaterThan(23);
 	});
 });
 

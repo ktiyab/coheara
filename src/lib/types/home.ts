@@ -1,3 +1,5 @@
+import type { CriticalLabAlert } from './trust';
+
 export interface EntitySummary {
   medications: number;
   lab_results: number;
@@ -40,4 +42,5 @@ export interface HomeData {
   stats: ProfileStats;
   recent_documents: DocumentCard[];
   onboarding: OnboardingProgress;
+  critical_alerts: CriticalLabAlert[];
 }

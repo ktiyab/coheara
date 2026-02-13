@@ -35,6 +35,18 @@ impl AlertSeverity {
     }
 }
 
+impl std::str::FromStr for AlertSeverity {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "info" => Ok(Self::Info),
+            "standard" => Ok(Self::Standard),
+            "critical" => Ok(Self::Critical),
+            other => Err(format!("Unknown alert severity: {other}")),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CoherenceAlert
 // ---------------------------------------------------------------------------

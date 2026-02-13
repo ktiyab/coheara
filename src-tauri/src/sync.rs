@@ -91,6 +91,8 @@ pub struct CachedLabResult {
     pub abnormal_flag: String,
     pub collection_date: String,
     pub is_abnormal: bool,
+    /// Trend vs. prior result of the same test: "up", "down", "stable", or null.
+    pub trend_direction: Option<String>,
 }
 
 /// Curated timeline event for phone cache.
@@ -105,14 +107,18 @@ pub struct CachedTimelineEvent {
     pub still_active: bool,
 }
 
-/// Curated alert for phone cache.
+/// Curated alert for phone cache (matches phone `CachedAlert` type).
+///
+/// Currently populated from `dismissed_alerts` table only (all have `dismissed: true`).
+/// Active (non-dismissed) alerts require coherence engine persistence (RS-L2-03-001).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedAlert {
     pub id: String,
-    pub alert_type: String,
-    pub entity_ids: String,
-    pub dismissed_date: String,
-    pub reason: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub severity: String,
+    pub created_at: String,
+    pub dismissed: bool,
 }
 
 /// Curated appointment for phone cache.
@@ -269,26 +275,53 @@ pub fn assemble_medications(conn: &Connection) -> Result<Vec<CachedMedication>, 
     rows.map(|r| r.map_err(DatabaseError::from)).collect()
 }
 
-/// Assemble recent lab results with abnormal flag.
+/// Assemble recent lab results with abnormal flag and trend direction.
 pub fn assemble_recent_labs(
     conn: &Connection,
     limit: u32,
 ) -> Result<Vec<CachedLabResult>, DatabaseError> {
+    // Subquery computes trend by comparing each result's value to the prior
+    // result of the same test type (by collection_date).
     let mut stmt = conn.prepare(
-        "SELECT id, test_name, value, value_text, unit,
-                reference_range_low, reference_range_high, abnormal_flag, collection_date
-         FROM lab_results
-         ORDER BY collection_date DESC
+        "SELECT lr.id, lr.test_name, lr.value, lr.value_text, lr.unit,
+                lr.reference_range_low, lr.reference_range_high, lr.abnormal_flag,
+                lr.collection_date,
+                (SELECT prev.value FROM lab_results prev
+                 WHERE prev.test_name = lr.test_name
+                   AND prev.collection_date < lr.collection_date
+                   AND prev.value IS NOT NULL
+                 ORDER BY prev.collection_date DESC
+                 LIMIT 1) AS prev_value
+         FROM lab_results lr
+         ORDER BY lr.collection_date DESC
          LIMIT ?1",
     )?;
 
     let rows = stmt.query_map(params![limit], |row| {
         let abnormal_flag: String = row.get(7)?;
         let is_abnormal = abnormal_flag != "normal";
+        let current_value: Option<f64> = row.get(2)?;
+        let prev_value: Option<f64> = row.get(9)?;
+
+        let trend_direction = match (current_value, prev_value) {
+            (Some(curr), Some(prev)) => {
+                let diff = (curr - prev).abs();
+                let threshold = prev.abs() * 0.01; // 1% tolerance for "stable"
+                if diff <= threshold {
+                    Some("stable".to_string())
+                } else if curr > prev {
+                    Some("up".to_string())
+                } else {
+                    Some("down".to_string())
+                }
+            }
+            _ => None,
+        };
+
         Ok(CachedLabResult {
             id: row.get(0)?,
             test_name: row.get(1)?,
-            value: row.get(2)?,
+            value: current_value,
             value_text: row.get(3)?,
             unit: row.get(4)?,
             reference_range_low: row.get(5)?,
@@ -296,6 +329,7 @@ pub fn assemble_recent_labs(
             abnormal_flag,
             collection_date: row.get(8)?,
             is_abnormal,
+            trend_direction,
         })
     })?;
 
@@ -331,25 +365,53 @@ pub fn assemble_recent_timeline(
     rows.map(|r| r.map_err(DatabaseError::from)).collect()
 }
 
-/// Assemble dismissed alerts.
-pub fn assemble_active_alerts(conn: &Connection) -> Result<Vec<CachedAlert>, DatabaseError> {
+/// Assemble alerts for phone cache.
+///
+/// Currently returns dismissed alerts only (with `dismissed: true`).
+/// Active (non-dismissed) coherence alerts will be added when the alert store
+/// is persisted to DB (RS-L2-03-001).
+pub fn assemble_alerts(conn: &Connection) -> Result<Vec<CachedAlert>, DatabaseError> {
     let mut stmt = conn.prepare(
-        "SELECT id, alert_type, entity_ids, dismissed_date, reason
+        "SELECT id, alert_type, reason, dismissed_date
          FROM dismissed_alerts
          ORDER BY dismissed_date DESC",
     )?;
 
     let rows = stmt.query_map([], |row| {
+        let id: String = row.get(0)?;
+        let alert_type: String = row.get(1)?;
+        let reason: Option<String> = row.get(2)?;
+        let dismissed_date: String = row.get(3)?;
+        let severity = match alert_type.as_str() {
+            "critical" | "emergency" => "critical",
+            "conflict" | "contradiction" => "warning",
+            _ => "info",
+        };
         Ok(CachedAlert {
-            id: row.get(0)?,
-            alert_type: row.get(1)?,
-            entity_ids: row.get(2)?,
-            dismissed_date: row.get(3)?,
-            reason: row.get(4)?,
+            id,
+            title: format_alert_title(&alert_type),
+            description: reason.unwrap_or_default(),
+            severity: severity.to_string(),
+            created_at: dismissed_date,
+            dismissed: true,
         })
     })?;
 
     rows.map(|r| r.map_err(DatabaseError::from)).collect()
+}
+
+/// Format alert type string into a human-readable title.
+fn format_alert_title(alert_type: &str) -> String {
+    match alert_type {
+        "conflict" => "Medication Conflict".to_string(),
+        "contradiction" => "Data Contradiction".to_string(),
+        "critical" => "Critical Alert".to_string(),
+        "emergency" => "Emergency Alert".to_string(),
+        "duplicate" => "Duplicate Entry".to_string(),
+        "gap" => "Coverage Gap".to_string(),
+        "trend" => "Trend Alert".to_string(),
+        other => other.replace('_', " "),
+    }
 }
 
 /// Assemble next appointment (within 7 days).
@@ -551,7 +613,7 @@ pub fn build_sync_response(
                 response.timeline = Some(assemble_recent_timeline(conn, 30)?);
             }
             "alerts" => {
-                response.alerts = Some(assemble_active_alerts(conn)?);
+                response.alerts = Some(assemble_alerts(conn)?);
             }
             "appointments" => {
                 response.appointment = assemble_next_appointment(conn)?;
@@ -935,6 +997,46 @@ mod tests {
     }
 
     #[test]
+    fn assemble_recent_labs_computes_trend_direction() {
+        let conn = test_db();
+        let doc_id = insert_doc(&conn);
+
+        // Insert two HbA1c results: 7.0 then 6.5 (trending down)
+        conn.execute(
+            "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+             VALUES (?1, 'HbA1c', 7.0, '%', 'high', '2026-01-01', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+             VALUES (?1, 'HbA1c', 6.5, '%', 'high', '2026-01-15', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        // Insert one Potassium result (no prior — no trend)
+        conn.execute(
+            "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+             VALUES (?1, 'Potassium', 4.5, 'mmol/L', 'normal', '2026-01-10', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        let labs = assemble_recent_labs(&conn, 10).unwrap();
+        // Most recent first: HbA1c(Jan15) → Potassium(Jan10) → HbA1c(Jan01)
+        assert_eq!(labs[0].test_name, "HbA1c");
+        assert_eq!(labs[0].trend_direction.as_deref(), Some("down"));
+
+        assert_eq!(labs[1].test_name, "Potassium");
+        assert!(labs[1].trend_direction.is_none()); // No prior result
+
+        assert_eq!(labs[2].test_name, "HbA1c");
+        assert!(labs[2].trend_direction.is_none()); // First result, no prior
+    }
+
+    #[test]
     fn assemble_recent_timeline_from_symptoms() {
         let conn = test_db();
 
@@ -953,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_active_alerts_returns_dismissed() {
+    fn assemble_alerts_maps_dismissed_to_phone_format() {
         let conn = test_db();
 
         conn.execute(
@@ -963,9 +1065,12 @@ mod tests {
         )
         .unwrap();
 
-        let alerts = assemble_active_alerts(&conn).unwrap();
+        let alerts = assemble_alerts(&conn).unwrap();
         assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].alert_type, "conflict");
+        assert_eq!(alerts[0].title, "Medication Conflict");
+        assert_eq!(alerts[0].description, "Discussed with doctor");
+        assert_eq!(alerts[0].severity, "warning");
+        assert!(alerts[0].dismissed);
     }
 
     #[test]

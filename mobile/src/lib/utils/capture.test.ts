@@ -1,5 +1,5 @@
-// M1-05: Capture utils tests — 19 tests
-import { describe, it, expect } from 'vitest';
+// M1-05: Capture utils tests — 22 tests
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
 	evaluateQuality,
 	getQualityHint,
@@ -14,7 +14,9 @@ import {
 	makeGoodQuality,
 	makeBadQuality,
 	uploadProgressText,
-	processingStageText
+	processingStageText,
+	stripExifMetadata,
+	stripAndOptimize
 } from './capture.js';
 import type { CapturedPage } from '$lib/types/capture.js';
 import { QUALITY_THRESHOLDS, MAX_PAGE_SIZE_BYTES } from '$lib/types/capture.js';
@@ -169,5 +171,80 @@ describe('capture utils — display text', () => {
 		expect(processingStageText('extracting_text', 1)).toBe('Extracting text · 1 page');
 		expect(processingStageText('analyzing_content', 1)).toBe('Analyzing content');
 		expect(processingStageText('storing', 1)).toBe('Storing results');
+	});
+});
+
+// === EXIF STRIPPING ===
+
+describe('capture utils — EXIF stripping', () => {
+	let mockCtx: { drawImage: ReturnType<typeof vi.fn> };
+	let mockCanvas: { width: number; height: number; getContext: ReturnType<typeof vi.fn>; toDataURL: ReturnType<typeof vi.fn> };
+	let origDocument: typeof globalThis.document;
+	let origImage: typeof globalThis.Image;
+
+	beforeEach(() => {
+		mockCtx = { drawImage: vi.fn() };
+		mockCanvas = {
+			width: 0,
+			height: 0,
+			getContext: vi.fn(() => mockCtx),
+			toDataURL: vi.fn(() => 'data:image/jpeg;base64,cleanimage')
+		};
+
+		// Save originals and mock document + Image
+		origDocument = globalThis.document;
+		origImage = globalThis.Image;
+
+		globalThis.document = {
+			createElement: vi.fn(() => mockCanvas)
+		} as unknown as Document;
+	});
+
+	afterEach(() => {
+		globalThis.document = origDocument;
+		globalThis.Image = origImage;
+		vi.restoreAllMocks();
+	});
+
+	function mockImageClass(width: number, height: number): void {
+		globalThis.Image = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+			const self = this;
+			self.naturalWidth = width;
+			self.naturalHeight = height;
+			setTimeout(() => {
+				if (typeof self.onload === 'function') (self.onload as () => void)();
+			}, 0);
+			return self;
+		}) as unknown as typeof Image;
+	}
+
+	it('stripExifMetadata redraws image via canvas to strip metadata', async () => {
+		mockImageClass(800, 600);
+
+		const result = await stripExifMetadata('data:image/jpeg;base64,originalwithexif');
+
+		expect(result).toBe('data:image/jpeg;base64,cleanimage');
+		expect(mockCanvas.getContext).toHaveBeenCalledWith('2d');
+		expect(mockCtx.drawImage).toHaveBeenCalled();
+		expect(mockCanvas.toDataURL).toHaveBeenCalledWith('image/jpeg', expect.any(Number));
+	});
+
+	it('stripAndOptimize resizes while stripping metadata', async () => {
+		mockImageClass(4000, 3000);
+
+		const result = await stripAndOptimize('data:image/jpeg;base64,largeimage');
+
+		expect(result).toBe('data:image/jpeg;base64,cleanimage');
+		expect(mockCanvas.width).toBeLessThanOrEqual(2400);
+		expect(mockCtx.drawImage).toHaveBeenCalled();
+	});
+
+	it('stripExifMetadata returns original if canvas context fails', async () => {
+		mockCanvas.getContext = vi.fn(() => null);
+		mockImageClass(100, 100);
+
+		const original = 'data:image/jpeg;base64,keepme';
+		const result = await stripExifMetadata(original);
+		expect(result).toBe(original);
 	});
 });

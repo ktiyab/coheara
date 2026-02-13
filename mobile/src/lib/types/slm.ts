@@ -11,6 +11,8 @@ export interface ModelSpec {
 	ramRequired: number;
 	quantization: string;
 	tokensPerSecond: number;
+	/** Expected SHA-256 hex digest for integrity verification after download */
+	expectedSha256: string | null;
 }
 
 export const MODEL_SPECS: Record<ModelChoice, ModelSpec> = {
@@ -20,7 +22,8 @@ export const MODEL_SPECS: Record<ModelChoice, ModelSpec> = {
 		sizeBytes: 1.5 * 1024 * 1024 * 1024,
 		ramRequired: 2.0 * 1024 * 1024 * 1024,
 		quantization: 'Q4_K_M',
-		tokensPerSecond: 8
+		tokensPerSecond: 8,
+		expectedSha256: null // Set per release when GGUF is available
 	},
 	'gemma-2b-q5': {
 		id: 'gemma-2b-q5',
@@ -28,7 +31,8 @@ export const MODEL_SPECS: Record<ModelChoice, ModelSpec> = {
 		sizeBytes: 1.8 * 1024 * 1024 * 1024,
 		ramRequired: 2.3 * 1024 * 1024 * 1024,
 		quantization: 'Q5_K_M',
-		tokensPerSecond: 6
+		tokensPerSecond: 6,
+		expectedSha256: null
 	},
 	'phi3-mini-q4': {
 		id: 'phi3-mini-q4',
@@ -36,7 +40,8 @@ export const MODEL_SPECS: Record<ModelChoice, ModelSpec> = {
 		sizeBytes: 2.0 * 1024 * 1024 * 1024,
 		ramRequired: 2.5 * 1024 * 1024 * 1024,
 		quantization: 'Q4_K_M',
-		tokensPerSecond: 6
+		tokensPerSecond: 6,
+		expectedSha256: null
 	}
 };
 

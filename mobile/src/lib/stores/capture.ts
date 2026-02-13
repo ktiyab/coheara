@@ -10,6 +10,7 @@ import type {
 	QualityCheck
 } from '$lib/types/capture.js';
 import { MAX_PAGES_PER_DOCUMENT } from '$lib/types/capture.js';
+import { stripExifMetadata } from '$lib/utils/capture.js';
 
 // === CAPTURE SESSION ===
 
@@ -95,6 +96,26 @@ export function addPage(dataUrl: string, width: number, height: number, sizeByte
 	});
 
 	return page;
+}
+
+/**
+ * Add a captured page after stripping EXIF metadata (BP-02: data minimization).
+ *
+ * Removes GPS coordinates, camera make/model, and other EXIF tags while
+ * preserving orientation. The stripped image replaces the original dataUrl.
+ * Size may change slightly due to re-encoding.
+ */
+export async function addPageSafe(
+	dataUrl: string,
+	width: number,
+	height: number,
+	sizeBytes: number,
+	quality: QualityCheck
+): Promise<CapturedPage> {
+	const cleanDataUrl = await stripExifMetadata(dataUrl);
+	// Re-estimate size from the clean data URL
+	const cleanSize = Math.round((cleanDataUrl.length - cleanDataUrl.indexOf(',') - 1) * 0.75);
+	return addPage(cleanDataUrl, width, height, cleanSize, quality);
 }
 
 export function removePage(pageId: string): void {

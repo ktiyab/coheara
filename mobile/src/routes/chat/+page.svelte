@@ -1,5 +1,6 @@
 <!-- M1-02: Chat tab — conversational AI interface -->
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { isConnected, hasData } from '$lib/stores/connection.js';
 	import {
 		messages,
@@ -16,12 +17,36 @@
 		DEFAULT_QUICK_QUESTIONS
 	} from '$lib/stores/chat.js';
 	import type { ChatSource } from '$lib/types/chat.js';
+	import type { Citation } from '$lib/types/chat.js';
 	import MessageBubble from '$lib/components/chat/MessageBubble.svelte';
 	import QuickQuestions from '$lib/components/chat/QuickQuestions.svelte';
 	import ChatDisclaimer from '$lib/components/chat/ChatDisclaimer.svelte';
 	import SourceIndicator from '$lib/components/chat/SourceIndicator.svelte';
+	import CitationDetailSheet from '$lib/components/chat/CitationDetailSheet.svelte';
 
 	let inputText = $state('');
+	let messagesArea: HTMLDivElement | undefined = $state();
+	let userScrolledUp = $state(false);
+	let selectedCitation: Citation | null = $state(null);
+
+	function scrollToBottom(): void {
+		if (messagesArea && !userScrolledUp) {
+			messagesArea.scrollTop = messagesArea.scrollHeight;
+		}
+	}
+
+	function handleMessagesScroll(): void {
+		if (!messagesArea) return;
+		const { scrollTop, scrollHeight, clientHeight } = messagesArea;
+		userScrolledUp = scrollHeight - scrollTop - clientHeight > 50;
+	}
+
+	// Auto-scroll when messages change or streaming content updates (RS-M1-02-004)
+	$effect(() => {
+		void $messages;
+		void $streamingContent;
+		tick().then(() => scrollToBottom());
+	});
 
 	const chatSource: ChatSource = $derived(
 		$isConnected ? 'live' : ($hasData ? 'cached' : 'unavailable')
@@ -51,6 +76,17 @@
 		setMessageFeedback(messageId, helpful);
 	}
 
+	function handleCitationTap(documentId: string): void {
+		// Find the citation across all messages
+		for (const msg of $messages) {
+			const found = msg.citations.find(c => c.documentId === documentId);
+			if (found) {
+				selectedCitation = found;
+				return;
+			}
+		}
+	}
+
 	function handleKeydown(event: KeyboardEvent): void {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
@@ -78,11 +114,12 @@
 		</div>
 	{:else}
 		<!-- Messages area -->
-		<div class="messages-area" role="log" aria-label="Chat messages">
+		<div class="messages-area" bind:this={messagesArea} onscroll={handleMessagesScroll} role="log" aria-label="Chat messages">
 			{#each $messages as message (message.id)}
 				<MessageBubble
 					{message}
 					onFeedback={handleFeedback}
+					onCitationTap={handleCitationTap}
 				/>
 			{/each}
 
@@ -144,6 +181,12 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Citation detail bottom sheet (RS-M1-02-003) -->
+<CitationDetailSheet
+	citation={selectedCitation}
+	onClose={() => selectedCitation = null}
+/>
 
 <style>
 	.chat-screen {

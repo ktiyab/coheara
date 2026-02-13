@@ -1,6 +1,6 @@
 // M0-04: Sync Manager — orchestrates version-based delta sync with desktop
 import { writable, derived, get } from 'svelte/store';
-import type { SyncManagerState, SyncResponse, SyncJournalEntry } from '$lib/types/sync.js';
+import type { SyncManagerState, SyncResponse, SyncJournalEntry, SyncAuditEntry } from '$lib/types/sync.js';
 import { SYNC_INTERVAL_MS, MAX_SYNC_RETRIES } from '$lib/types/sync.js';
 import type { SyncVersions } from '$lib/types/cache-manager.js';
 import { emptySyncVersions } from '$lib/types/cache-manager.js';
@@ -25,6 +25,35 @@ export const syncManager = writable<SyncManagerState>({
 export const isSyncing = derived(syncManager, ($s) => $s.syncInProgress);
 export const syncStatus = derived(syncManager, ($s) => $s.status);
 export const lastSyncError = derived(syncManager, ($s) => $s.lastError);
+
+// === AUDIT LOG (RS-M0-04-P02) ===
+
+const MAX_AUDIT_ENTRIES = 50;
+
+export const syncAuditLog = writable<SyncAuditEntry[]>([]);
+
+/** Record a sync audit entry (kept in-memory, last 50 entries) */
+function logSyncAudit(entry: SyncAuditEntry): void {
+	syncAuditLog.update(($log) => {
+		const updated = [...$log, entry];
+		return updated.length > MAX_AUDIT_ENTRIES
+			? updated.slice(updated.length - MAX_AUDIT_ENTRIES)
+			: updated;
+	});
+}
+
+/** Determine which entity types were updated in a sync response */
+function detectUpdatedEntities(response: SyncResponse): string[] {
+	const entities: string[] = [];
+	if (response.medications?.length) entities.push('medications');
+	if (response.labs?.length) entities.push('labs');
+	if (response.timeline?.length) entities.push('timeline');
+	if (response.alerts?.length) entities.push('alerts');
+	if (response.appointment !== undefined) entities.push('appointments');
+	if (response.profile) entities.push('profile');
+	if (response.journal_sync?.synced_ids.length) entities.push('journal');
+	return entities;
+}
 
 // === INTERNAL STATE ===
 
@@ -70,6 +99,26 @@ function serializeJournalEntries(entries: JournalEntry[]): SyncJournalEntry[] {
 
 // === APPLY SYNC RESPONSE ===
 
+/**
+ * Validate synced_at timestamp is not in the future and is more recent
+ * than the last sync (RS-M0-04-P01).
+ */
+export function validateSyncTimestamp(syncedAt: string, lastSyncAt: string | null): boolean {
+	const syncTime = new Date(syncedAt).getTime();
+	if (isNaN(syncTime)) return false;
+
+	// Reject timestamps more than 5 minutes in the future (clock skew tolerance)
+	if (syncTime > Date.now() + 5 * 60 * 1000) return false;
+
+	// Reject if older than last known sync (stale/replayed response)
+	if (lastSyncAt) {
+		const lastTime = new Date(lastSyncAt).getTime();
+		if (!isNaN(lastTime) && syncTime < lastTime) return false;
+	}
+
+	return true;
+}
+
 /** Apply a sync response payload to local cache stores */
 function applySyncResponse(response: SyncResponse): void {
 	const currentSync = get(syncState);
@@ -87,7 +136,7 @@ function applySyncResponse(response: SyncResponse): void {
 				emergency_contacts: response.profile.emergency_contacts.map((c) => ({
 					name: c.name,
 					phone: c.phone,
-					relation: c.relationship
+					relation: c.relation
 				}))
 			},
 			medications: response.medications ?? [],
@@ -113,7 +162,7 @@ function applySyncResponse(response: SyncResponse): void {
 				emergency_contacts: response.profile.emergency_contacts.map((c) => ({
 					name: c.name,
 					phone: c.phone,
-					relation: c.relationship
+					relation: c.relation
 				}))
 			} : undefined,
 			versions: response.versions,
@@ -171,6 +220,12 @@ export async function requestSync(): Promise<boolean> {
 		if (result.status === 204) {
 			// No changes — update timestamp only
 			const now = new Date().toISOString();
+			logSyncAudit({
+				action: 'sync_no_change',
+				entitiesUpdated: [],
+				newVersions: versions,
+				timestamp: now
+			});
 			syncManager.set({
 				status: 'success',
 				lastSyncAt: now,
@@ -184,20 +239,39 @@ export async function requestSync(): Promise<boolean> {
 		if (result.status === 200) {
 			const response = result.data;
 
-			// 5. Apply payload to cache
+			// 5. Validate synced_at (RS-M0-04-P01)
+			if (!validateSyncTimestamp(response.synced_at, state.lastSyncAt)) {
+				syncManager.set({
+					status: 'error',
+					lastSyncAt: state.lastSyncAt,
+					lastError: 'Invalid sync timestamp (stale or future)',
+					syncInProgress: false
+				});
+				return false;
+			}
+
+			// 6. Apply payload to cache
 			applySyncResponse(response);
 
-			// 6. Mark journal entries as synced
+			// 7. Mark journal entries as synced
 			if (response.journal_sync?.synced_ids.length) {
 				markSynced(response.journal_sync.synced_ids);
 			}
 
-			// 7. Set correlations for toast display
+			// 8. Set correlations for toast display
 			if (response.journal_sync?.correlations.length) {
 				setCorrelations(response.journal_sync.correlations);
 			}
 
-			// 8. Update sync manager state
+			// 9. Audit log (RS-M0-04-P02)
+			logSyncAudit({
+				action: 'sync_applied',
+				entitiesUpdated: detectUpdatedEntities(response),
+				newVersions: response.versions,
+				timestamp: response.synced_at
+			});
+
+			// 10. Update sync manager state
 			syncManager.set({
 				status: 'success',
 				lastSyncAt: response.synced_at,
@@ -210,6 +284,13 @@ export async function requestSync(): Promise<boolean> {
 
 		// Error response
 		const errorMsg = result.status === 'error' ? result.message : 'Unknown error';
+		logSyncAudit({
+			action: 'sync_error',
+			entitiesUpdated: [],
+			newVersions: versions,
+			timestamp: new Date().toISOString(),
+			error: errorMsg
+		});
 		syncManager.set({
 			status: 'error',
 			lastSyncAt: state.lastSyncAt,
@@ -308,6 +389,7 @@ export function resetSyncManagerState(): void {
 		lastError: null,
 		syncInProgress: false
 	});
+	syncAuditLog.set([]);
 }
 
 /** Get current retry count (for testing) */

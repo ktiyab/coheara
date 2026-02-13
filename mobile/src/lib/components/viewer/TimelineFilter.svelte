@@ -49,7 +49,7 @@
 		font-family: inherit;
 		cursor: pointer;
 		white-space: nowrap;
-		min-height: 36px;
+		min-height: 44px;
 	}
 
 	.filter-chip.active {

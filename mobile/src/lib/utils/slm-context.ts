@@ -85,6 +85,12 @@ export function formatProfile(profile: CachedProfile): string {
 	if (profile.allergies.length > 0) {
 		lines.push(`- Allergies: ${profile.allergies.map(sanitizeForContext).join(', ')}`);
 	}
+	if (profile.emergencyContacts.length > 0) {
+		const contacts = profile.emergencyContacts
+			.map((c) => `${sanitizeForContext(c.name)} (${sanitizeForContext(c.relation)})`)
+			.join(', ');
+		lines.push(`- Emergency contacts: ${contacts}`);
+	}
 	return lines.join('\n');
 }
 

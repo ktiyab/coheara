@@ -36,6 +36,8 @@ pub enum DeviceError {
     Revoked(String),
     #[error("WebSocket channel closed for device: {0}")]
     ChannelClosed(String),
+    #[error("Database error: {0}")]
+    Database(String),
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -211,6 +213,39 @@ impl DeviceManager {
             pending_alerts: HashMap::new(),
             max_devices: DEFAULT_MAX_DEVICES,
         }
+    }
+
+    /// Load paired devices from the database, populating the devices HashMap.
+    ///
+    /// Call this after profile unlock to restore device state across app restarts.
+    /// Tokens and active connections are NOT restored (session-specific).
+    pub fn load_from_db(conn: &rusqlite::Connection) -> Result<Self, DeviceError> {
+        let stored = crate::pairing::db_load_paired_devices(conn)
+            .map_err(|e| DeviceError::Database(e.to_string()))?;
+
+        let mut mgr = Self::new();
+        for device in stored {
+            let paired_at = chrono::DateTime::parse_from_rfc3339(&device.paired_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            let last_seen = chrono::DateTime::parse_from_rfc3339(&device.last_seen)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+
+            mgr.devices.insert(
+                device.device_id.clone(),
+                PairedDevice {
+                    device_id: device.device_id,
+                    device_name: device.device_name,
+                    device_model: device.device_model,
+                    paired_at,
+                    last_seen,
+                    is_revoked: device.is_revoked,
+                },
+            );
+        }
+
+        Ok(mgr)
     }
 
     // ─── Pairing ─────────────────────────────────────────────
@@ -1181,5 +1216,90 @@ mod tests {
         );
         assert!(mgr.remove_device("dev-1"));
         assert_eq!(mgr.pending_count("dev-1"), 0);
+    }
+
+    // ── Database persistence tests (RS-ME-02-001) ─────────
+
+    #[test]
+    fn load_from_db_restores_paired_devices() {
+        let conn = crate::db::sqlite::open_memory_database().unwrap();
+        let pk: [u8; 32] = rand::random();
+
+        crate::pairing::db_store_paired_device(&conn, "dev-1", "Test Phone", "iPhone 15", &pk)
+            .unwrap();
+
+        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        assert_eq!(mgr.device_count(), 1);
+        assert!(mgr.is_paired("dev-1"));
+
+        let device = mgr.get_device("dev-1").unwrap();
+        assert_eq!(device.device_name, "Test Phone");
+        assert_eq!(device.device_model, "iPhone 15");
+        assert!(!device.is_revoked);
+    }
+
+    #[test]
+    fn load_from_db_restores_revoked_devices() {
+        let conn = crate::db::sqlite::open_memory_database().unwrap();
+        let pk: [u8; 32] = rand::random();
+
+        crate::pairing::db_store_paired_device(&conn, "dev-1", "Phone", "Model", &pk).unwrap();
+        crate::pairing::db_revoke_device(&conn, "dev-1").unwrap();
+
+        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        assert!(mgr.is_paired("dev-1"));
+
+        let device = mgr.get_device("dev-1").unwrap();
+        assert!(device.is_revoked);
+        // Revoked devices don't count toward active count
+        assert_eq!(mgr.device_count(), 0);
+    }
+
+    #[test]
+    fn load_from_db_empty_database() {
+        let conn = crate::db::sqlite::open_memory_database().unwrap();
+        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        assert_eq!(mgr.device_count(), 0);
+    }
+
+    #[test]
+    fn load_from_db_multiple_devices() {
+        let conn = crate::db::sqlite::open_memory_database().unwrap();
+
+        for i in 0..3 {
+            let pk: [u8; 32] = rand::random();
+            crate::pairing::db_store_paired_device(
+                &conn,
+                &format!("dev-{i}"),
+                &format!("Phone {i}"),
+                "Model",
+                &pk,
+            )
+            .unwrap();
+        }
+
+        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        assert_eq!(mgr.device_count(), 3);
+        for i in 0..3 {
+            assert!(mgr.is_paired(&format!("dev-{i}")));
+        }
+    }
+
+    #[test]
+    fn load_from_db_preserves_timestamps() {
+        let conn = crate::db::sqlite::open_memory_database().unwrap();
+        let pk: [u8; 32] = rand::random();
+
+        crate::pairing::db_store_paired_device(&conn, "dev-1", "Phone", "Model", &pk).unwrap();
+
+        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let device = mgr.get_device("dev-1").unwrap();
+
+        // Timestamps should be valid (not default epoch)
+        let epoch = chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert!(device.paired_at > epoch);
+        assert!(device.last_seen > epoch);
     }
 }

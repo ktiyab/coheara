@@ -611,39 +611,23 @@ pub fn search_medication_aliases(
 
 /// Fetch coherence alerts for a specific medication.
 ///
-/// Queries `dismissed_alerts` for non-dismissed alerts referencing this
-/// medication ID. Note: coherence_observations table does not exist in
-/// the current schema — alerts come from the in-memory coherence engine
-/// (L2-03). This function returns an empty Vec until observations are
-/// persisted in a future component (L5-01).
+/// Queries `coherence_alerts` table (migration 004) for non-dismissed alerts
+/// whose entity_ids JSON array contains this medication's UUID.
 pub fn fetch_medication_alerts(
     conn: &Connection,
     medication_id: &Uuid,
 ) -> Result<Vec<MedicationAlert>, DatabaseError> {
-    // The coherence_observations table does not exist in the current
-    // schema. The L2-03 coherence engine runs in-memory. This is the
-    // correct plumbing for when observations are persisted (L5-01).
-    let table_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='coherence_observations'",
-            [],
-            |row| row.get::<_, i32>(0),
-        )
-        .unwrap_or(0)
-        > 0;
-
-    if !table_exists {
-        return Ok(Vec::new());
-    }
-
     let med_id_str = medication_id.to_string();
     let mut stmt = conn.prepare(
-        "SELECT co.id, co.alert_type, co.severity, co.summary
-         FROM coherence_observations co
-         LEFT JOIN dismissed_alerts da ON co.id = da.id
-         WHERE da.id IS NULL
-           AND co.entity_ids LIKE ?1
-         ORDER BY co.severity DESC",
+        "SELECT id, alert_type, severity, patient_message
+         FROM coherence_alerts
+         WHERE dismissed = 0
+           AND entity_ids LIKE ?1
+         ORDER BY CASE severity
+           WHEN 'critical' THEN 0
+           WHEN 'standard' THEN 1
+           ELSE 2
+         END",
     )?;
     let rows = stmt
         .query_map(params![format!("%{med_id_str}%")], |row| {
@@ -1112,9 +1096,51 @@ mod tests {
     }
 
     #[test]
-    fn medication_alerts_returns_empty_without_observations_table() {
+    fn medication_alerts_returns_empty_when_no_alerts() {
         let conn = open_memory_database().unwrap();
         let alerts = fetch_medication_alerts(&conn, &Uuid::new_v4()).unwrap();
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn medication_alerts_returns_matching_alerts() {
+        let conn = open_memory_database().unwrap();
+        let med_id = Uuid::new_v4();
+        let alert_id = Uuid::new_v4();
+
+        // Insert a coherence alert referencing this medication
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids,
+             source_document_ids, patient_message, detail_json, detected_at)
+             VALUES (?1, 'conflict', 'standard', ?2, '[]', 'Conflicting doses found', '{}', datetime('now'))",
+            params![alert_id.to_string(), format!("[\"{}\"]", med_id)],
+        )
+        .unwrap();
+
+        let alerts = fetch_medication_alerts(&conn, &med_id).unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].id, alert_id);
+        assert_eq!(alerts[0].alert_type, "conflict");
+        assert_eq!(alerts[0].severity, "standard");
+        assert_eq!(alerts[0].summary, "Conflicting doses found");
+    }
+
+    #[test]
+    fn medication_alerts_excludes_dismissed() {
+        let conn = open_memory_database().unwrap();
+        let med_id = Uuid::new_v4();
+        let alert_id = Uuid::new_v4();
+
+        // Insert a dismissed alert
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids,
+             source_document_ids, patient_message, detail_json, detected_at, dismissed)
+             VALUES (?1, 'dose', 'critical', ?2, '[]', 'High dose', '{}', datetime('now'), 1)",
+            params![alert_id.to_string(), format!("[\"{}\"]", med_id)],
+        )
+        .unwrap();
+
+        let alerts = fetch_medication_alerts(&conn, &med_id).unwrap();
         assert!(alerts.is_empty());
     }
 

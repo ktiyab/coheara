@@ -315,7 +315,17 @@ export function checkLabGrounding(response: string): GroundingIssue[] {
 			l => l.testName.toLowerCase() === mention.testName.toLowerCase()
 		);
 
-		if (mention.value && cached) {
+		if (!cached) {
+			issues.push({
+				type: 'unknown_lab',
+				claimed: mention.testName,
+				cached: null,
+				description: `SLM mentioned "${mention.testName}" which is not in the cached lab results`
+			});
+			continue;
+		}
+
+		if (mention.value) {
 			const claimedValue = parseFloat(mention.value);
 			const cachedValue = cached.value;
 
@@ -424,6 +434,20 @@ export function filterResponse(response: string): PhoneFilterResult {
 	// Attempt rephrase for minor violations
 	if (canRephrase(regexViolations, groundingIssues)) {
 		const rephrased = rephraseResponse(response, regexViolations, groundingIssues);
+
+		// Re-validate rephrased text (RS-M2-03-002): sentence removal may
+		// expose violations from adjacent sentences, or the BLOCKED_FALLBACK_MESSAGE
+		// itself should always pass.
+		const reViolations = scanRegexPatterns(rephrased);
+		if (reViolations.length > 0) {
+			return {
+				outcome: 'blocked',
+				text: BLOCKED_FALLBACK_MESSAGE,
+				violations: [...regexViolations, ...reViolations],
+				groundingIssues
+			};
+		}
+
 		return {
 			outcome: 'rephrased',
 			text: rephrased,

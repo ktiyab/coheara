@@ -37,6 +37,7 @@ pub fn get_home_data(state: State<'_, Arc<CoreState>>) -> Result<HomeData, Strin
     let stats = fetch_profile_stats(&conn).map_err(|e| e.to_string())?;
     let recent_documents = fetch_recent_documents(&conn, 20, 0).map_err(|e| e.to_string())?;
     let onboarding = compute_onboarding(&conn).map_err(|e| e.to_string())?;
+    let critical_alerts = crate::trust::fetch_critical_alerts(&conn).unwrap_or_default();
 
     state.update_activity();
 
@@ -44,6 +45,7 @@ pub fn get_home_data(state: State<'_, Arc<CoreState>>) -> Result<HomeData, Strin
         stats,
         recent_documents,
         onboarding,
+        critical_alerts,
     })
 }
 

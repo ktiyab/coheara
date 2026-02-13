@@ -14,7 +14,8 @@ export interface UploadResult {
 /** Upload document pages to desktop for processing via L1-01→L1-04 pipeline */
 export async function uploadDocument(
 	pages: CapturedPage[],
-	deviceName: string
+	deviceName: string,
+	signal?: AbortSignal
 ): Promise<UploadResult> {
 	const metadata: UploadMetadata = {
 		page_count: pages.length,
@@ -35,7 +36,7 @@ export async function uploadDocument(
 		}))
 	};
 
-	const response = await apiClient.post<UploadResponse>('/api/documents/upload', payload);
+	const response = await apiClient.post<UploadResponse>('/api/documents/upload', payload, { signal });
 
 	if (response.ok && response.data) {
 		return { ok: true, data: response.data };

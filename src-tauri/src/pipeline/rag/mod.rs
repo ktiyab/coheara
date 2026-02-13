@@ -6,6 +6,7 @@ pub mod prompt;
 pub mod citation;
 pub mod conversation;
 pub mod orchestrator;
+pub mod ollama;
 
 use thiserror::Error;
 use uuid::Uuid;

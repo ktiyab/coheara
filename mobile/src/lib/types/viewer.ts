@@ -97,12 +97,20 @@ export interface CachedAppointment {
 	hasPrepData: boolean;
 }
 
+/** Emergency contact (from SyncProfile) */
+export interface EmergencyContact {
+	name: string;
+	phone: string;
+	relation: string;
+}
+
 /** Cached profile */
 export interface CachedProfile {
 	name: string;
 	bloodType?: string;
 	allergies: string[];
 	dateOfBirth?: string;
+	emergencyContacts: EmergencyContact[];
 }
 
 /** Appointment prep — patient-facing plain language view */

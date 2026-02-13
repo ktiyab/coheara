@@ -8,7 +8,8 @@ import type {
 	DeferredQuestion,
 	QuickQuestion,
 	StreamState,
-	WsChatMessage
+	WsChatMessage,
+	WsCitationRef
 } from '$lib/types/chat.js';
 import { LOADING_TIMEOUT_MS, TOKEN_TIMEOUT_MS } from '$lib/types/chat.js';
 
@@ -85,13 +86,13 @@ export function startQuery(source: ChatSource): void {
 export function handleWsChatMessage(msg: WsChatMessage): void {
 	switch (msg.type) {
 		case 'ChatToken':
-			handleToken(msg.conversationId, msg.token);
+			handleToken(msg.conversation_id, msg.token);
 			break;
 		case 'ChatComplete':
-			handleComplete(msg.conversationId, msg.messageId, msg.citations);
+			handleComplete(msg.conversation_id, msg.citations);
 			break;
 		case 'ChatError':
-			handleStreamError(msg.conversationId, msg.error);
+			handleStreamError(msg.conversation_id, msg.error);
 			break;
 	}
 }
@@ -122,11 +123,23 @@ function handleToken(conversationId: string, token: string): void {
 	}, TOKEN_TIMEOUT_MS);
 }
 
-function handleComplete(conversationId: string, messageId: string, citations: Citation[]): void {
+let wsMessageCounter = 0;
+
+function handleComplete(conversationId: string, wsCitations: WsCitationRef[]): void {
 	clearTimers();
 
 	const current = get(streamState);
 	const content = current.phase === 'streaming' ? current.tokens : '';
+	const messageId = `ws-${Date.now()}-${++wsMessageCounter}`;
+
+	// Map WS citation refs to display citations
+	const citations: Citation[] = wsCitations.map((c) => ({
+		documentId: c.document_id,
+		documentTitle: c.document_title,
+		documentDate: '',
+		chunkText: '',
+		relevanceScore: 0
+	}));
 
 	// Add complete message to messages list
 	const message: ChatMessage = {
@@ -236,6 +249,7 @@ export function resetChatState(): void {
 	conversations.set([]);
 	streamState.set({ phase: 'idle' });
 	deferredQuestions.set([]);
+	wsMessageCounter = 0;
 	clearTimers();
 }
 

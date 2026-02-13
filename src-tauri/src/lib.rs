@@ -45,6 +45,7 @@ pub fn run() {
             commands::profile::create_profile,
             commands::profile::unlock_profile,
             commands::profile::lock_profile,
+            commands::profile::change_profile_password,
             commands::profile::recover_profile,
             commands::profile::is_profile_active,
             commands::profile::delete_profile,

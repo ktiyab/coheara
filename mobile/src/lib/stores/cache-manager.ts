@@ -104,11 +104,16 @@ export function stalenessWarningMessage(tier: FreshnessTier): string {
 
 /** Apply a full sync payload (first sync or full re-sync) */
 export function applySyncPayload(payload: SyncPayload): void {
-	// Map SyncProfile to CachedProfile
+	// Map SyncProfile to CachedProfile (RS-M1-06-003: preserve emergency contacts)
 	const mappedProfile: CachedProfile = {
 		name: payload.profile.name,
 		bloodType: payload.profile.blood_type,
-		allergies: payload.profile.allergies
+		allergies: payload.profile.allergies,
+		emergencyContacts: payload.profile.emergency_contacts.map((c) => ({
+			name: c.name,
+			phone: c.phone,
+			relation: c.relation
+		}))
 	};
 
 	loadCacheData({
@@ -207,12 +212,17 @@ export function applyDeltaPayload(payload: DeltaPayload): void {
 		nextAppointment.set(payload.appointment);
 	}
 
-	// Update profile
+	// Update profile (RS-M1-06-003: preserve emergency contacts)
 	if (payload.profile) {
 		profile.set({
 			name: payload.profile.name,
 			bloodType: payload.profile.blood_type,
-			allergies: payload.profile.allergies
+			allergies: payload.profile.allergies,
+			emergencyContacts: payload.profile.emergency_contacts.map((c) => ({
+				name: c.name,
+				phone: c.phone,
+				relation: c.relation
+			}))
 		});
 	}
 

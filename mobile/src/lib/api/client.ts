@@ -27,7 +27,7 @@ export class MobileApiClient {
 	private config: ApiClientConfig | null = null;
 	private ws: WebSocket | null = null;
 	private wsHandlers = new Map<string, WsMessageHandler[]>();
-	private nonce = 0;
+	private lastNonce = '';
 
 	/** Initialize with connection details from pairing */
 	configure(config: ApiClientConfig): void {
@@ -57,13 +57,13 @@ export class MobileApiClient {
 	}
 
 	/** Make an authenticated POST request */
-	async post<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
-		return this.request<T>('POST', path, body);
+	async post<T>(path: string, body?: unknown, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+		return this.request<T>('POST', path, body, options);
 	}
 
 	/** Make an authenticated PUT request */
-	async put<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
-		return this.request<T>('PUT', path, body);
+	async put<T>(path: string, body?: unknown, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+		return this.request<T>('PUT', path, body, options);
 	}
 
 	/** Make an authenticated DELETE request */
@@ -75,19 +75,21 @@ export class MobileApiClient {
 	private async request<T>(
 		method: string,
 		path: string,
-		body?: unknown
+		body?: unknown,
+		options?: { signal?: AbortSignal }
 	): Promise<ApiResponse<T>> {
 		if (!this.config) {
 			return { ok: false, status: 0, error: 'Client not configured' };
 		}
 
 		const url = `${this.config.baseUrl}${path}`;
-		const currentNonce = ++this.nonce;
+		const nonce = crypto.randomUUID();
+		this.lastNonce = nonce;
 
 		const headers: Record<string, string> = {
 			'X-Device-Id': this.config.deviceId,
 			'Authorization': `Bearer ${this.config.sessionToken}`,
-			'X-Nonce': currentNonce.toString()
+			'X-Nonce': nonce
 		};
 
 		if (body !== undefined) {
@@ -98,7 +100,8 @@ export class MobileApiClient {
 			const response = await fetch(url, {
 				method,
 				headers,
-				body: body !== undefined ? JSON.stringify(body) : undefined
+				body: body !== undefined ? JSON.stringify(body) : undefined,
+				signal: options?.signal
 			});
 
 			if (response.status === 204) {
@@ -113,6 +116,9 @@ export class MobileApiClient {
 			const data = await response.json() as T;
 			return { ok: true, status: response.status, data };
 		} catch (err) {
+			if (err instanceof DOMException && err.name === 'AbortError') {
+				return { ok: false, status: 0, error: 'Request aborted' };
+			}
 			const message = err instanceof Error ? err.message : 'Network error';
 			return { ok: false, status: 0, error: message };
 		}
@@ -141,11 +147,13 @@ export class MobileApiClient {
 				this.ws.onclose = () => { this.ws = null; };
 				this.ws.onmessage = (event) => {
 					try {
-						const msg = JSON.parse(event.data as string) as { type: string; payload: unknown };
-						const handlers = this.wsHandlers.get(msg.type);
+						const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+						const msgType = msg.type as string;
+						if (!msgType) return;
+						const handlers = this.wsHandlers.get(msgType);
 						if (handlers) {
 							for (const handler of handlers) {
-								handler(msg.payload);
+								handler(msg);
 							}
 						}
 					} catch {
@@ -170,6 +178,17 @@ export class MobileApiClient {
 				this.wsHandlers.set(type, current.filter((h) => h !== handler));
 			}
 		};
+	}
+
+	/** Send a message over WebSocket. Returns true if sent successfully. */
+	sendWsMessage(payload: Record<string, unknown>): boolean {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+		try {
+			this.ws.send(JSON.stringify(payload));
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/** Disconnect WebSocket */

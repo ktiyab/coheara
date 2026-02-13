@@ -1,14 +1,18 @@
+use rusqlite::Connection;
 use uuid::Uuid;
 
+use crate::db::repository::{
+    dismiss_coherence_alert, insert_coherence_alert, load_active_coherence_alerts,
+};
 use crate::models::enums::DismissedBy;
 
 use super::helpers::entities_match;
-use super::types::{
-    AlertDismissal, AlertSeverity, CoherenceAlert, CoherenceError,
-};
+use super::types::{AlertDismissal, AlertSeverity, CoherenceAlert, CoherenceError};
 
-/// In-memory alert store backed by RwLock.
-/// Persistence to SQLite is handled by the engine when dismissing.
+/// Alert store backed by in-memory cache + SQLite persistence.
+///
+/// The in-memory cache serves reads; SQLite provides durability across restarts.
+/// On startup, `load_from_db` populates the cache from the database.
 pub struct AlertStore {
     pub(crate) active: std::sync::RwLock<Vec<CoherenceAlert>>,
 }
@@ -20,12 +24,31 @@ impl AlertStore {
         }
     }
 
+    /// Create an AlertStore pre-loaded with active alerts from the database.
+    pub fn load_from_db(conn: &Connection) -> Result<Self, CoherenceError> {
+        let alerts = load_active_coherence_alerts(conn)?;
+        Ok(Self {
+            active: std::sync::RwLock::new(alerts),
+        })
+    }
+
     /// Store a new alert if not already active for this entity pair + type.
     /// Returns true if the alert was stored, false if duplicate or dismissed.
+    /// If `conn` is provided, also persists to SQLite.
     pub fn store_alert(
         &self,
         alert: CoherenceAlert,
         is_dismissed: bool,
+    ) -> Result<bool, CoherenceError> {
+        self.store_alert_with_db(alert, is_dismissed, None)
+    }
+
+    /// Store alert with optional DB persistence.
+    pub fn store_alert_with_db(
+        &self,
+        alert: CoherenceAlert,
+        is_dismissed: bool,
+        conn: Option<&Connection>,
     ) -> Result<bool, CoherenceError> {
         if is_dismissed {
             tracing::debug!(
@@ -44,6 +67,13 @@ impl AlertStore {
 
         if already_active {
             return Ok(false);
+        }
+
+        // Persist to DB if connection available
+        if let Some(conn) = conn {
+            if let Err(e) = insert_coherence_alert(conn, &alert) {
+                tracing::warn!(error = %e, "Failed to persist alert to DB (continuing in-memory)");
+            }
         }
 
         active.push(alert);
@@ -123,6 +153,17 @@ impl AlertStore {
         reason: &str,
         dismissed_by: DismissedBy,
     ) -> Result<(), CoherenceError> {
+        self.dismiss_with_db(alert_id, reason, dismissed_by, None)
+    }
+
+    /// Dismiss a standard alert with optional DB persistence.
+    pub fn dismiss_with_db(
+        &self,
+        alert_id: &Uuid,
+        reason: &str,
+        dismissed_by: DismissedBy,
+        conn: Option<&Connection>,
+    ) -> Result<(), CoherenceError> {
         let mut active = self
             .active
             .write()
@@ -141,9 +182,16 @@ impl AlertStore {
         alert.dismissal = Some(AlertDismissal {
             dismissed_date: chrono::Local::now().naive_local(),
             reason: reason.to_string(),
-            dismissed_by,
+            dismissed_by: dismissed_by.clone(),
             two_step_confirmed: false,
         });
+
+        // Persist dismissal to DB
+        if let Some(conn) = conn {
+            if let Err(e) = dismiss_coherence_alert(conn, alert_id, reason, &dismissed_by, false) {
+                tracing::warn!(error = %e, "Failed to persist alert dismissal to DB");
+            }
+        }
 
         Ok(())
     }
@@ -154,6 +202,17 @@ impl AlertStore {
         alert_id: &Uuid,
         reason: &str,
         two_step_confirmed: bool,
+    ) -> Result<(), CoherenceError> {
+        self.dismiss_critical_with_db(alert_id, reason, two_step_confirmed, None)
+    }
+
+    /// Dismiss a CRITICAL alert with optional DB persistence.
+    pub fn dismiss_critical_with_db(
+        &self,
+        alert_id: &Uuid,
+        reason: &str,
+        two_step_confirmed: bool,
+        conn: Option<&Connection>,
     ) -> Result<(), CoherenceError> {
         if !two_step_confirmed {
             return Err(CoherenceError::TwoStepNotConfirmed(*alert_id));
@@ -180,6 +239,15 @@ impl AlertStore {
             dismissed_by: DismissedBy::Patient,
             two_step_confirmed: true,
         });
+
+        // Persist dismissal to DB
+        if let Some(conn) = conn {
+            if let Err(e) =
+                dismiss_coherence_alert(conn, alert_id, reason, &DismissedBy::Patient, true)
+            {
+                tracing::warn!(error = %e, "Failed to persist critical alert dismissal to DB");
+            }
+        }
 
         Ok(())
     }
@@ -362,5 +430,103 @@ mod tests {
             .get_relevant(&[], &["unknown_keyword".to_string()])
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    // === DB persistence tests (RS-L2-03-001) ===
+
+    fn test_db() -> rusqlite::Connection {
+        crate::db::sqlite::open_memory_database().unwrap()
+    }
+
+    #[test]
+    fn store_alert_persists_to_db() {
+        let conn = test_db();
+        let store = AlertStore::new();
+        let alert = make_standard_alert();
+        let alert_id = alert.id;
+
+        let stored = store.store_alert_with_db(alert, false, Some(&conn)).unwrap();
+        assert!(stored);
+
+        // Verify in DB
+        let db_alerts = crate::db::repository::load_active_coherence_alerts(&conn).unwrap();
+        assert_eq!(db_alerts.len(), 1);
+        assert_eq!(db_alerts[0].id, alert_id);
+    }
+
+    #[test]
+    fn load_from_db_restores_alerts() {
+        let conn = test_db();
+
+        // Store an alert via direct DB insert
+        let alert = make_standard_alert();
+        let alert_id = alert.id;
+        crate::db::repository::insert_coherence_alert(&conn, &alert).unwrap();
+
+        // Load from DB into a new AlertStore
+        let store = AlertStore::load_from_db(&conn).unwrap();
+        let active = store.get_active(None).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, alert_id);
+    }
+
+    #[test]
+    fn dismiss_persists_to_db() {
+        let conn = test_db();
+        let store = AlertStore::new();
+        let alert = make_standard_alert();
+        let alert_id = alert.id;
+
+        store.store_alert_with_db(alert, false, Some(&conn)).unwrap();
+        store
+            .dismiss_with_db(&alert_id, "Doctor reviewed", DismissedBy::Patient, Some(&conn))
+            .unwrap();
+
+        // Reload from DB — dismissed alerts should not be loaded
+        let store2 = AlertStore::load_from_db(&conn).unwrap();
+        let active = store2.get_active(None).unwrap();
+        assert!(active.is_empty(), "Dismissed alert should not be loaded");
+    }
+
+    #[test]
+    fn dismiss_critical_persists_to_db() {
+        let conn = test_db();
+        let store = AlertStore::new();
+        let alert = make_critical_alert();
+        let alert_id = alert.id;
+
+        store.store_alert_with_db(alert, false, Some(&conn)).unwrap();
+        store
+            .dismiss_critical_with_db(&alert_id, "Emergency addressed", true, Some(&conn))
+            .unwrap();
+
+        // Reload — dismissed critical should not appear
+        let store2 = AlertStore::load_from_db(&conn).unwrap();
+        let critical = store2.get_critical().unwrap();
+        assert!(critical.is_empty());
+    }
+
+    #[test]
+    fn load_from_db_empty_on_fresh_database() {
+        let conn = test_db();
+        let store = AlertStore::load_from_db(&conn).unwrap();
+        let active = store.get_active(None).unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[test]
+    fn db_survives_multiple_alerts() {
+        let conn = test_db();
+        let store = AlertStore::new();
+
+        let alert1 = make_standard_alert();
+        let alert2 = make_critical_alert();
+        store.store_alert_with_db(alert1, false, Some(&conn)).unwrap();
+        store.store_alert_with_db(alert2, false, Some(&conn)).unwrap();
+
+        // Reload from DB
+        let store2 = AlertStore::load_from_db(&conn).unwrap();
+        let active = store2.get_active(None).unwrap();
+        assert_eq!(active.len(), 2);
     }
 }

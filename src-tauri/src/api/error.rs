@@ -116,6 +116,7 @@ impl From<CoreError> for ApiError {
             CoreError::NoActiveSession => ApiError::NoActiveProfile,
             CoreError::LockPoisoned => ApiError::Internal("lock poisoned".into()),
             CoreError::Database(e) => ApiError::Internal(e.to_string()),
+            CoreError::DeviceLoad(e) => ApiError::Internal(format!("device load: {e}")),
         }
     }
 }

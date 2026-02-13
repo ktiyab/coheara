@@ -7,6 +7,7 @@
   import DocumentCardView from './DocumentCardView.svelte';
   import OnboardingMilestones from './OnboardingMilestones.svelte';
   import EmptyState from './EmptyState.svelte';
+  import CriticalAlertBanner from './CriticalAlertBanner.svelte';
 
   interface Props {
     profileName: string;
@@ -101,6 +102,14 @@
       </button>
     </div>
   {:else if homeData}
+    <!-- Critical lab alerts — shown first for patient safety -->
+    {#if homeData.critical_alerts.length > 0}
+      <CriticalAlertBanner
+        alerts={homeData.critical_alerts}
+        {onNavigate}
+      />
+    {/if}
+
     <!-- Quick actions -->
     <QuickActions
       hasDocuments={homeData.stats.total_documents > 0}

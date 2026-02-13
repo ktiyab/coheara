@@ -53,7 +53,7 @@ pub async fn send(
             let conv_id = uuid::Uuid::new_v4().to_string();
             let title = chat::generate_title(&req.message);
             conn.execute(
-                "INSERT INTO conversations (id, title, created_at) VALUES (?1, ?2, datetime('now'))",
+                "INSERT INTO conversations (id, title, started_at) VALUES (?1, ?2, datetime('now'))",
                 rusqlite::params![conv_id, title],
             )
             .map_err(|e| ApiError::Internal(format!("Failed to create conversation: {e}")))?;
@@ -64,7 +64,7 @@ pub async fn send(
     // Store the patient message
     let message_id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, created_at)
+        "INSERT INTO messages (id, conversation_id, role, content, timestamp)
          VALUES (?1, ?2, 'patient', ?3, datetime('now'))",
         rusqlite::params![message_id, conversation_id, req.message.trim()],
     )
@@ -122,8 +122,8 @@ pub async fn conversation(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, role, content, created_at FROM messages
-             WHERE conversation_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, role, content, timestamp FROM messages
+             WHERE conversation_id = ?1 ORDER BY timestamp ASC",
         )
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 

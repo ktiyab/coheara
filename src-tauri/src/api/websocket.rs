@@ -47,6 +47,93 @@ pub struct WsAuthQuery {
     ticket: String,
 }
 
+// ═══════════════════════════════════════════════════════════
+// WsSessionState — Testable session state (RS-M0-03-002)
+// ═══════════════════════════════════════════════════════════
+
+/// Action returned by `WsSessionState::on_heartbeat_tick()`.
+#[derive(Debug, PartialEq)]
+pub(crate) enum HeartbeatAction {
+    /// Send a heartbeat and continue.
+    SendHeartbeat,
+    /// Send an expiry warning with seconds remaining.
+    SendExpiryWarning { seconds_remaining: u32 },
+    /// Session has expired — disconnect.
+    SessionExpired,
+    /// Too many missed heartbeats — disconnect.
+    HeartbeatTimeout,
+}
+
+/// Testable WebSocket session state.
+///
+/// Extracted from `handle_ws` to enable unit testing of heartbeat,
+/// session max, and rate limiting logic without a live WebSocket.
+pub(crate) struct WsSessionState {
+    session_start: Instant,
+    missed_heartbeats: u32,
+    expiry_warned: bool,
+    incoming_times: VecDeque<Instant>,
+}
+
+impl WsSessionState {
+    fn new() -> Self {
+        Self {
+            session_start: Instant::now(),
+            missed_heartbeats: 0,
+            expiry_warned: false,
+            incoming_times: VecDeque::new(),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_start(start: Instant) -> Self {
+        Self {
+            session_start: start,
+            missed_heartbeats: 0,
+            expiry_warned: false,
+            incoming_times: VecDeque::new(),
+        }
+    }
+
+    /// Called when a Pong is received from the phone.
+    fn on_pong(&mut self) {
+        self.missed_heartbeats = 0;
+    }
+
+    /// Called on each heartbeat tick. Returns the action to take.
+    fn on_heartbeat_tick(&mut self) -> HeartbeatAction {
+        let elapsed = self.session_start.elapsed();
+
+        // Session max (1 hour)
+        if elapsed >= SESSION_MAX {
+            return HeartbeatAction::SessionExpired;
+        }
+
+        // Expiry warning (60s before)
+        if !self.expiry_warned && elapsed >= SESSION_MAX - EXPIRY_WARNING {
+            let remaining = (SESSION_MAX - elapsed).as_secs() as u32;
+            self.expiry_warned = true;
+            return HeartbeatAction::SendExpiryWarning {
+                seconds_remaining: remaining,
+            };
+        }
+
+        // Missed heartbeats → disconnect
+        if self.missed_heartbeats >= MAX_MISSED_HEARTBEATS {
+            return HeartbeatAction::HeartbeatTimeout;
+        }
+
+        // Normal: send heartbeat and increment miss counter
+        self.missed_heartbeats += 1;
+        HeartbeatAction::SendHeartbeat
+    }
+
+    /// Check incoming rate limit. Returns true if allowed.
+    fn check_rate(&mut self) -> bool {
+        check_incoming_rate(&mut self.incoming_times)
+    }
+}
+
 /// WebSocket upgrade handler.
 ///
 /// Validates the one-time ticket before upgrading the connection.
@@ -129,25 +216,22 @@ async fn handle_ws(
     }
 
     // Main receive + heartbeat loop
-    let session_start = Instant::now();
+    let mut session = WsSessionState::new();
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
     heartbeat.tick().await; // Consume initial immediate tick
-    let mut missed_heartbeats: u32 = 0;
-    let mut expiry_warned = false;
-    let mut incoming_times: VecDeque<Instant> = VecDeque::new();
 
     loop {
         tokio::select! {
             msg = ws_stream.next() => {
                 match msg {
                     Some(Ok(Message::Text(ref text))) => {
-                        if !check_incoming_rate(&mut incoming_times) {
+                        if !session.check_rate() {
                             continue;
                         }
                         if let Ok(incoming) = serde_json::from_str::<WsIncoming>(text) {
                             match incoming {
                                 WsIncoming::Pong {} => {
-                                    missed_heartbeats = 0;
+                                    session.on_pong();
                                 }
                                 WsIncoming::Ready {} => {}
                                 other => {
@@ -162,39 +246,32 @@ async fn handle_ws(
                 }
             }
             _ = heartbeat.tick() => {
-                let elapsed = session_start.elapsed();
-
-                // Session max (1 hour)
-                if elapsed >= SESSION_MAX {
-                    let _ = tx.send(WsOutgoing::SessionExpiring {
-                        seconds_remaining: 0,
-                    }).await;
-                    break;
+                match session.on_heartbeat_tick() {
+                    HeartbeatAction::SessionExpired => {
+                        let _ = tx.send(WsOutgoing::SessionExpiring {
+                            seconds_remaining: 0,
+                        }).await;
+                        break;
+                    }
+                    HeartbeatAction::SendExpiryWarning { seconds_remaining } => {
+                        let _ = tx.send(WsOutgoing::SessionExpiring {
+                            seconds_remaining,
+                        }).await;
+                        // Don't break — continue session until expired
+                    }
+                    HeartbeatAction::HeartbeatTimeout => {
+                        tracing::info!(
+                            device_id = %device_id,
+                            "{MAX_MISSED_HEARTBEATS} missed heartbeats, disconnecting"
+                        );
+                        break;
+                    }
+                    HeartbeatAction::SendHeartbeat => {
+                        let _ = tx.send(WsOutgoing::Heartbeat {
+                            server_time: chrono::Utc::now().to_rfc3339(),
+                        }).await;
+                    }
                 }
-
-                // Expiry warning (60s before)
-                if !expiry_warned && elapsed >= SESSION_MAX - EXPIRY_WARNING {
-                    let remaining = (SESSION_MAX - elapsed).as_secs() as u32;
-                    let _ = tx.send(WsOutgoing::SessionExpiring {
-                        seconds_remaining: remaining,
-                    }).await;
-                    expiry_warned = true;
-                }
-
-                // Missed heartbeats → disconnect
-                if missed_heartbeats >= MAX_MISSED_HEARTBEATS {
-                    tracing::info!(
-                        device_id = %device_id,
-                        "{MAX_MISSED_HEARTBEATS} missed heartbeats, disconnecting"
-                    );
-                    break;
-                }
-
-                // Send heartbeat
-                let _ = tx.send(WsOutgoing::Heartbeat {
-                    server_time: chrono::Utc::now().to_rfc3339(),
-                }).await;
-                missed_heartbeats += 1;
             }
         }
     }
@@ -244,43 +321,281 @@ async fn handle_incoming(
     match msg {
         WsIncoming::ChatQuery {
             conversation_id,
-            message: _,
+            message,
         } => {
-            // TODO (M1-02): Forward to RAG pipeline, stream tokens back via tx
-            let conv_id =
-                conversation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let _ = tx
-                .send(WsOutgoing::ChatToken {
-                    conversation_id: conv_id.clone(),
-                    token: "Chat via WebSocket coming in M1-02".to_string(),
-                })
-                .await;
-            let _ = tx
-                .send(WsOutgoing::ChatComplete {
-                    conversation_id: conv_id,
-                    citations: vec![],
-                })
-                .await;
+            handle_chat_query(core, device_id, conversation_id, message, tx).await;
         }
         WsIncoming::ChatFeedback {
-            conversation_id,
+            conversation_id: _,
             message_id,
             helpful,
         } => {
-            core.log_access(
-                crate::core_state::AccessSource::MobileDevice {
-                    device_id: device_id.to_string(),
-                },
-                if helpful {
-                    "chat_feedback_positive"
-                } else {
-                    "chat_feedback_negative"
-                },
-                &format!("conversation:{conversation_id}:message:{message_id}"),
-            );
+            handle_chat_feedback(core, device_id, &message_id, helpful);
         }
         _ => {} // Ready and Pong handled in main loop
     }
+}
+
+/// Handle a chat query from the phone: sanitize → save → RAG → safety filter → stream back.
+async fn handle_chat_query(
+    core: &Arc<CoreState>,
+    device_id: &str,
+    conversation_id: Option<String>,
+    message: String,
+    tx: &mpsc::Sender<WsOutgoing>,
+) {
+    use crate::chat;
+    use crate::device_manager::CitationRef;
+    use crate::pipeline::rag::conversation::ConversationManager;
+    use crate::pipeline::safety::orchestrator::SafetyFilterImpl;
+    use crate::pipeline::safety::types::{FilterOutcome, SafetyFilter};
+
+    let core = core.clone();
+    let tx_blocking = tx.clone();
+    let tx_error = tx.clone();
+    let device_id = device_id.to_string();
+    let conv_id_for_error = conversation_id.clone();
+
+    // Run blocking DB + RAG work on a dedicated thread
+    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let tx = tx_blocking;
+        let conn = core.open_db().map_err(|e| e.to_string())?;
+        let safety = SafetyFilterImpl::new();
+        let manager = ConversationManager::new(&conn);
+
+        // 1. Sanitize patient input (L2-02)
+        let sanitized = safety
+            .sanitize_input(&message)
+            .map_err(|e| format!("Input sanitization failed: {e}"))?;
+
+        if sanitized.was_modified {
+            tracing::info!(
+                modifications = sanitized.modifications.len(),
+                "WS patient input sanitized"
+            );
+        }
+
+        // 2. Create or reuse conversation
+        let conv_uuid = match &conversation_id {
+            Some(id) => uuid::Uuid::parse_str(id)
+                .map_err(|e| format!("Invalid conversation ID: {e}"))?,
+            None => manager
+                .start(Some("New conversation"))
+                .map_err(|e| e.to_string())?,
+        };
+        let conv_id_str = conv_uuid.to_string();
+
+        // 3. Save patient message
+        manager
+            .add_patient_message(conv_uuid, &sanitized.text)
+            .map_err(|e| e.to_string())?;
+
+        // 4. Update title from first message
+        let history = manager.get_history(conv_uuid).map_err(|e| e.to_string())?;
+        let patient_count = history
+            .iter()
+            .filter(|m| m.role == crate::models::enums::MessageRole::Patient)
+            .count();
+        if patient_count == 1 {
+            let title = chat::generate_title(&sanitized.text);
+            let _ = chat::update_conversation_title(&conn, &conv_id_str, &title);
+        }
+
+        // 5. Try RAG pipeline
+        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn);
+
+        match rag_response {
+            Some(response) => {
+                // 6. Safety filter on RAG output
+                let filtered = safety
+                    .filter_response(&response)
+                    .map_err(|e| format!("Safety filter error: {e}"))?;
+
+                let (display_text, _confidence, _boundary) = match &filtered.filter_outcome {
+                    FilterOutcome::Passed => (
+                        filtered.text.clone(),
+                        filtered.confidence,
+                        format!("{:?}", filtered.boundary_check),
+                    ),
+                    FilterOutcome::Rephrased { .. } => {
+                        tracing::info!("WS safety filter rephrased RAG response");
+                        (
+                            filtered.text.clone(),
+                            filtered.confidence,
+                            format!("{:?}", filtered.boundary_check),
+                        )
+                    }
+                    FilterOutcome::Blocked { fallback_message, .. } => {
+                        tracing::warn!("WS safety filter blocked RAG response");
+                        (fallback_message.clone(), 0.0, "OutOfBounds".to_string())
+                    }
+                };
+
+                // 7. Send response token via WS (single token for sync pipeline)
+                let _ = tx.blocking_send(WsOutgoing::ChatToken {
+                    conversation_id: conv_id_str.clone(),
+                    token: display_text.clone(),
+                });
+
+                // 8. Build citation refs and send ChatComplete
+                let citations: Vec<CitationRef> = response
+                    .citations
+                    .iter()
+                    .map(|c| CitationRef {
+                        document_id: c.document_id.to_string(),
+                        document_title: c.document_title.clone(),
+                        chunk_id: None,
+                    })
+                    .collect();
+
+                let _ = tx.blocking_send(WsOutgoing::ChatComplete {
+                    conversation_id: conv_id_str.clone(),
+                    citations,
+                });
+
+                // 9. Persist filtered response
+                let source_json = if response.citations.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(
+                        &response
+                            .citations
+                            .iter()
+                            .map(|c| c.document_id.to_string())
+                            .collect::<Vec<_>>(),
+                    )
+                    .ok()
+                };
+                manager
+                    .add_response(conv_uuid, &display_text, source_json.as_deref(), filtered.confidence)
+                    .map_err(|e| e.to_string())?;
+            }
+            None => {
+                // No AI available — send placeholder
+                let placeholder = "I'm not connected to the AI assistant yet. \
+                    Please make sure Ollama is running with the MedGemma model on the desktop.";
+                let _ = tx.blocking_send(WsOutgoing::ChatToken {
+                    conversation_id: conv_id_str.clone(),
+                    token: placeholder.to_string(),
+                });
+                let _ = tx.blocking_send(WsOutgoing::ChatComplete {
+                    conversation_id: conv_id_str.clone(),
+                    citations: vec![],
+                });
+                manager
+                    .add_response(conv_uuid, placeholder, None, 0.0)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        core.log_access(
+            crate::core_state::AccessSource::MobileDevice {
+                device_id: device_id.clone(),
+            },
+            "chat_query",
+            &format!("conversation:{conv_id_str}"),
+        );
+        core.update_activity();
+
+        Ok(())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::error!(error = %e, "WS chat query failed");
+            let conv_id = conv_id_for_error
+                .unwrap_or_else(|| "unknown".to_string());
+            let _ = tx_error
+                .send(WsOutgoing::ChatError {
+                    conversation_id: conv_id,
+                    error: "An error occurred processing your question. Please try again.".into(),
+                })
+                .await;
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "WS chat query task panicked");
+        }
+    }
+}
+
+/// Attempt to run the RAG pipeline for a WebSocket query.
+fn try_ws_rag_query(
+    query_text: &str,
+    conversation_id: uuid::Uuid,
+    conn: &rusqlite::Connection,
+) -> Option<crate::pipeline::rag::types::RagResponse> {
+    use crate::pipeline::rag::ollama::OllamaRagGenerator;
+    use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
+    use crate::pipeline::rag::retrieval::InMemoryVectorSearch;
+    use crate::pipeline::rag::types::PatientQuery;
+
+    let generator = OllamaRagGenerator::try_auto_detect()?;
+    let embedder = crate::pipeline::storage::embedder::MockEmbedder::new();
+    let vector_store = InMemoryVectorSearch::new();
+
+    let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
+    let query = PatientQuery {
+        text: query_text.to_string(),
+        conversation_id,
+        query_type: None,
+    };
+
+    match pipeline.generate(&query) {
+        Ok(response) => {
+            tracing::info!(
+                confidence = response.confidence,
+                boundary = ?response.boundary_check,
+                citations = response.citations.len(),
+                "WS RAG pipeline generated response"
+            );
+            Some(response)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "WS RAG pipeline failed, falling back to placeholder");
+            None
+        }
+    }
+}
+
+/// Handle chat feedback from the phone: persist in DB + audit log.
+fn handle_chat_feedback(
+    core: &Arc<CoreState>,
+    device_id: &str,
+    message_id: &str,
+    helpful: bool,
+) {
+    use crate::models::enums::MessageFeedback;
+    use crate::pipeline::rag::conversation::ConversationManager;
+
+    // Persist feedback
+    if let Ok(conn) = core.open_db() {
+        if let Ok(msg_uuid) = uuid::Uuid::parse_str(message_id) {
+            let manager = ConversationManager::new(&conn);
+            let feedback = if helpful {
+                MessageFeedback::Helpful
+            } else {
+                MessageFeedback::NotHelpful
+            };
+            if let Err(e) = manager.set_feedback(msg_uuid, feedback) {
+                tracing::warn!(error = %e, message_id = %message_id, "Failed to persist chat feedback");
+            }
+        }
+    }
+
+    // Audit log
+    core.log_access(
+        crate::core_state::AccessSource::MobileDevice {
+            device_id: device_id.to_string(),
+        },
+        if helpful {
+            "chat_feedback_positive"
+        } else {
+            "chat_feedback_negative"
+        },
+        &format!("message:{message_id}"),
+    );
 }
 
 #[cfg(test)]
@@ -316,5 +631,359 @@ mod tests {
 
         // Should be allowed since old timestamps are > 1 second ago
         assert!(check_incoming_rate(&mut timestamps));
+    }
+
+    // === WsSessionState tests ===
+
+    #[test]
+    fn session_state_sends_heartbeat_on_first_tick() {
+        let state_start = Instant::now();
+        let mut session = WsSessionState::with_start(state_start);
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat);
+    }
+
+    #[test]
+    fn session_state_increments_missed_heartbeats() {
+        let mut session = WsSessionState::with_start(Instant::now());
+        // Each tick increments the missed counter before returning SendHeartbeat
+        session.on_heartbeat_tick(); // missed = 1
+        session.on_heartbeat_tick(); // missed = 2
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat); // missed = 3
+        // 4th tick: missed_heartbeats == MAX (3) → timeout
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::HeartbeatTimeout);
+    }
+
+    #[test]
+    fn session_state_pong_resets_missed_counter() {
+        let mut session = WsSessionState::with_start(Instant::now());
+        session.on_heartbeat_tick(); // missed = 1
+        session.on_heartbeat_tick(); // missed = 2
+        session.on_pong();           // missed = 0
+        // Now 3 more ticks needed before timeout
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat); // missed = 1
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat); // missed = 2
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat); // missed = 3
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::HeartbeatTimeout);
+    }
+
+    #[test]
+    fn session_state_expiry_warning_at_59_minutes() {
+        // Start 59 minutes ago → triggers expiry warning
+        let start = Instant::now() - Duration::from_secs(59 * 60);
+        let mut session = WsSessionState::with_start(start);
+        let action = session.on_heartbeat_tick();
+        match action {
+            HeartbeatAction::SendExpiryWarning { seconds_remaining } => {
+                assert!(seconds_remaining <= 60, "should have ≤60s remaining");
+            }
+            other => panic!("expected SendExpiryWarning, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_state_expiry_warning_sent_only_once() {
+        let start = Instant::now() - Duration::from_secs(59 * 60);
+        let mut session = WsSessionState::with_start(start);
+        // First tick → expiry warning
+        assert!(matches!(
+            session.on_heartbeat_tick(),
+            HeartbeatAction::SendExpiryWarning { .. }
+        ));
+        // Second tick → normal heartbeat (warning already sent, session not yet expired)
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SendHeartbeat);
+    }
+
+    #[test]
+    fn session_state_expired_after_one_hour() {
+        let start = Instant::now() - Duration::from_secs(3601);
+        let mut session = WsSessionState::with_start(start);
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SessionExpired);
+    }
+
+    #[test]
+    fn session_state_expired_takes_priority_over_heartbeat_timeout() {
+        let start = Instant::now() - Duration::from_secs(3601);
+        let mut session = WsSessionState::with_start(start);
+        // Even with MAX missed heartbeats, expiry takes priority
+        session.missed_heartbeats = MAX_MISSED_HEARTBEATS;
+        assert_eq!(session.on_heartbeat_tick(), HeartbeatAction::SessionExpired);
+    }
+
+    #[test]
+    fn session_state_check_rate_delegates_to_rate_limiter() {
+        let mut session = WsSessionState::new();
+        // First 10 should pass
+        for _ in 0..10 {
+            assert!(session.check_rate());
+        }
+        // 11th should be rate-limited
+        assert!(!session.check_rate());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Integration tests — full WebSocket connection lifecycle
+    // ═══════════════════════════════════════════════════════════
+
+    use crate::api::router::mobile_api_router_with_ctx;
+    use crate::api::types::{generate_token, hash_token, ApiContext};
+    use crate::core_state::CoreState;
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite;
+
+    /// Start a test server with shared `ApiContext`, register a device,
+    /// issue a WS ticket, and return the URL + core + server handle.
+    async fn setup_ws_server() -> (String, Arc<CoreState>, tokio::task::JoinHandle<()>) {
+        let core = Arc::new(CoreState::new());
+        let token = generate_token();
+        let hash = hash_token(&token);
+
+        // Register a paired device
+        {
+            let mut devices = core.write_devices().unwrap();
+            devices
+                .register_device(
+                    "ws-test-device".to_string(),
+                    "Test Phone".to_string(),
+                    "TestModel".to_string(),
+                    hash,
+                )
+                .unwrap();
+        }
+
+        // Shared context — same instance used by router and test
+        let ctx = ApiContext::new(core.clone());
+
+        // Issue a WS ticket directly
+        let ticket = {
+            let mut tickets = ctx.ws_tickets.lock().unwrap();
+            tickets.issue("ws-test-device".to_string(), "Test Phone".to_string())
+        };
+
+        let app = mobile_api_router_with_ctx(ctx);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws/connect?ticket={}", addr.port(), ticket);
+        (url, core, handle)
+    }
+
+    #[tokio::test]
+    async fn ws_connect_receives_welcome_message() {
+        let (url, _core, server) = setup_ws_server().await;
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // First message should be Welcome
+        let msg = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("timeout waiting for Welcome")
+            .expect("stream ended")
+            .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Welcome");
+        assert!(parsed["session_id"].is_string());
+        assert!(parsed["profile_name"].is_string());
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_receives_heartbeat_within_interval() {
+        let (url, _core, server) = setup_ws_server().await;
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // Skip Welcome
+        let _ = ws.next().await;
+
+        // Wait for first Heartbeat (30s interval, allow extra margin)
+        let msg = tokio::time::timeout(Duration::from_secs(35), ws.next())
+            .await
+            .expect("timeout waiting for Heartbeat")
+            .expect("stream ended")
+            .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Heartbeat");
+        assert!(parsed["server_time"].is_string());
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_pong_keeps_connection_alive() {
+        let (url, _core, server) = setup_ws_server().await;
+
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // Skip Welcome
+        let _ = ws.next().await;
+
+        // Wait for Heartbeat, respond with Pong
+        let _ = tokio::time::timeout(Duration::from_secs(35), ws.next()).await;
+
+        let pong = serde_json::json!({"type": "Pong"}).to_string();
+        ws.send(tungstenite::Message::Text(pong))
+            .await
+            .expect("send Pong failed");
+
+        // Wait for next Heartbeat — connection should still be alive
+        let msg = tokio::time::timeout(Duration::from_secs(35), ws.next())
+            .await
+            .expect("timeout waiting for 2nd Heartbeat")
+            .expect("stream ended")
+            .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Heartbeat");
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_invalid_ticket_rejects_upgrade() {
+        let core = Arc::new(CoreState::new());
+        let ctx = ApiContext::new(core);
+        let app = mobile_api_router_with_ctx(ctx);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws/connect?ticket=invalid", addr.port());
+        let result = tokio_tungstenite::connect_async(&url).await;
+
+        // Should fail — invalid ticket returns HTTP 401 before WS upgrade
+        assert!(result.is_err(), "Should reject invalid ticket");
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_connect_registers_ws_channel() {
+        let core = Arc::new(CoreState::new());
+        let token = generate_token();
+        let hash = hash_token(&token);
+
+        {
+            let mut devices = core.write_devices().unwrap();
+            devices
+                .register_device(
+                    "reg-test-device".to_string(),
+                    "Test Phone".to_string(),
+                    "Model".to_string(),
+                    hash,
+                )
+                .unwrap();
+        }
+
+        let ctx = ApiContext::new(core.clone());
+        let ticket = {
+            let mut tickets = ctx.ws_tickets.lock().unwrap();
+            tickets.issue("reg-test-device".to_string(), "Test Phone".to_string())
+        };
+
+        let app = mobile_api_router_with_ctx(ctx);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws/connect?ticket={}", addr.port(), ticket);
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // Wait for Welcome to confirm server processed the connection
+        let _ = ws.next().await;
+
+        // Give server a moment to register the WS channel
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Verify WS channel is registered in DeviceManager
+        {
+            let devices = core.read_devices().unwrap();
+            assert!(
+                devices.ws_sender("reg-test-device").is_some(),
+                "WS channel should be registered after connect"
+            );
+        }
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_ticket_consumed_after_use() {
+        let core = Arc::new(CoreState::new());
+        let token = generate_token();
+        let hash = hash_token(&token);
+
+        {
+            let mut devices = core.write_devices().unwrap();
+            devices
+                .register_device(
+                    "reuse-test".to_string(),
+                    "Phone".to_string(),
+                    "Model".to_string(),
+                    hash,
+                )
+                .unwrap();
+        }
+
+        let ctx = ApiContext::new(core.clone());
+        let ticket = {
+            let mut tickets = ctx.ws_tickets.lock().unwrap();
+            tickets.issue("reuse-test".to_string(), "Phone".to_string())
+        };
+
+        let app = mobile_api_router_with_ctx(ctx);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws/connect?ticket={}", addr.port(), ticket);
+
+        // First connection succeeds
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("first connect should succeed");
+        let _ = ws.close(None).await;
+
+        // Second connection with same ticket should fail (one-time use)
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let result = tokio_tungstenite::connect_async(&url).await;
+        assert!(result.is_err(), "Reused ticket should be rejected");
+
+        server.abort();
     }
 }

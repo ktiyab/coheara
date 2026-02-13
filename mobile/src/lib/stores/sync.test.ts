@@ -6,6 +6,7 @@ import {
 	isSyncing,
 	syncStatus,
 	lastSyncError,
+	syncAuditLog,
 	configureSyncManager,
 	clearSyncConfig,
 	requestSync,
@@ -69,7 +70,7 @@ function makeFullSyncResult(): SyncApiResult {
 			timeline: [{ id: 'evt-1', title: 'Blood test', timestamp: '2025-06-01', eventType: 'lab_result', description: 'Routine', isPatientReported: false }],
 			alerts: [{ id: 'alert-1', title: 'HbA1c rising', description: 'Trend detected', severity: 'warning', createdAt: '2025-06-01', dismissed: false }],
 			appointment: { id: 'appt-1', doctorName: 'Dr. Ndiaye', date: '2026-03-01', location: 'Clinic', purpose: 'Follow-up', hasPrepData: false },
-			profile: { name: 'Mamadou', blood_type: 'O+', allergies: ['Penicillin'], emergency_contacts: [{ name: 'Papa', phone: '+221', relationship: 'Father' }] },
+			profile: { name: 'Mamadou', blood_type: 'O+', allergies: ['Penicillin'], emergency_contacts: [{ name: 'Papa', phone: '+221', relation: 'Father' }] },
 			versions: { medications: 5, labs: 3, timeline: 10, alerts: 2, appointments: 1, profile: 1 }
 		})
 	};
@@ -616,5 +617,119 @@ describe('sync-manager — configuration', () => {
 		const changed = await requestSync();
 		expect(changed).toBe(false);
 		expect(mockPostSync).not.toHaveBeenCalled();
+	});
+});
+
+// === SYNC TIMESTAMP VALIDATION (RS-M0-04-P01) ===
+
+describe('sync-manager — timestamp validation', () => {
+	it('rejects sync response with future timestamp', async () => {
+		const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: futureDate }));
+
+		const changed = await requestSync();
+		expect(changed).toBe(false);
+		expect(get(syncManager).status).toBe('error');
+		expect(get(syncManager).lastError).toContain('timestamp');
+	});
+
+	it('rejects sync response older than last sync', async () => {
+		// First sync succeeds with a recent timestamp
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T10:00:00Z' }));
+		await requestSync();
+		expect(get(syncManager).lastSyncAt).toBe('2026-02-12T10:00:00Z');
+
+		// Second sync with an older timestamp should fail
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T09:00:00Z' }));
+		const changed = await requestSync();
+		expect(changed).toBe(false);
+		expect(get(syncManager).status).toBe('error');
+	});
+
+	it('accepts valid timestamp newer than last sync', async () => {
+		// First sync
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T10:00:00Z' }));
+		await requestSync();
+
+		// Second sync with newer timestamp
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T11:00:00Z' }));
+		const changed = await requestSync();
+		expect(changed).toBe(true);
+		expect(get(syncManager).lastSyncAt).toBe('2026-02-12T11:00:00Z');
+	});
+
+	it('rejects sync response with invalid date string', async () => {
+		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: 'not-a-date' }));
+
+		const changed = await requestSync();
+		expect(changed).toBe(false);
+		expect(get(syncManager).status).toBe('error');
+	});
+});
+
+// === SYNC AUDIT LOGGING (RS-M0-04-P02) ===
+
+describe('sync-manager — audit logging', () => {
+	it('logs sync_applied on successful 200 sync', async () => {
+		mockPostSync.mockResolvedValue(makeFullSyncResult());
+		await requestSync();
+
+		const log = get(syncAuditLog);
+		expect(log).toHaveLength(1);
+		expect(log[0].action).toBe('sync_applied');
+		expect(log[0].entitiesUpdated).toContain('medications');
+		expect(log[0].entitiesUpdated).toContain('labs');
+		expect(log[0].entitiesUpdated).toContain('profile');
+		expect(log[0].timestamp).toBe('2026-02-12T10:00:00Z');
+	});
+
+	it('logs sync_no_change on 204 response', async () => {
+		mockPostSync.mockResolvedValue(makeNoChangeResult());
+		await requestSync();
+
+		const log = get(syncAuditLog);
+		expect(log).toHaveLength(1);
+		expect(log[0].action).toBe('sync_no_change');
+		expect(log[0].entitiesUpdated).toHaveLength(0);
+	});
+
+	it('logs sync_error on error response', async () => {
+		mockPostSync.mockResolvedValue(makeErrorResult('Server error'));
+		await requestSync();
+
+		const log = get(syncAuditLog);
+		expect(log).toHaveLength(1);
+		expect(log[0].action).toBe('sync_error');
+		expect(log[0].error).toBe('Server error');
+	});
+
+	it('accumulates multiple audit entries', async () => {
+		// First sync: no changes (204)
+		mockPostSync.mockResolvedValue(makeNoChangeResult());
+		await requestSync();
+
+		// Second sync: changes (200) — timestamp must be after the 204's lastSyncAt
+		const futureTime = new Date(Date.now() + 60_000).toISOString();
+		mockPostSync.mockResolvedValue(makeDeltaResult({
+			...makeFullSyncResult().data,
+			synced_at: futureTime
+		}));
+		await requestSync();
+
+		const log = get(syncAuditLog);
+		expect(log).toHaveLength(2);
+		expect(log[0].action).toBe('sync_no_change');
+		expect(log[1].action).toBe('sync_applied');
+	});
+
+	it('clears audit log on reset', async () => {
+		mockPostSync.mockResolvedValue(makeNoChangeResult());
+		await requestSync();
+		expect(get(syncAuditLog)).toHaveLength(1);
+
+		resetSyncManagerState();
+		configureSyncManager('https://desktop.local:9443', 'test-token');
+		setConnected();
+		expect(get(syncAuditLog)).toHaveLength(0);
 	});
 });

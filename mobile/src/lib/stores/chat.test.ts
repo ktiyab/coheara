@@ -24,7 +24,7 @@ import {
 	clearConversation,
 	resetChatState
 } from './chat.js';
-import type { ChatMessage, ConversationSummary, Citation } from '$lib/types/chat.js';
+import type { ChatMessage, ConversationSummary, Citation, WsCitationRef } from '$lib/types/chat.js';
 import { LOADING_TIMEOUT_MS, TOKEN_TIMEOUT_MS } from '$lib/types/chat.js';
 
 describe('chat store — connected chat flow', () => {
@@ -47,7 +47,7 @@ describe('chat store — connected chat flow', () => {
 		// Receive first token
 		handleWsChatMessage({
 			type: 'ChatToken',
-			conversationId: 'conv-1',
+			conversation_id: 'conv-1',
 			token: 'Based '
 		});
 		expect(get(streamState).phase).toBe('streaming');
@@ -56,33 +56,28 @@ describe('chat store — connected chat flow', () => {
 		// Receive more tokens
 		handleWsChatMessage({
 			type: 'ChatToken',
-			conversationId: 'conv-1',
+			conversation_id: 'conv-1',
 			token: 'on your '
 		});
 		expect(get(streamingContent)).toBe('Based on your ');
 
 		handleWsChatMessage({
 			type: 'ChatToken',
-			conversationId: 'conv-1',
+			conversation_id: 'conv-1',
 			token: 'records...'
 		});
 		expect(get(streamingContent)).toBe('Based on your records...');
 
-		// Complete with citations
-		const citations: Citation[] = [{
-			documentId: 'doc-1',
-			documentTitle: 'Prescription 02/2024',
-			documentDate: '2024-02-15',
-			professionalName: 'Dr. Ndiaye',
-			chunkText: 'Lisinopril 10mg once daily',
-			relevanceScore: 0.92
+		// Complete with citations (WsCitationRef format from desktop)
+		const wsCitations: WsCitationRef[] = [{
+			document_id: 'doc-1',
+			document_title: 'Prescription 02/2024'
 		}];
 
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'conv-1',
-			messageId: 'msg-1',
-			citations
+			conversation_id: 'conv-1',
+			citations: wsCitations
 		});
 
 		expect(get(streamState).phase).toBe('complete');
@@ -115,14 +110,13 @@ describe('chat store — connected chat flow', () => {
 
 		handleWsChatMessage({
 			type: 'ChatToken',
-			conversationId: 'conv-new',
+			conversation_id: 'conv-new',
 			token: 'Hello! '
 		});
 
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'conv-new',
-			messageId: 'msg-1',
+			conversation_id: 'conv-new',
 			citations: []
 		});
 
@@ -137,13 +131,12 @@ describe('chat store — connected chat flow', () => {
 
 	it('resets streaming content on new query', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'first' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'first' });
 		expect(get(streamingContent)).toBe('first');
 
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'm1',
+			conversation_id: 'c1',
 			citations: []
 		});
 
@@ -178,7 +171,7 @@ describe('chat store — streaming UX states', () => {
 
 	it('times out if token stream stalls during streaming', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'partial...' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'partial...' });
 		expect(get(streamState).phase).toBe('streaming');
 
 		vi.advanceTimersByTime(TOKEN_TIMEOUT_MS + 100);
@@ -193,11 +186,11 @@ describe('chat store — streaming UX states', () => {
 
 	it('handles error during streaming with partial content', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'So far...' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'So far...' });
 
 		handleWsChatMessage({
 			type: 'ChatError',
-			conversationId: 'c1',
+			conversation_id: 'c1',
 			error: 'Desktop disconnected'
 		});
 
@@ -214,7 +207,7 @@ describe('chat store — streaming UX states', () => {
 
 		handleWsChatMessage({
 			type: 'ChatError',
-			conversationId: 'c1',
+			conversation_id: 'c1',
 			error: 'Profile locked on desktop'
 		});
 
@@ -238,27 +231,13 @@ describe('chat store — citation handling', () => {
 
 	it('attaches citations to completed message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'Answer' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'm1',
+			conversation_id: 'c1',
 			citations: [
-				{
-					documentId: 'doc-1',
-					documentTitle: 'Lab Report',
-					documentDate: '2024-01-15',
-					professionalName: 'Lab Corp',
-					chunkText: 'HbA1c: 6.5%',
-					relevanceScore: 0.95
-				},
-				{
-					documentId: 'doc-2',
-					documentTitle: 'Prescription',
-					documentDate: '2024-02-20',
-					chunkText: 'Metformin 500mg',
-					relevanceScore: 0.88
-				}
+				{ document_id: 'doc-1', document_title: 'Lab Report' },
+				{ document_id: 'doc-2', document_title: 'Prescription' }
 			]
 		});
 
@@ -270,11 +249,10 @@ describe('chat store — citation handling', () => {
 
 	it('handles message with zero citations', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'General info' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'General info' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'm1',
+			conversation_id: 'c1',
 			citations: []
 		});
 
@@ -282,27 +260,21 @@ describe('chat store — citation handling', () => {
 		expect(msgs[0].citations).toHaveLength(0);
 	});
 
-	it('preserves citation metadata (documentId, relevanceScore)', () => {
+	it('preserves citation document ID after mapping', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'Check' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Check' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'm1',
+			conversation_id: 'c1',
 			citations: [{
-				documentId: 'doc-xyz',
-				documentTitle: 'Blood Work',
-				documentDate: '2024-03-01',
-				professionalName: 'Dr. A',
-				chunkText: 'WBC normal',
-				relevanceScore: 0.72
+				document_id: 'doc-xyz',
+				document_title: 'Blood Work'
 			}]
 		});
 
 		const citation = get(messages)[0].citations[0];
 		expect(citation.documentId).toBe('doc-xyz');
-		expect(citation.relevanceScore).toBe(0.72);
-		expect(citation.professionalName).toBe('Dr. A');
+		expect(citation.documentTitle).toBe('Blood Work');
 	});
 });
 
@@ -318,45 +290,46 @@ describe('chat store — feedback', () => {
 
 	it('sets helpful feedback on a message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'Answer' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'msg-1',
+			conversation_id: 'c1',
 			citations: []
 		});
 
+		const msgId = get(messages)[0].id;
 		expect(get(messages)[0].feedback).toBeNull();
 
-		setMessageFeedback('msg-1', true);
+		setMessageFeedback(msgId, true);
 		expect(get(messages)[0].feedback).toBe('helpful');
 	});
 
 	it('sets not-helpful feedback on a message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'Answer' });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
-			conversationId: 'c1',
-			messageId: 'msg-2',
+			conversation_id: 'c1',
 			citations: []
 		});
 
-		setMessageFeedback('msg-2', false);
+		const msgId = get(messages)[0].id;
+		setMessageFeedback(msgId, false);
 		expect(get(messages)[0].feedback).toBe('not_helpful');
 	});
 
 	it('feedback only affects the targeted message', () => {
 		// Add two Coheara messages
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'First' });
-		handleWsChatMessage({ type: 'ChatComplete', conversationId: 'c1', messageId: 'a', citations: [] });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'First' });
+		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', citations: [] });
 
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversationId: 'c1', token: 'Second' });
-		handleWsChatMessage({ type: 'ChatComplete', conversationId: 'c1', messageId: 'b', citations: [] });
+		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Second' });
+		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', citations: [] });
 
-		setMessageFeedback('a', true);
+		const firstMsgId = get(messages)[0].id;
+		setMessageFeedback(firstMsgId, true);
 
 		const msgs = get(messages);
 		expect(msgs[0].feedback).toBe('helpful');
