@@ -986,4 +986,76 @@ mod tests {
 
         server.abort();
     }
+
+    // NOTE: Cleanup test (unregister_ws after disconnect) is covered at the unit
+    // level by device_manager::tests::unregister_ws_clears_channel. Integration
+    // testing requires waiting for 3 missed heartbeats (~90s on WSL2) because
+    // SplitStream doesn't detect TCP close — impractical for CI.
+
+    #[tokio::test]
+    async fn ws_malformed_json_keeps_connection() {
+        let (url, _core, server) = setup_ws_server().await;
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // Skip Welcome
+        let _ = ws.next().await;
+
+        // Send malformed JSON — should be silently ignored
+        ws.send(tungstenite::Message::Text("not valid json {{{".into()))
+            .await
+            .expect("send malformed failed");
+        ws.send(tungstenite::Message::Text("{\"type\": \"Unknown\"}".into()))
+            .await
+            .expect("send unknown type failed");
+
+        // Connection should still be alive — wait for next Heartbeat
+        let msg = tokio::time::timeout(Duration::from_secs(35), ws.next())
+            .await
+            .expect("timeout — connection should still be alive")
+            .expect("stream ended unexpectedly")
+            .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Heartbeat");
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ws_rate_limit_drops_excess_not_disconnect() {
+        let (url, _core, server) = setup_ws_server().await;
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("WS connect failed");
+
+        // Skip Welcome
+        let _ = ws.next().await;
+
+        // Send 15 messages rapidly — rate limit is 10/sec.
+        // Excess messages are silently dropped, connection stays alive.
+        for i in 0..15 {
+            let pong = serde_json::json!({"type": "Pong"}).to_string();
+            ws.send(tungstenite::Message::Text(pong.into()))
+                .await
+                .unwrap_or_else(|_| panic!("Send {i} failed — should stay alive during rate limit"));
+        }
+
+        // Connection should still be alive — wait for Heartbeat
+        let msg = tokio::time::timeout(Duration::from_secs(35), ws.next())
+            .await
+            .expect("timeout — connection should survive rate-limited burst")
+            .expect("stream ended unexpectedly")
+            .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Heartbeat");
+
+        let _ = ws.close(None).await;
+        server.abort();
+    }
 }

@@ -322,11 +322,56 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
     fields
 }
 
-/// Generate plausibility warnings for extracted medication doses (RS-L3-04-001).
+/// Generate plausibility warnings during document review (RS-L3-04-001).
 ///
-/// Checks each medication's dose against known reference ranges using the
-/// dose_references table. Returns warnings for unusual doses.
+/// Runs four checks against extracted entities:
+/// 1. Medication dose plausibility (against dose_references table)
+/// 2. Critical lab value detection (abnormal flags + reference ranges)
+/// 3. Allergy-medication conflicts (extracted + DB allergies vs medications)
+/// 4. Duplicate medication detection (within document + against DB)
 pub fn generate_plausibility_warnings(
+    conn: &Connection,
+    structuring: &StructuringResult,
+    fields: &[ExtractedField],
+) -> Vec<PlausibilityWarning> {
+    let mut warnings = Vec::new();
+
+    warnings.extend(check_dose_plausibility(conn, structuring, fields));
+    warnings.extend(check_critical_lab_values(structuring, fields));
+    warnings.extend(check_allergy_conflicts(conn, structuring, fields));
+    warnings.extend(check_duplicate_medications(conn, structuring, fields));
+
+    warnings
+}
+
+/// Find the field ID for an entity by type, index, and preferred field name.
+/// Falls back to `fallback_field` if preferred is not found.
+fn find_field_id(
+    fields: &[ExtractedField],
+    entity_type: &EntityCategory,
+    entity_index: usize,
+    preferred_field: &str,
+    fallback_field: &str,
+) -> Option<Uuid> {
+    fields
+        .iter()
+        .find(|f| {
+            f.entity_type == *entity_type
+                && f.entity_index == entity_index
+                && f.field_name == preferred_field
+        })
+        .or_else(|| {
+            fields.iter().find(|f| {
+                f.entity_type == *entity_type
+                    && f.entity_index == entity_index
+                    && f.field_name == fallback_field
+            })
+        })
+        .map(|f| f.id)
+}
+
+/// Check medication doses against reference ranges.
+fn check_dose_plausibility(
     conn: &Connection,
     structuring: &StructuringResult,
     fields: &[ExtractedField],
@@ -338,7 +383,6 @@ pub fn generate_plausibility_warnings(
             continue;
         }
 
-        // Get the medication at this entity_index
         let med = match structuring.extracted_entities.medications.get(field.entity_index) {
             Some(m) => m,
             None => continue,
@@ -349,20 +393,17 @@ pub fn generate_plausibility_warnings(
             None => continue,
         };
 
-        // Parse numeric dose value from the dose string (e.g., "500mg" → 500.0)
         let dose_value = match parse_dose_value(&med.dose) {
             Some(v) => v,
-            None => continue, // Can't parse — skip
+            None => continue,
         };
 
-        // Check against reference ranges
         let result = match crate::trust::check_dose_plausibility(conn, med_name, dose_value, "mg")
         {
             Ok(r) => r,
-            Err(_) => continue, // Reference lookup failed — skip gracefully
+            Err(_) => continue,
         };
 
-        // Map the result to a PlausibilityWarning
         let (warning_type, severity, message) = match &result.plausibility {
             crate::trust::PlausibilityResult::Plausible => continue,
             crate::trust::PlausibilityResult::VeryHighDose { message } => (
@@ -389,6 +430,226 @@ pub fn generate_plausibility_warnings(
             message,
             severity,
         });
+    }
+
+    warnings
+}
+
+/// Check extracted lab values for critical results.
+///
+/// Flags labs where `abnormal_flag` contains "critical" or "panic",
+/// or where the value is far outside the reference range (>2× high or <0.5× low).
+fn check_critical_lab_values(
+    structuring: &StructuringResult,
+    fields: &[ExtractedField],
+) -> Vec<PlausibilityWarning> {
+    let mut warnings = Vec::new();
+
+    for (i, lab) in structuring.extracted_entities.lab_results.iter().enumerate() {
+        let is_critical = lab.abnormal_flag.as_ref().is_some_and(|flag| {
+            let lower = flag.to_lowercase();
+            lower.contains("critical") || lower.contains("panic")
+        });
+
+        let is_far_outside = match (lab.value, lab.reference_range_low, lab.reference_range_high) {
+            (Some(val), _, Some(high)) if high > 0.0 && val > high * 2.0 => true,
+            (Some(val), Some(low), _) if low > 0.0 && val < low * 0.5 => true,
+            _ => false,
+        };
+
+        if !is_critical && !is_far_outside {
+            continue;
+        }
+
+        let field_id = match find_field_id(fields, &EntityCategory::LabResult, i, "value", "test_name") {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let severity = if is_critical {
+            WarningSeverity::Critical
+        } else {
+            WarningSeverity::Warning
+        };
+
+        let value_str = lab.value.map_or_else(|| "unknown".to_string(), |v| v.to_string());
+        let unit_str = lab.unit.as_deref().unwrap_or("");
+
+        let message = if is_critical {
+            format!(
+                "{} result ({} {}) is flagged as critical. Please verify with your healthcare provider.",
+                lab.test_name, value_str, unit_str
+            )
+        } else {
+            format!(
+                "{} result ({} {}) is significantly outside the expected range. Please verify this value.",
+                lab.test_name, value_str, unit_str
+            )
+        };
+
+        warnings.push(PlausibilityWarning {
+            field_id,
+            warning_type: PlausibilityType::LabValueCritical,
+            message,
+            severity,
+        });
+    }
+
+    warnings
+}
+
+/// Check extracted medications against known allergies (both extracted and in DB).
+///
+/// Uses case-insensitive substring matching between medication generic names
+/// and allergen names. The coherence engine performs more sophisticated drug
+/// family matching after storage.
+fn check_allergy_conflicts(
+    conn: &Connection,
+    structuring: &StructuringResult,
+    fields: &[ExtractedField],
+) -> Vec<PlausibilityWarning> {
+    let mut warnings = Vec::new();
+
+    // Collect unique allergen names from extracted entities
+    let mut allergens: Vec<String> = structuring
+        .extracted_entities
+        .allergies
+        .iter()
+        .map(|a| a.allergen.to_lowercase())
+        .collect();
+
+    // Also include existing DB allergies
+    if let Ok(db_allergies) = crate::db::repository::get_all_allergies(conn) {
+        for allergy in &db_allergies {
+            let lower = allergy.allergen.to_lowercase();
+            if !allergens.contains(&lower) {
+                allergens.push(lower);
+            }
+        }
+    }
+
+    if allergens.is_empty() {
+        return warnings;
+    }
+
+    for (i, med) in structuring.extracted_entities.medications.iter().enumerate() {
+        let med_name = match &med.generic_name {
+            Some(n) => n.to_lowercase(),
+            None => continue,
+        };
+
+        for allergen in &allergens {
+            if med_name.contains(allergen.as_str()) || allergen.contains(med_name.as_str()) {
+                let field_id = match find_field_id(
+                    fields,
+                    &EntityCategory::Medication,
+                    i,
+                    "generic_name",
+                    "dose",
+                ) {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                warnings.push(PlausibilityWarning {
+                    field_id,
+                    warning_type: PlausibilityType::AllergyConflict,
+                    message: format!(
+                        "You have a recorded allergy to {}. {} may conflict with this allergy.",
+                        allergen,
+                        med.generic_name.as_deref().unwrap_or("This medication")
+                    ),
+                    severity: WarningSeverity::Critical,
+                });
+
+                break; // One warning per medication
+            }
+        }
+    }
+
+    warnings
+}
+
+/// Check for duplicate medications within the document and against existing records.
+fn check_duplicate_medications(
+    conn: &Connection,
+    structuring: &StructuringResult,
+    fields: &[ExtractedField],
+) -> Vec<PlausibilityWarning> {
+    let mut warnings = Vec::new();
+
+    let existing_meds = crate::db::repository::get_active_medications(conn).unwrap_or_default();
+
+    for (i, med) in structuring.extracted_entities.medications.iter().enumerate() {
+        let med_name = match &med.generic_name {
+            Some(n) => n.to_lowercase(),
+            None => continue,
+        };
+
+        // Check against existing DB medications
+        if let Some(existing) = existing_meds
+            .iter()
+            .find(|m| m.generic_name.to_lowercase() == med_name)
+        {
+            let field_id = match find_field_id(
+                fields,
+                &EntityCategory::Medication,
+                i,
+                "generic_name",
+                "dose",
+            ) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let display_name = existing
+                .brand_name
+                .as_deref()
+                .unwrap_or(&existing.generic_name);
+
+            warnings.push(PlausibilityWarning {
+                field_id,
+                warning_type: PlausibilityType::DuplicateMedication,
+                message: format!(
+                    "You already have {} ({}) in your records. This may be a duplicate prescription.",
+                    display_name, existing.dose
+                ),
+                severity: WarningSeverity::Warning,
+            });
+        }
+
+        // Check within same document (same generic in different entries)
+        for (j, other) in structuring.extracted_entities.medications.iter().enumerate() {
+            if j <= i {
+                continue;
+            }
+            let other_name = match &other.generic_name {
+                Some(n) => n.to_lowercase(),
+                None => continue,
+            };
+            if med_name == other_name {
+                let field_id = match find_field_id(
+                    fields,
+                    &EntityCategory::Medication,
+                    j,
+                    "generic_name",
+                    "dose",
+                ) {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                warnings.push(PlausibilityWarning {
+                    field_id,
+                    warning_type: PlausibilityType::DuplicateMedication,
+                    message: format!(
+                        "{} appears more than once in this document. Please verify this is intentional.",
+                        med.generic_name.as_deref().unwrap_or("This medication")
+                    ),
+                    severity: WarningSeverity::Warning,
+                });
+            }
+        }
     }
 
     warnings
@@ -1175,6 +1436,233 @@ mod tests {
         let fields = flatten_entities_to_fields(&result);
 
         let warnings = generate_plausibility_warnings(&conn, &result, &fields);
+        assert!(warnings.is_empty());
+    }
+
+    // --- check_critical_lab_values ---
+
+    #[test]
+    fn critical_lab_with_critical_flag() {
+        let mut result = make_structuring_result();
+        result.extracted_entities.lab_results[0].abnormal_flag = Some("critical_high".into());
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_critical_lab_values(&result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::LabValueCritical);
+        assert_eq!(warnings[0].severity, WarningSeverity::Critical);
+        assert!(warnings[0].message.contains("HbA1c"));
+        assert!(warnings[0].message.contains("critical"));
+    }
+
+    #[test]
+    fn critical_lab_with_panic_flag() {
+        let mut result = make_structuring_result();
+        result.extracted_entities.lab_results[0].abnormal_flag = Some("panic".into());
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_critical_lab_values(&result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, WarningSeverity::Critical);
+    }
+
+    #[test]
+    fn critical_lab_far_above_range() {
+        let mut result = make_structuring_result();
+        result.extracted_entities.lab_results[0].value = Some(15.0); // > 6.0 * 2.0 = 12.0
+        result.extracted_entities.lab_results[0].abnormal_flag = Some("high".into());
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_critical_lab_values(&result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::LabValueCritical);
+        assert_eq!(warnings[0].severity, WarningSeverity::Warning);
+        assert!(warnings[0].message.contains("outside the expected range"));
+    }
+
+    #[test]
+    fn critical_lab_far_below_range() {
+        let mut result = make_structuring_result();
+        result.extracted_entities.lab_results[0].value = Some(1.5); // < 4.0 * 0.5 = 2.0
+        result.extracted_entities.lab_results[0].abnormal_flag = None;
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_critical_lab_values(&result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].severity, WarningSeverity::Warning);
+    }
+
+    #[test]
+    fn normal_lab_no_critical_warning() {
+        let result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+
+        // HbA1c 7.2 with range 4.0-6.0, flag "high" — not "critical" or "panic",
+        // 7.2 < 6.0*2=12.0, 7.2 > 4.0*0.5=2.0 — no critical warning
+        let warnings = check_critical_lab_values(&result, &fields);
+        assert!(warnings.is_empty());
+    }
+
+    // --- check_allergy_conflicts ---
+
+    #[test]
+    fn allergy_conflict_from_extracted_allergen() {
+        let conn = open_memory_database().unwrap();
+        let mut result = make_structuring_result();
+        // Add a medication that matches the existing Penicillin allergy
+        result.extracted_entities.medications.push(ExtractedMedication {
+            generic_name: Some("Penicillin V".into()),
+            brand_name: None,
+            dose: "500mg".into(),
+            frequency: "four times daily".into(),
+            frequency_type: "regular".into(),
+            route: "oral".into(),
+            reason: None,
+            instructions: vec![],
+            is_compound: false,
+            compound_ingredients: vec![],
+            tapering_steps: vec![],
+            max_daily_dose: None,
+            condition: None,
+            confidence: 0.9,
+        });
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_allergy_conflicts(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::AllergyConflict);
+        assert_eq!(warnings[0].severity, WarningSeverity::Critical);
+        assert!(warnings[0].message.contains("penicillin"));
+    }
+
+    #[test]
+    fn allergy_conflict_from_db_allergen() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4();
+        let doc = make_test_document(&doc_id);
+        insert_document(&conn, &doc).unwrap();
+
+        // Insert an allergy into the DB
+        crate::db::repository::insert_allergy(
+            &conn,
+            &crate::models::Allergy {
+                id: Uuid::new_v4(),
+                allergen: "Metformin".into(),
+                reaction: Some("Nausea".into()),
+                severity: crate::models::enums::AllergySeverity::Moderate,
+                date_identified: None,
+                source: crate::models::enums::AllergySource::DocumentExtracted,
+                document_id: Some(doc_id),
+                verified: true,
+            },
+        )
+        .unwrap();
+
+        // Make a result with no extracted allergies but has Metformin medication
+        let mut result = make_structuring_result();
+        result.extracted_entities.allergies.clear();
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_allergy_conflicts(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("metformin"));
+    }
+
+    #[test]
+    fn no_allergy_conflict_when_no_match() {
+        let conn = open_memory_database().unwrap();
+        let result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+
+        // Penicillin allergy vs Metformin/Atorvastatin — no overlap
+        let warnings = check_allergy_conflicts(&conn, &result, &fields);
+        assert!(warnings.is_empty());
+    }
+
+    // --- check_duplicate_medications ---
+
+    #[test]
+    fn duplicate_medication_from_db() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4();
+        let doc = make_test_document(&doc_id);
+        insert_document(&conn, &doc).unwrap();
+
+        // Insert an existing Metformin into the DB
+        crate::db::repository::insert_medication(
+            &conn,
+            &crate::models::Medication {
+                id: Uuid::new_v4(),
+                generic_name: "Metformin".into(),
+                brand_name: Some("Glucophage".into()),
+                dose: "850mg".into(),
+                frequency: "twice daily".into(),
+                frequency_type: crate::models::enums::FrequencyType::Scheduled,
+                route: "oral".into(),
+                prescriber_id: None,
+                start_date: None,
+                end_date: None,
+                reason_start: None,
+                reason_stop: None,
+                is_otc: false,
+                status: crate::models::enums::MedicationStatus::Active,
+                administration_instructions: None,
+                max_daily_dose: None,
+                condition: None,
+                dose_type: crate::models::enums::DoseType::Fixed,
+                is_compound: false,
+                document_id: doc_id,
+            },
+        )
+        .unwrap();
+
+        let result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_duplicate_medications(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::DuplicateMedication);
+        assert_eq!(warnings[0].severity, WarningSeverity::Warning);
+        assert!(warnings[0].message.contains("Glucophage"));
+    }
+
+    #[test]
+    fn duplicate_medication_within_same_document() {
+        let conn = open_memory_database().unwrap();
+        let mut result = make_structuring_result();
+        // Add a second Metformin entry (different dose)
+        result.extracted_entities.medications.push(ExtractedMedication {
+            generic_name: Some("Metformin".into()),
+            brand_name: Some("Glucophage XR".into()),
+            dose: "1000mg".into(),
+            frequency: "once daily".into(),
+            frequency_type: "regular".into(),
+            route: "oral".into(),
+            reason: None,
+            instructions: vec![],
+            is_compound: false,
+            compound_ingredients: vec![],
+            tapering_steps: vec![],
+            max_daily_dose: None,
+            condition: None,
+            confidence: 0.88,
+        });
+        let fields = flatten_entities_to_fields(&result);
+
+        let warnings = check_duplicate_medications(&conn, &result, &fields);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].warning_type, PlausibilityType::DuplicateMedication);
+        assert!(warnings[0].message.contains("more than once"));
+    }
+
+    #[test]
+    fn no_duplicate_for_unique_medications() {
+        let conn = open_memory_database().unwrap();
+        let result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+
+        // Metformin + Atorvastatin — no duplicates
+        let warnings = check_duplicate_medications(&conn, &result, &fields);
         assert!(warnings.is_empty());
     }
 }

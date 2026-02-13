@@ -1,7 +1,10 @@
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use rusqlite::Connection;
 use uuid::Uuid;
 
+use crate::db::sqlite;
 use crate::models::enums::{AlertType, DismissedBy};
 
 use super::detection::{
@@ -19,17 +22,52 @@ use super::types::{
 
 /// Default implementation of the coherence engine.
 /// Orchestrates all 8 detection algorithms, stores results, and manages the alert lifecycle.
+///
+/// When `db_path` is set, alerts are persisted to SQLite so they survive app restarts.
+/// When `db_path` is None (tests), the engine operates purely in-memory.
 pub struct DefaultCoherenceEngine {
     pub(crate) store: AlertStore,
     pub(crate) reference: CoherenceReferenceData,
+    db_path: Option<PathBuf>,
 }
 
 impl DefaultCoherenceEngine {
+    /// Create an in-memory-only engine (for tests).
     pub fn new(reference: CoherenceReferenceData) -> Self {
         Self {
             store: AlertStore::new(),
             reference,
+            db_path: None,
         }
+    }
+
+    /// Create an engine backed by SQLite persistence.
+    ///
+    /// Loads active alerts from the database on construction, and persists
+    /// all alert store/dismiss operations to the database going forward.
+    pub fn with_db(
+        reference: CoherenceReferenceData,
+        conn: &Connection,
+        db_path: &Path,
+    ) -> Result<Self, CoherenceError> {
+        let store = AlertStore::load_from_db(conn)?;
+        Ok(Self {
+            store,
+            reference,
+            db_path: Some(db_path.to_path_buf()),
+        })
+    }
+
+    /// Open a DB connection if db_path is configured.
+    fn open_conn(&self) -> Option<Connection> {
+        self.db_path.as_ref().and_then(|path| {
+            sqlite::open_database(path)
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "Failed to open DB for alert persistence");
+                    e
+                })
+                .ok()
+        })
     }
 
     /// Run all 8 detection algorithms and collect alerts.
@@ -75,17 +113,21 @@ impl DefaultCoherenceEngine {
 
     /// Store alerts, filtering out dismissed and duplicates.
     /// Returns only the newly stored alerts.
+    /// If a DB path is configured, persists each new alert to SQLite.
     fn store_new_alerts(
         &self,
         alerts: Vec<CoherenceAlert>,
         data: &RepositorySnapshot,
     ) -> Result<Vec<CoherenceAlert>, CoherenceError> {
         let mut stored = Vec::new();
+        let conn = self.open_conn();
 
         for alert in alerts {
             let is_dismissed =
                 data.is_dismissed(alert.alert_type.as_str(), &alert.entity_ids);
-            let was_stored = self.store.store_alert(alert.clone(), is_dismissed)?;
+            let was_stored =
+                self.store
+                    .store_alert_with_db(alert.clone(), is_dismissed, conn.as_ref())?;
             if was_stored {
                 stored.push(alert);
             }
@@ -181,7 +223,9 @@ impl CoherenceEngine for DefaultCoherenceEngine {
         reason: &str,
         dismissed_by: DismissedBy,
     ) -> Result<(), CoherenceError> {
-        self.store.dismiss(alert_id, reason, dismissed_by)
+        let conn = self.open_conn();
+        self.store
+            .dismiss_with_db(alert_id, reason, dismissed_by, conn.as_ref())
     }
 
     fn dismiss_critical_alert(
@@ -190,8 +234,9 @@ impl CoherenceEngine for DefaultCoherenceEngine {
         reason: &str,
         two_step_confirmed: bool,
     ) -> Result<(), CoherenceError> {
+        let conn = self.open_conn();
         self.store
-            .dismiss_critical(alert_id, reason, two_step_confirmed)
+            .dismiss_critical_with_db(alert_id, reason, two_step_confirmed, conn.as_ref())
     }
 }
 
@@ -493,5 +538,165 @@ mod tests {
 
         // Processing time should be non-negative (and very fast for empty data)
         assert!(result.processing_time_ms < 1000);
+    }
+
+    // === DB persistence tests (RS-L2-03-001) ===
+
+    fn make_db_engine(
+        db_path: &std::path::Path,
+    ) -> (DefaultCoherenceEngine, rusqlite::Connection) {
+        let conn = crate::db::sqlite::open_database(db_path).unwrap();
+        let ref_data = CoherenceReferenceData::load_test();
+        let engine = DefaultCoherenceEngine::with_db(ref_data, &conn, db_path).unwrap();
+        (engine, conn)
+    }
+
+    fn make_conflict_snapshot() -> (RepositorySnapshot, Uuid) {
+        let doc1 = Uuid::new_v4();
+        let doc2 = Uuid::new_v4();
+        let dr_a = Uuid::new_v4();
+        let dr_b = Uuid::new_v4();
+
+        let mut data = empty_snapshot();
+        data.medications = vec![
+            make_medication(
+                Uuid::new_v4(),
+                "Metformin",
+                None,
+                "500mg",
+                "twice daily",
+                Some(dr_a),
+                doc1,
+            ),
+            make_medication(
+                Uuid::new_v4(),
+                "Metformin",
+                None,
+                "1000mg",
+                "twice daily",
+                Some(dr_b),
+                doc2,
+            ),
+        ];
+        (data, doc2)
+    }
+
+    /// Engine with DB persists alerts detected during analysis.
+    #[test]
+    fn engine_db_persists_analyzed_alerts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let (engine, _conn) = make_db_engine(&db_path);
+        let (data, doc2) = make_conflict_snapshot();
+
+        let result = engine.analyze_new_document(&doc2, &data).unwrap();
+        assert!(!result.new_alerts.is_empty(), "Should detect conflicts");
+
+        // Drop engine and reload from DB — alerts should survive
+        drop(engine);
+        let ref_data2 = CoherenceReferenceData::load_test();
+        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+
+        let active = engine2.get_active_alerts(None).unwrap();
+        assert_eq!(
+            active.len(),
+            result.new_alerts.len(),
+            "Reloaded engine should have the same alerts"
+        );
+    }
+
+    /// Engine with DB persists dismissal so reloaded engine does not see the alert.
+    #[test]
+    fn engine_db_persists_dismissal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let (engine, _conn) = make_db_engine(&db_path);
+        let (data, doc2) = make_conflict_snapshot();
+
+        let result = engine.analyze_new_document(&doc2, &data).unwrap();
+        let alert_id = result.new_alerts[0].id;
+
+        engine
+            .dismiss_alert(&alert_id, "Doctor confirmed", DismissedBy::Patient)
+            .unwrap();
+
+        // Reload — dismissed alert should not appear
+        drop(engine);
+        let ref_data2 = CoherenceReferenceData::load_test();
+        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+
+        let active = engine2.get_active_alerts(None).unwrap();
+        assert!(
+            !active.iter().any(|a| a.id == alert_id),
+            "Dismissed alert should not survive reload"
+        );
+    }
+
+    /// Engine with DB: critical dismissal persists.
+    #[test]
+    fn engine_db_persists_critical_dismissal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let (engine, _conn) = make_db_engine(&db_path);
+
+        let doc = Uuid::new_v4();
+        let mut data = empty_snapshot();
+        data.lab_results = vec![LabResult {
+            id: Uuid::new_v4(),
+            test_name: "Potassium".into(),
+            test_code: None,
+            value: Some(6.5),
+            value_text: None,
+            unit: Some("mEq/L".into()),
+            reference_range_low: Some(3.5),
+            reference_range_high: Some(5.0),
+            abnormal_flag: AbnormalFlag::CriticalHigh,
+            collection_date: NaiveDate::from_ymd_opt(2026, 2, 1).unwrap(),
+            lab_facility: None,
+            ordering_physician_id: None,
+            document_id: doc,
+        }];
+
+        let result = engine.analyze_new_document(&doc, &data).unwrap();
+        let critical_alerts: Vec<_> = result
+            .new_alerts
+            .iter()
+            .filter(|a| a.severity == AlertSeverity::Critical)
+            .collect();
+        assert!(!critical_alerts.is_empty(), "Should detect critical labs");
+
+        let alert_id = critical_alerts[0].id;
+        engine
+            .dismiss_critical_alert(&alert_id, "Emergency addressed", true)
+            .unwrap();
+
+        // Reload — dismissed critical should not appear
+        drop(engine);
+        let ref_data2 = CoherenceReferenceData::load_test();
+        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+
+        let critical = engine2.get_critical_alerts().unwrap();
+        assert!(critical.is_empty(), "Dismissed critical should not survive reload");
+    }
+
+    /// Engine without DB still works (backward compat).
+    #[test]
+    fn engine_without_db_still_works() {
+        let ref_data = CoherenceReferenceData::load_test();
+        let engine = DefaultCoherenceEngine::new(ref_data);
+        let (data, doc2) = make_conflict_snapshot();
+
+        let result = engine.analyze_new_document(&doc2, &data).unwrap();
+        assert!(!result.new_alerts.is_empty());
+
+        let alert_id = result.new_alerts[0].id;
+        engine
+            .dismiss_alert(&alert_id, "reason", DismissedBy::Patient)
+            .unwrap();
+        let active = engine.get_active_alerts(None).unwrap();
+        assert!(!active.iter().any(|a| a.id == alert_id));
     }
 }
