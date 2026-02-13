@@ -87,6 +87,20 @@ impl MessageTemplates {
         )
     }
 
+    /// DAILY DOSE ACCUMULATION message.
+    pub fn daily_dose(
+        medication: &str,
+        daily_total: &str,
+        max_daily: &str,
+    ) -> String {
+        format!(
+            "Based on your {} schedule, the daily total comes to {} but the \
+             recommended maximum is {}. You may want to confirm this with your \
+             pharmacist or doctor.",
+            medication, daily_total, max_daily,
+        )
+    }
+
     /// CRITICAL lab message.
     /// NC-07: "promptly" / "soon" — NEVER "immediately" or "urgently"
     pub fn critical_lab(date: &str, test: &str) -> String {
@@ -131,6 +145,7 @@ mod tests {
             MessageTemplates::temporal("headache", "2026-01-15", 3, "starting Lisinopril"),
             MessageTemplates::allergy("penicillin", "Amoxicillin", "amoxicillin"),
             MessageTemplates::dose("5000mg", "Metformin", "500mg", "2000mg"),
+            MessageTemplates::daily_dose("Metformin", "3000mg", "2550mg"),
             MessageTemplates::critical_lab("2026-01-15", "Potassium"),
         ];
 

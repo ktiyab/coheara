@@ -81,6 +81,7 @@ pub async fn send(
 
 #[derive(Serialize)]
 pub struct ConversationsResponse {
+    pub profile_name: String,
     pub conversations: Vec<chat::ConversationSummary>,
 }
 
@@ -89,11 +90,17 @@ pub async fn conversations(
     State(ctx): State<ApiContext>,
     Extension(_device): Extension<DeviceContext>,
 ) -> Result<Json<ConversationsResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
     let convs = chat::list_conversation_summaries(&conn).map_err(ApiError::from)?;
     ctx.core.update_activity();
 
     Ok(Json(ConversationsResponse {
+        profile_name,
         conversations: convs,
     }))
 }
@@ -108,6 +115,7 @@ pub struct ConversationMessage {
 
 #[derive(Serialize)]
 pub struct ConversationDetailResponse {
+    pub profile_name: String,
     pub conversation_id: String,
     pub messages: Vec<ConversationMessage>,
 }
@@ -118,6 +126,11 @@ pub async fn conversation(
     Extension(_device): Extension<DeviceContext>,
     Path(conversation_id): Path<String>,
 ) -> Result<Json<ConversationDetailResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
 
     let mut stmt = conn
@@ -157,6 +170,7 @@ pub async fn conversation(
     ctx.core.update_activity();
 
     Ok(Json(ConversationDetailResponse {
+        profile_name,
         conversation_id,
         messages,
     }))

@@ -15,6 +15,7 @@ use crate::appointment;
 
 #[derive(Serialize)]
 pub struct AppointmentsResponse {
+    pub profile_name: String,
     pub appointments: Vec<appointment::StoredAppointment>,
 }
 
@@ -23,16 +24,22 @@ pub async fn list(
     State(ctx): State<ApiContext>,
     Extension(_device): Extension<DeviceContext>,
 ) -> Result<Json<AppointmentsResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
     let appointments = appointment::list_appointments(&conn).map_err(ApiError::from)?;
 
     ctx.core.update_activity();
 
-    Ok(Json(AppointmentsResponse { appointments }))
+    Ok(Json(AppointmentsResponse { profile_name, appointments }))
 }
 
 #[derive(Serialize)]
 pub struct PrepResponse {
+    pub profile_name: String,
     pub prep: appointment::AppointmentPrep,
 }
 
@@ -42,6 +49,11 @@ pub async fn prep(
     Extension(_device): Extension<DeviceContext>,
     Path(appointment_id): Path<String>,
 ) -> Result<Json<PrepResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
 
     // Look up the appointment to get professional_id and date
@@ -66,5 +78,5 @@ pub async fn prep(
 
     ctx.core.update_activity();
 
-    Ok(Json(PrepResponse { prep }))
+    Ok(Json(PrepResponse { profile_name, prep }))
 }

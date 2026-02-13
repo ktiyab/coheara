@@ -97,6 +97,34 @@ pub fn format_dose_mg(mg: f64) -> String {
     }
 }
 
+/// Extract daily frequency multiplier from a frequency string.
+/// Returns None for unparseable or "as needed" frequencies.
+pub fn frequency_to_daily_multiplier(freq: &str) -> Option<f64> {
+    let norm = normalize_frequency(freq);
+    if norm.contains("1x/day") {
+        Some(1.0)
+    } else if norm.contains("2x/day") {
+        Some(2.0)
+    } else if norm.contains("3x/day") {
+        Some(3.0)
+    } else if norm.contains("4x/day") {
+        Some(4.0)
+    } else {
+        let lower = freq.to_lowercase();
+        if lower.contains("every 6 hour") || lower.contains("q6h") {
+            Some(4.0)
+        } else if lower.contains("every 8 hour") || lower.contains("q8h") {
+            Some(3.0)
+        } else if lower.contains("every 12 hour") || lower.contains("q12h") {
+            Some(2.0)
+        } else if lower.contains("every 24 hour") || lower.contains("q24h") {
+            Some(1.0)
+        } else {
+            None // "as needed", "prn", unknown — skip accumulation check
+        }
+    }
+}
+
 /// Get display name for a medication (prefer brand_name, fall back to generic_name).
 pub fn display_name(med: &Medication) -> String {
     med.brand_name
@@ -291,6 +319,21 @@ mod tests {
             normalize_frequency("three times daily"),
             normalize_frequency("TID")
         );
+    }
+
+    // --- Frequency multiplier (RS-L2-03-002) ---
+
+    #[test]
+    fn frequency_multiplier_common_patterns() {
+        assert_eq!(frequency_to_daily_multiplier("once daily"), Some(1.0));
+        assert_eq!(frequency_to_daily_multiplier("twice daily"), Some(2.0));
+        assert_eq!(frequency_to_daily_multiplier("BID"), Some(2.0));
+        assert_eq!(frequency_to_daily_multiplier("TID"), Some(3.0));
+        assert_eq!(frequency_to_daily_multiplier("QID"), Some(4.0));
+        assert_eq!(frequency_to_daily_multiplier("every 8 hours"), Some(3.0));
+        assert_eq!(frequency_to_daily_multiplier("every 12 hours"), Some(2.0));
+        assert_eq!(frequency_to_daily_multiplier("as needed"), None);
+        assert_eq!(frequency_to_daily_multiplier("prn"), None);
     }
 
     // --- Dose normalization ---

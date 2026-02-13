@@ -13,6 +13,7 @@ use crate::trust;
 
 #[derive(Serialize)]
 pub struct AlertsResponse {
+    pub profile_name: String,
     pub alerts: Vec<trust::CriticalLabAlert>,
 }
 
@@ -21,6 +22,11 @@ pub async fn critical(
     State(ctx): State<ApiContext>,
     Extension(_device): Extension<DeviceContext>,
 ) -> Result<Json<AlertsResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
 
     let alerts = trust::fetch_critical_alerts(&conn)
@@ -28,5 +34,5 @@ pub async fn critical(
 
     ctx.core.update_activity();
 
-    Ok(Json(AlertsResponse { alerts }))
+    Ok(Json(AlertsResponse { profile_name, alerts }))
 }

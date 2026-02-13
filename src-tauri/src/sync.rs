@@ -463,16 +463,37 @@ pub fn assemble_profile_summary(
         "SELECT allergen, severity, verified FROM allergies",
     )?;
 
-    let allergies: Vec<CachedAllergy> = stmt
-        .query_map([], |row| {
-            Ok(CachedAllergy {
-                allergen: row.get(0)?,
-                severity: row.get(1)?,
-                verified: row.get::<_, i32>(2)? != 0,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+    let valid_severities = ["mild", "moderate", "severe", "life_threatening"];
+    let mut allergies: Vec<CachedAllergy> = Vec::new();
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i32>(2)?,
+        ))
+    })?;
+    for row_result in rows {
+        match row_result {
+            Ok((allergen, severity, verified_int)) => {
+                if !valid_severities.contains(&severity.as_str()) {
+                    tracing::warn!(
+                        allergen = %allergen,
+                        severity = %severity,
+                        "Skipping allergy with invalid severity during sync"
+                    );
+                    continue;
+                }
+                allergies.push(CachedAllergy {
+                    allergen,
+                    severity,
+                    verified: verified_int != 0,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to read allergy row during sync");
+            }
+        }
+    }
 
     Ok(CachedProfile {
         profile_name: profile_name.to_string(),

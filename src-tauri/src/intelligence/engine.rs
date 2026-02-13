@@ -5,8 +5,9 @@ use uuid::Uuid;
 use crate::models::enums::{AlertType, DismissedBy};
 
 use super::detection::{
-    detect_allergy_conflicts, detect_conflicts, detect_critical_labs, detect_dose_issues,
-    detect_drift, detect_duplicates, detect_gaps, detect_temporal,
+    detect_allergy_conflicts, detect_conflicts, detect_critical_labs,
+    detect_daily_dose_accumulation, detect_dose_issues, detect_drift, detect_duplicates,
+    detect_gaps, detect_temporal,
 };
 use super::emergency::EmergencyProtocol;
 use super::reference::CoherenceReferenceData;
@@ -43,7 +44,8 @@ impl DefaultCoherenceEngine {
         let drifts = detect_drift(document_id, data, &self.reference);
         let temporals = detect_temporal(document_id, data);
         let allergies = detect_allergy_conflicts(document_id, data, &self.reference);
-        let doses = detect_dose_issues(document_id, data, &self.reference);
+        let mut doses = detect_dose_issues(document_id, data, &self.reference);
+        doses.extend(detect_daily_dose_accumulation(document_id, data, &self.reference));
         let criticals = detect_critical_labs(document_id, data);
 
         let counts = AlertCounts {

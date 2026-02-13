@@ -4,8 +4,9 @@ use crate::models::enums::{AbnormalFlag, AlertType, DiagnosisStatus, MedicationS
 use crate::models::Medication;
 
 use super::helpers::{
-    dedup_symmetric_alerts, display_name, format_dose_mg, is_same_drug_family, normalize_dose,
-    normalize_frequency, parse_dose_to_mg, resolve_generic_name,
+    dedup_symmetric_alerts, display_name, format_dose_mg, frequency_to_daily_multiplier,
+    is_same_drug_family, normalize_dose, normalize_frequency, parse_dose_to_mg,
+    resolve_generic_name,
 };
 use super::messages::MessageTemplates;
 use super::reference::CoherenceReferenceData;
@@ -860,6 +861,100 @@ pub fn detect_dose_issues(
 }
 
 // ---------------------------------------------------------------------------
+// [10b] DAILY DOSE ACCUMULATION detection (RS-L2-03-002)
+// ---------------------------------------------------------------------------
+
+/// Detect daily dose accumulation: single_dose × frequency > max daily dose.
+pub fn detect_daily_dose_accumulation(
+    document_id: &Uuid,
+    data: &RepositorySnapshot,
+    reference: &CoherenceReferenceData,
+) -> Vec<CoherenceAlert> {
+    let mut alerts = Vec::new();
+
+    let new_meds: Vec<&Medication> = data
+        .medications
+        .iter()
+        .filter(|m| m.document_id == *document_id || document_id.is_nil())
+        .filter(|m| m.status == MedicationStatus::Active)
+        .collect();
+
+    for med in &new_meds {
+        let single_dose_mg = match parse_dose_to_mg(&med.dose) {
+            Some(mg) => mg,
+            None => continue,
+        };
+
+        let multiplier = match frequency_to_daily_multiplier(&med.frequency) {
+            Some(m) => m,
+            None => continue, // "as needed" or unparseable — skip
+        };
+
+        let daily_total_mg = single_dose_mg * multiplier;
+
+        // Check against reference max daily dose
+        let generic = resolve_generic_name(med, reference);
+        let max_daily_mg = reference
+            .get_dose_range(&generic)
+            .map(|r| r.max_daily_dose_mg);
+
+        // Also check prescriber-provided max_daily_dose on the medication itself
+        let prescriber_max_mg = med
+            .max_daily_dose
+            .as_ref()
+            .and_then(|d| parse_dose_to_mg(d));
+
+        // Use the lower of the two limits (more conservative)
+        let effective_max = match (max_daily_mg, prescriber_max_mg) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+
+        if let Some(max_mg) = effective_max {
+            if daily_total_mg > max_mg {
+                let med_display = display_name(med);
+                let message = MessageTemplates::daily_dose(
+                    &med_display,
+                    &format_dose_mg(daily_total_mg),
+                    &format_dose_mg(max_mg),
+                );
+
+                alerts.push(CoherenceAlert {
+                    id: Uuid::new_v4(),
+                    alert_type: AlertType::Dose,
+                    severity: AlertSeverity::Standard,
+                    entity_ids: vec![med.id],
+                    source_document_ids: vec![med.document_id],
+                    patient_message: message,
+                    detail: AlertDetail::Dose(DoseDetail {
+                        medication_name: med_display,
+                        medication_id: med.id,
+                        extracted_dose: format!(
+                            "{}/day ({} × {})",
+                            format_dose_mg(daily_total_mg),
+                            med.dose,
+                            med.frequency
+                        ),
+                        extracted_dose_mg: daily_total_mg,
+                        typical_range_low_mg: 0.0,
+                        typical_range_high_mg: max_mg,
+                        source: "dose_ranges.json (daily limit)".to_string(),
+                    }),
+                    detected_at: chrono::Local::now().naive_local(),
+                    surfaced: false,
+                    dismissed: false,
+                    dismissal: None,
+                });
+            }
+        }
+    }
+
+    alerts
+}
+
+// ---------------------------------------------------------------------------
 // [11] CRITICAL detection (lab values)
 // ---------------------------------------------------------------------------
 
@@ -1318,6 +1413,68 @@ mod tests {
 
         let alerts = detect_dose_issues(&doc, &data, &ref_data);
         assert!(alerts.is_empty(), "Unparseable dose should be gracefully skipped");
+    }
+
+    // ── Daily dose accumulation (RS-L2-03-002) ───────────────────
+
+    /// T-20b: Metformin 1500mg twice daily = 3000mg > 2550mg max → alert.
+    #[test]
+    fn daily_dose_exceeds_max() {
+        let ref_data = CoherenceReferenceData::load_test();
+        let doc = Uuid::new_v4();
+
+        let mut data = empty_snapshot();
+        data.medications = vec![make_medication(
+            Uuid::new_v4(), "Metformin", None, "1500mg", "twice daily", None, doc,
+        )];
+
+        let alerts = detect_daily_dose_accumulation(&doc, &data, &ref_data);
+        assert!(!alerts.is_empty(), "3000mg/day exceeds Metformin max of 2550mg");
+    }
+
+    /// T-20c: Metformin 500mg twice daily = 1000mg < 2550mg max → no alert.
+    #[test]
+    fn daily_dose_within_max_no_alert() {
+        let ref_data = CoherenceReferenceData::load_test();
+        let doc = Uuid::new_v4();
+
+        let mut data = empty_snapshot();
+        data.medications = vec![make_medication(
+            Uuid::new_v4(), "Metformin", None, "500mg", "twice daily", None, doc,
+        )];
+
+        let alerts = detect_daily_dose_accumulation(&doc, &data, &ref_data);
+        assert!(alerts.is_empty(), "1000mg/day within Metformin max of 2550mg");
+    }
+
+    /// T-20d: "as needed" frequency → unparseable, skip accumulation.
+    #[test]
+    fn daily_dose_prn_skipped() {
+        let ref_data = CoherenceReferenceData::load_test();
+        let doc = Uuid::new_v4();
+
+        let mut data = empty_snapshot();
+        data.medications = vec![make_medication(
+            Uuid::new_v4(), "Metformin", None, "2000mg", "as needed", None, doc,
+        )];
+
+        let alerts = detect_daily_dose_accumulation(&doc, &data, &ref_data);
+        assert!(alerts.is_empty(), "PRN frequency should skip accumulation check");
+    }
+
+    /// T-20e: Lisinopril 50mg BID = 100mg > 80mg max → alert.
+    #[test]
+    fn daily_dose_lisinopril_exceeds() {
+        let ref_data = CoherenceReferenceData::load_test();
+        let doc = Uuid::new_v4();
+
+        let mut data = empty_snapshot();
+        data.medications = vec![make_medication(
+            Uuid::new_v4(), "Lisinopril", None, "50mg", "BID", None, doc,
+        )];
+
+        let alerts = detect_daily_dose_accumulation(&doc, &data, &ref_data);
+        assert!(!alerts.is_empty(), "100mg/day exceeds Lisinopril max of 80mg");
     }
 
     /// T-21: Lab result with abnormal_flag = critical_high -> CRITICAL alert.

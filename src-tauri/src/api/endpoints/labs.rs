@@ -35,6 +35,7 @@ pub struct LabResultView {
     pub abnormal_flag: String,
     pub collection_date: String,
     pub is_outside_range: bool,
+    pub trend_direction: Option<String>,
 }
 
 /// `GET /api/labs/recent` — recent lab results for mobile.
@@ -54,11 +55,17 @@ pub async fn recent(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, test_name, value, value_text, unit,
-                    reference_range_low, reference_range_high,
-                    abnormal_flag, collection_date
-             FROM lab_results
-             ORDER BY collection_date DESC
+            "SELECT lr.id, lr.test_name, lr.value, lr.value_text, lr.unit,
+                    lr.reference_range_low, lr.reference_range_high,
+                    lr.abnormal_flag, lr.collection_date,
+                    (SELECT prev.value FROM lab_results prev
+                     WHERE prev.test_name = lr.test_name
+                       AND prev.collection_date < lr.collection_date
+                       AND prev.value IS NOT NULL
+                     ORDER BY prev.collection_date DESC
+                     LIMIT 1) AS prev_value
+             FROM lab_results lr
+             ORDER BY lr.collection_date DESC
              LIMIT ?1",
         )
         .map_err(|e| ApiError::Internal(e.to_string()))?;
@@ -71,6 +78,7 @@ pub async fn recent(
             let range_low: Option<f64> = row.get(5)?;
             let range_high: Option<f64> = row.get(6)?;
             let abnormal_flag: String = row.get(7)?;
+            let prev_value: Option<f64> = row.get(9)?;
 
             let display_value = value
                 .map(|v| v.to_string())
@@ -85,6 +93,21 @@ pub async fn recent(
 
             let is_outside_range = abnormal_flag != "normal";
 
+            // Compute trend direction with 1% tolerance (RS-M0-01-004)
+            let trend_direction = match (value, prev_value) {
+                (Some(curr), Some(prev)) => {
+                    let threshold = prev.abs() * 0.01;
+                    if (curr - prev).abs() <= threshold {
+                        Some("stable".to_string())
+                    } else if curr > prev {
+                        Some("up".to_string())
+                    } else {
+                        Some("down".to_string())
+                    }
+                }
+                _ => None,
+            };
+
             Ok(LabResultView {
                 id: row.get(0)?,
                 test_name: row.get(1)?,
@@ -94,6 +117,7 @@ pub async fn recent(
                 abnormal_flag,
                 collection_date: row.get(8)?,
                 is_outside_range,
+                trend_direction,
             })
         })
         .map_err(|e| ApiError::Internal(e.to_string()))?

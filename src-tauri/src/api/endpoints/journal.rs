@@ -56,6 +56,7 @@ pub struct JournalHistoryQuery {
 
 #[derive(Serialize)]
 pub struct JournalHistoryResponse {
+    pub profile_name: String,
     pub symptoms: Vec<journal::StoredSymptom>,
 }
 
@@ -65,6 +66,11 @@ pub async fn history(
     Extension(_device): Extension<DeviceContext>,
     Query(query): Query<JournalHistoryQuery>,
 ) -> Result<Json<JournalHistoryResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
 
     let filter = if query.days.is_some() || query.category.is_some() || query.severity_min.is_some()
@@ -93,5 +99,5 @@ pub async fn history(
 
     ctx.core.update_activity();
 
-    Ok(Json(JournalHistoryResponse { symptoms }))
+    Ok(Json(JournalHistoryResponse { profile_name, symptoms }))
 }

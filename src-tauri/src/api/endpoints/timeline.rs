@@ -5,7 +5,7 @@
 use axum::extract::{Query, State};
 use axum::Extension;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::api::error::ApiError;
 use crate::api::types::{ApiContext, DeviceContext};
@@ -16,12 +16,24 @@ pub struct TimelineQuery {
     pub limit: Option<u32>,
 }
 
+#[derive(Serialize)]
+pub struct TimelineResponse {
+    pub profile_name: String,
+    #[serde(flatten)]
+    pub data: timeline::TimelineData,
+}
+
 /// `GET /api/timeline/recent` — timeline events for mobile.
 pub async fn recent(
     State(ctx): State<ApiContext>,
     Extension(_device): Extension<DeviceContext>,
     Query(query): Query<TimelineQuery>,
-) -> Result<Json<timeline::TimelineData>, ApiError> {
+) -> Result<Json<TimelineResponse>, ApiError> {
+    let profile_name = {
+        let guard = ctx.core.read_session()?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        session.profile_name.clone()
+    };
     let conn = ctx.core.open_db()?;
 
     let filter = timeline::TimelineFilter {
@@ -41,5 +53,5 @@ pub async fn recent(
 
     ctx.core.update_activity();
 
-    Ok(Json(data))
+    Ok(Json(TimelineResponse { profile_name, data }))
 }
