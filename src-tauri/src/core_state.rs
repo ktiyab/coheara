@@ -145,9 +145,14 @@ impl CoreState {
 
     // ── Audit logging ───────────────────────────────────────
 
-    /// Log an access event.
+    /// Log an access event. Auto-flushes to DB when buffer is full (IMP-002).
     pub fn log_access(&self, source: AccessSource, action: &str, entity: &str) {
-        self.audit.log(source, action, entity);
+        let needs_flush = self.audit.log(source, action, entity);
+        if needs_flush {
+            if let Err(e) = self.flush_and_prune_audit() {
+                tracing::warn!("Auto-flush audit failed: {e}");
+            }
+        }
     }
 
     /// Get the current audit buffer contents (for testing/flush).
@@ -276,7 +281,8 @@ impl AuditLogger {
     }
 
     /// Log an access event to the in-memory buffer.
-    pub fn log(&self, source: AccessSource, action: &str, entity: &str) {
+    /// Returns `true` if the buffer has reached flush threshold.
+    pub fn log(&self, source: AccessSource, action: &str, entity: &str) -> bool {
         if let Ok(mut buf) = self.buffer.lock() {
             buf.push(AuditEntry {
                 timestamp: chrono::Utc::now(),
@@ -284,9 +290,9 @@ impl AuditLogger {
                 action: action.to_string(),
                 entity: entity.to_string(),
             });
-            if buf.len() >= AUDIT_BUFFER_CAPACITY {
-                tracing::debug!("Audit buffer full ({AUDIT_BUFFER_CAPACITY} entries), flush needed");
-            }
+            buf.len() >= AUDIT_BUFFER_CAPACITY
+        } else {
+            false
         }
     }
 
@@ -505,6 +511,25 @@ mod tests {
     }
 
     // --- Audit DB persistence (RS-ME-01-001) ---
+
+    // --- IMP-002: Auto-flush threshold ---
+
+    #[test]
+    fn audit_log_returns_true_at_capacity() {
+        let logger = AuditLogger::new();
+        // Fill to just below capacity
+        for i in 0..(AUDIT_BUFFER_CAPACITY - 1) {
+            let needs_flush = logger.log(
+                AccessSource::DesktopUi,
+                &format!("action_{i}"),
+                "entity",
+            );
+            assert!(!needs_flush, "Should not signal flush at {i}");
+        }
+        // The entry that hits capacity should return true
+        let needs_flush = logger.log(AccessSource::DesktopUi, "action_final", "entity");
+        assert!(needs_flush, "Should signal flush at capacity");
+    }
 
     #[test]
     fn audit_flush_to_db_persists_entries() {

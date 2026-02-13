@@ -180,9 +180,13 @@ pub fn delete_profile(profile_id: String, state: State<'_, Arc<CoreState>>) -> R
 
 /// Check for inactivity timeout — called periodically from frontend.
 /// Returns true if the profile was locked due to inactivity.
+/// IMP-002: Flushes audit buffer before locking to prevent data loss.
 #[tauri::command]
 pub fn check_inactivity(state: State<'_, Arc<CoreState>>) -> bool {
     if state.check_timeout() {
+        if let Err(e) = state.flush_and_prune_audit() {
+            tracing::warn!("Failed to flush audit log on auto-lock: {e}");
+        }
         state.lock();
         true
     } else {

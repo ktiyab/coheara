@@ -51,7 +51,7 @@
 | ID | Title | Domain | File | Impact | Status |
 |----|-------|--------|------|--------|--------|
 | IMP-001 | Alert assembly returns dismissed instead of active | sync | `src-tauri/src/sync.rs:374-444` | Phone misses active health alerts | **RESOLVED** |
-| IMP-002 | Audit log flush_to_db never called | audit | `src-tauri/src/core_state.rs` | Audit data lost on crash; compliance gap | PENDING |
+| IMP-002 | Audit log flush_to_db never called | audit | `src-tauri/src/core_state.rs` | Audit data lost on crash; compliance gap | **RESOLVED** |
 
 ### P1: Production Pipeline (Desktop AI)
 
@@ -142,6 +142,7 @@
 
 | Date | IMP-IDs | Tests Added | Total Tests | Notes |
 |------|---------|-------------|-------------|-------|
+| 2026-02-12 | IMP-002 | +1 | 923 Rust / 481 mobile | Audit auto-flush: threshold-based + auto-lock + manual lock |
 | 2026-02-12 | IMP-001 | +5 | 922 Rust / 481 mobile | Fixed alert assembly: queries coherence_alerts (active) + dismissed_alerts (history) |
 | (starting) | — | — | 917 Rust / 481 mobile | Gap analysis complete |
 
@@ -151,6 +152,6 @@
 
 ```
 Total gaps: 24 (P0: 2, P1: 4, P2: 7, P3: 4, P4: 3, P5: 4)
-Resolved: 1/24 (IMP-001)
+Resolved: 2/24 (IMP-001, IMP-002)
 In Progress: 0/24
 ```
