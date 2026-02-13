@@ -156,37 +156,9 @@ fn try_rag_query(
     }
 }
 
-/// Build the best available embedding model.
-///
-/// When `onnx-embeddings` feature is enabled and model files are present,
-/// loads the real all-MiniLM-L6-v2 ONNX model. Otherwise falls back to
-/// MockEmbedder which produces deterministic vectors (structured data
-/// retrieval still works via SQLite, only semantic search is degraded).
+/// Build the best available embedding model (delegates to shared builder).
 fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> {
-    #[cfg(feature = "onnx-embeddings")]
-    {
-        let model_dir = crate::config::embedding_model_dir();
-        if model_dir.join("model.onnx").exists() && model_dir.join("tokenizer.json").exists() {
-            match crate::pipeline::storage::embedder::OnnxEmbedder::load(&model_dir) {
-                Ok(e) => {
-                    tracing::info!(dir = %model_dir.display(), "ONNX embedder loaded");
-                    return Box::new(e);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "ONNX embedder failed to load, using mock");
-                }
-            }
-        } else {
-            tracing::info!("ONNX model files not found at {}, using mock embedder", model_dir.display());
-        }
-    }
-
-    #[cfg(not(feature = "onnx-embeddings"))]
-    {
-        tracing::debug!("onnx-embeddings feature not enabled, using mock embedder");
-    }
-
-    Box::new(crate::pipeline::storage::embedder::MockEmbedder::new())
+    crate::pipeline::storage::embedder::build_embedder()
 }
 
 /// Emit a RAG response filtered through safety layers.

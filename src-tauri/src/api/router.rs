@@ -561,4 +561,310 @@ mod tests {
         assert_eq!(json["error"]["code"], "PROFILE_LOCKED");
         assert!(json["error"]["message"].is_string());
     }
+
+    // ═════════════════════════════════════════════════════════
+    // IMP-018: End-to-end pairing integration tests
+    // ═════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn e2e_pairing_full_flow() {
+        // 1. Create CoreState with active profile
+        let (core, _existing_token, _tmp) = test_core_state_with_profile();
+
+        // 2. Start pairing on the desktop
+        let qr_data = {
+            let mut pairing = core.lock_pairing().unwrap();
+            let response = pairing
+                .start("https://192.168.1.42:8443".to_string(), "SHA256:AB:CD".to_string())
+                .unwrap();
+            response.qr_data
+        };
+
+        // 3. Build the API router
+        let ctx = crate::api::types::ApiContext::new(core.clone());
+        let app = mobile_api_router_with_ctx(ctx);
+
+        // 4. Phone builds pair request (simulates QR scan + key generation)
+        let phone_secret = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+        let phone_pubkey_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, phone_public.as_bytes());
+
+        let pair_body = serde_json::json!({
+            "token": qr_data.token,
+            "phone_pubkey": phone_pubkey_b64,
+            "device_name": "Test iPhone",
+            "device_model": "iPhone 15 Pro"
+        });
+
+        // 5. Spawn the phone's pair request (long-polls waiting for approval)
+        let core_for_approval = core.clone();
+        let phone_handle = tokio::spawn(async move {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/auth/pair")
+                .header("Content-Type", "application/json")
+                .body(Body::from(pair_body.to_string()))
+                .unwrap();
+
+            app.oneshot(req).await.unwrap()
+        });
+
+        // 6. Desktop approves after a short delay (simulates user clicking approve)
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        {
+            let mut pairing = core_for_approval.lock_pairing().unwrap();
+            let pending = pairing.pending_approval();
+            assert!(pending.is_some(), "Should have a pending approval");
+            assert_eq!(pending.unwrap().device_name, "Test iPhone");
+            pairing.signal_approval().unwrap();
+        }
+
+        // 7. Phone's request completes with pairing response
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            phone_handle,
+        )
+        .await
+        .expect("phone request timed out")
+        .expect("phone task panicked");
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert!(
+            json["session_token"].is_string() && !json["session_token"].as_str().unwrap().is_empty(),
+            "Should receive a session_token"
+        );
+        assert!(
+            json["cache_key_encrypted"].is_string(),
+            "Should receive cache_key_encrypted"
+        );
+        assert_eq!(json["profile_name"], "TestPatient");
+
+        // 8. Verify device is registered in DeviceManager
+        let devices = core.read_devices().unwrap();
+        assert!(
+            devices.device_count() >= 2,
+            "Should have at least 2 paired devices (existing + new)"
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_pairing_denial_returns_403() {
+        let (core, _existing_token, _tmp) = test_core_state_with_profile();
+
+        // Start pairing
+        let qr_data = {
+            let mut pairing = core.lock_pairing().unwrap();
+            let response = pairing
+                .start("https://192.168.1.42:8443".to_string(), "SHA256:AB:CD".to_string())
+                .unwrap();
+            response.qr_data
+        };
+
+        let ctx = crate::api::types::ApiContext::new(core.clone());
+        let app = mobile_api_router_with_ctx(ctx);
+
+        // Phone submits pair request
+        let phone_secret = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+        let phone_pubkey_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, phone_public.as_bytes());
+
+        let pair_body = serde_json::json!({
+            "token": qr_data.token,
+            "phone_pubkey": phone_pubkey_b64,
+            "device_name": "Suspicious Device",
+            "device_model": "Unknown"
+        });
+
+        let core_for_denial = core.clone();
+        let phone_handle = tokio::spawn(async move {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/auth/pair")
+                .header("Content-Type", "application/json")
+                .body(Body::from(pair_body.to_string()))
+                .unwrap();
+
+            app.oneshot(req).await.unwrap()
+        });
+
+        // Desktop denies after short delay
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        {
+            let mut pairing = core_for_denial.lock_pairing().unwrap();
+            pairing.deny();
+        }
+
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            phone_handle,
+        )
+        .await
+        .expect("phone request timed out")
+        .expect("phone task panicked");
+
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "Denied pairing should return 403"
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_pairing_wrong_token_returns_401() {
+        let (core, _existing_token, _tmp) = test_core_state_with_profile();
+
+        // Start pairing
+        {
+            let mut pairing = core.lock_pairing().unwrap();
+            pairing
+                .start("https://192.168.1.42:8443".to_string(), "SHA256:AB:CD".to_string())
+                .unwrap();
+        }
+
+        let ctx = crate::api::types::ApiContext::new(core.clone());
+        let app = mobile_api_router_with_ctx(ctx);
+
+        // Phone submits with WRONG token
+        let phone_secret = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+        let phone_pubkey_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, phone_public.as_bytes());
+
+        let pair_body = serde_json::json!({
+            "token": "wrong-token-value",
+            "phone_pubkey": phone_pubkey_b64,
+            "device_name": "Attacker Phone",
+            "device_model": "Unknown"
+        });
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/pair")
+            .header("Content-Type", "application/json")
+            .body(Body::from(pair_body.to_string()))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "Wrong pairing token should return 401"
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_pairing_then_ws_connect() {
+        // Full flow: pair → get WS ticket → connect WebSocket
+
+        let (core, _existing_token, _tmp) = test_core_state_with_profile();
+
+        // 1. Start pairing
+        let qr_data = {
+            let mut pairing = core.lock_pairing().unwrap();
+            pairing
+                .start("https://192.168.1.42:8443".to_string(), "SHA256:AB:CD".to_string())
+                .unwrap()
+                .qr_data
+        };
+
+        let ctx = crate::api::types::ApiContext::new(core.clone());
+
+        // 2. Phone pairs (approval happens concurrently)
+        let phone_secret = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+        let phone_pubkey_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, phone_public.as_bytes());
+
+        let pair_body = serde_json::json!({
+            "token": qr_data.token,
+            "phone_pubkey": phone_pubkey_b64,
+            "device_name": "Full Flow Phone",
+            "device_model": "iPhone 16"
+        });
+
+        let app = mobile_api_router_with_ctx(ctx.clone());
+        let core_for_approval = core.clone();
+        let phone_handle = tokio::spawn(async move {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/auth/pair")
+                .header("Content-Type", "application/json")
+                .body(Body::from(pair_body.to_string()))
+                .unwrap();
+            app.oneshot(req).await.unwrap()
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        {
+            let mut pairing = core_for_approval.lock_pairing().unwrap();
+            pairing.signal_approval().unwrap();
+        }
+
+        let pair_response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            phone_handle,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(pair_response.status(), StatusCode::OK);
+
+        let pair_json = response_json(pair_response).await;
+        let session_token = pair_json["session_token"].as_str().unwrap();
+
+        // 3. Phone requests WS ticket using session token
+        let app2 = mobile_api_router_with_ctx(ctx.clone());
+        let ws_req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/ws-ticket")
+            .header("Authorization", format!("Bearer {session_token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .body(Body::empty())
+            .unwrap();
+
+        let ws_response = app2.oneshot(ws_req).await.unwrap();
+        assert_eq!(ws_response.status(), StatusCode::OK);
+
+        let ws_json = response_json(ws_response).await;
+        let ticket = ws_json["ticket"].as_str().unwrap();
+        assert!(!ticket.is_empty(), "WS ticket should not be empty");
+        assert_eq!(ws_json["expires_in"], 30);
+
+        // 4. Phone connects WebSocket with ticket
+        let app3 = mobile_api_router_with_ctx(ctx);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app3).await.unwrap();
+        });
+
+        let ws_url = format!("ws://127.0.0.1:{}/ws/connect?ticket={ticket}", addr.port());
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect("WS connect should succeed after pairing");
+
+        // 5. Should receive Welcome
+        let msg = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            futures_util::StreamExt::next(&mut ws),
+        )
+        .await
+        .expect("timeout waiting for Welcome")
+        .expect("stream ended")
+        .expect("WS error");
+
+        let text = msg.into_text().expect("not text");
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "Welcome");
+        assert_eq!(parsed["profile_name"], "TestPatient");
+
+        let _ = futures_util::SinkExt::close(&mut ws).await;
+        server.abort();
+    }
 }

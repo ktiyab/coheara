@@ -111,12 +111,43 @@ pub struct AlertDetail {
     pub action_text: Option<String>,
 }
 
+/// Reconnection policy communicated to the phone in Welcome (IMP-020).
+///
+/// The phone uses these parameters for exponential backoff on disconnect:
+/// `delay = min(initial_delay_ms * 2^attempt, max_delay_ms) + random_jitter`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReconnectionPolicy {
+    /// Initial delay before first reconnection attempt (ms).
+    pub initial_delay_ms: u32,
+    /// Maximum delay cap (ms).
+    pub max_delay_ms: u32,
+    /// Maximum number of reconnection attempts before giving up.
+    pub max_retries: u32,
+    /// Maximum random jitter added to each delay (ms).
+    pub jitter_ms: u32,
+}
+
+impl Default for ReconnectionPolicy {
+    fn default() -> Self {
+        Self {
+            initial_delay_ms: 1_000,
+            max_delay_ms: 30_000,
+            max_retries: 10,
+            jitter_ms: 500,
+        }
+    }
+}
+
 /// Server → Phone WebSocket messages (M0-03).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsOutgoing {
-    /// Connection acknowledged.
-    Welcome { profile_name: String, session_id: String },
+    /// Connection acknowledged. Includes reconnection backoff policy.
+    Welcome {
+        profile_name: String,
+        session_id: String,
+        reconnect_policy: ReconnectionPolicy,
+    },
     /// Session expiring soon (or expired when seconds_remaining == 0).
     SessionExpiring { seconds_remaining: u32 },
     /// Device has been revoked (triggers phone-side wipe).
@@ -927,11 +958,13 @@ mod tests {
         let msg = WsOutgoing::Welcome {
             profile_name: "John".into(),
             session_id: "abc-123".into(),
+            reconnect_policy: ReconnectionPolicy::default(),
         };
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["type"], "Welcome");
         assert_eq!(json["profile_name"], "John");
         assert_eq!(json["session_id"], "abc-123");
+        assert!(json["reconnect_policy"].is_object());
     }
 
     #[test]
@@ -1299,5 +1332,40 @@ mod tests {
             .with_timezone(&chrono::Utc);
         assert!(device.paired_at > epoch);
         assert!(device.last_seen > epoch);
+    }
+
+    // ── ReconnectionPolicy tests (IMP-020) ────────────────────
+
+    #[test]
+    fn reconnection_policy_default_values() {
+        let policy = ReconnectionPolicy::default();
+        assert_eq!(policy.initial_delay_ms, 1_000);
+        assert_eq!(policy.max_delay_ms, 30_000);
+        assert_eq!(policy.max_retries, 10);
+        assert_eq!(policy.jitter_ms, 500);
+    }
+
+    #[test]
+    fn reconnection_policy_serializes_in_welcome() {
+        let welcome = WsOutgoing::Welcome {
+            profile_name: "Test".into(),
+            session_id: "sess-123".into(),
+            reconnect_policy: ReconnectionPolicy::default(),
+        };
+        let json = serde_json::to_value(&welcome).unwrap();
+        assert_eq!(json["type"], "Welcome");
+        assert_eq!(json["reconnect_policy"]["initial_delay_ms"], 1000);
+        assert_eq!(json["reconnect_policy"]["max_delay_ms"], 30000);
+        assert_eq!(json["reconnect_policy"]["max_retries"], 10);
+        assert_eq!(json["reconnect_policy"]["jitter_ms"], 500);
+    }
+
+    #[test]
+    fn reconnection_policy_max_delay_exceeds_initial() {
+        let policy = ReconnectionPolicy::default();
+        assert!(
+            policy.max_delay_ms > policy.initial_delay_ms,
+            "max_delay must exceed initial_delay for exponential backoff"
+        );
     }
 }

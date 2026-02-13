@@ -1,0 +1,18 @@
+App/build
+App/Pods
+App/output
+App/App/public
+DerivedData
+xcuserdata
+
+# Signing — NEVER commit provisioning profiles or certificates
+*.mobileprovision
+*.p12
+*.cer
+
+# Cordova plugins for Capacitor
+capacitor-cordova-ios-plugins
+
+# Generated Config files
+App/App/capacitor.config.json
+App/App/config.xml

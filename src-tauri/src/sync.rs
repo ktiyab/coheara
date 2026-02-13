@@ -1933,4 +1933,357 @@ mod tests {
         let resp = response.unwrap();
         assert!(resp.journal_sync.is_none());
     }
+
+    // -----------------------------------------------------------------------
+    // IMP-019: Reliability under real data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn journal_sync_large_batch_50_entries() {
+        let conn = test_db();
+        let entries: Vec<MobileJournalEntry> = (0..50)
+            .map(|i| MobileJournalEntry {
+                id: Uuid::new_v4().to_string(),
+                severity: (i % 5) + 1,
+                body_location: Some(format!("location_{i}")),
+                free_text: Some(format!("Symptom description for entry {i}")),
+                activity_context: if i % 3 == 0 {
+                    Some(format!("Activity context {i}"))
+                } else {
+                    None
+                },
+                symptom_chip: Some(format!("chip_{}", i % 10)),
+                created_at: format!("2026-01-{:02}", (i % 28) + 1),
+            })
+            .collect();
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert_eq!(result.synced_ids.len(), 50);
+        assert!(result.rejected_ids.is_empty());
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM symptoms", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 50);
+    }
+
+    #[test]
+    fn journal_sync_special_characters_in_text() {
+        let conn = test_db();
+        let entries = vec![
+            MobileJournalEntry {
+                id: Uuid::new_v4().to_string(),
+                severity: 3,
+                body_location: Some("côté gauche".to_string()),
+                free_text: Some("J'ai mal à l'estomac — «douleur» 'intense'".to_string()),
+                activity_context: Some("Après le déjeuner; 100% sûr".to_string()),
+                symptom_chip: Some("douleur".to_string()),
+                created_at: "2026-01-15".to_string(),
+            },
+            MobileJournalEntry {
+                id: Uuid::new_v4().to_string(),
+                severity: 2,
+                body_location: Some("头".to_string()),
+                free_text: Some("头痛很厉害".to_string()),
+                activity_context: None,
+                symptom_chip: Some("headache".to_string()),
+                created_at: "2026-01-16".to_string(),
+            },
+        ];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert_eq!(result.synced_ids.len(), 2);
+        assert!(result.rejected_ids.is_empty());
+
+        // Verify data stored correctly
+        let text: String = conn
+            .query_row(
+                "SELECT specific FROM symptoms WHERE id = ?1",
+                params![entries[0].id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(text, "J'ai mal à l'estomac — «douleur» 'intense'");
+    }
+
+    #[test]
+    fn journal_sync_empty_optional_fields() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: Uuid::new_v4().to_string(),
+            severity: 1,
+            body_location: None,
+            free_text: None,
+            activity_context: None,
+            symptom_chip: None,
+            created_at: "2026-01-15".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert_eq!(result.synced_ids.len(), 1);
+    }
+
+    #[test]
+    fn sync_versions_high_numbers() {
+        let phone = SyncVersions {
+            medications: 999_999,
+            labs: 500_000,
+            timeline: 1_000_000,
+            alerts: 0,
+            appointments: 42,
+            profile: 100,
+        };
+        let desktop = SyncVersions {
+            medications: 1_000_000,
+            labs: 500_000,
+            timeline: 1_000_000,
+            alerts: 1,
+            appointments: 42,
+            profile: 100,
+        };
+        let changed = diff_versions(&phone, &desktop);
+        assert_eq!(changed.len(), 2);
+        assert!(changed.contains(&"medications".to_string()));
+        assert!(changed.contains(&"alerts".to_string()));
+    }
+
+    #[test]
+    fn full_sync_all_entity_types_serializes_under_1mb() {
+        let conn = test_db();
+        let doc_id = insert_doc(&conn);
+        let prof_id = insert_professional(&conn);
+
+        // Insert realistic volume of data
+        for i in 0..20 {
+            conn.execute(
+                "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, document_id, prescriber_id)
+                 VALUES (?1, ?2, ?3, 'daily', 'scheduled', 'active', ?4, ?5)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("Medication_{i}"),
+                    format!("{} mg", (i + 1) * 100),
+                    doc_id,
+                    prof_id,
+                ],
+            )
+            .unwrap();
+        }
+        for i in 0..30 {
+            conn.execute(
+                "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+                 VALUES (?1, ?2, ?3, 'mmol/L', 'normal', ?4, ?5)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("Test_{}", i % 10),
+                    (i as f64) * 0.5 + 3.0,
+                    format!("2026-01-{:02}", (i % 28) + 1),
+                    doc_id,
+                ],
+            )
+            .unwrap();
+        }
+        for i in 0..10 {
+            conn.execute(
+                "INSERT INTO symptoms (id, category, specific, severity, onset_date, recorded_date, source)
+                 VALUES (?1, 'pain', ?2, ?3, ?4, ?4, 'patient_reported')",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("Symptom description {i}"),
+                    (i % 5) + 1,
+                    format!("2026-01-{:02}", (i % 28) + 1),
+                ],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO allergies (id, allergen, severity, source, verified)
+             VALUES (?1, 'Penicillin', 'severe', 'patient_reported', 1)",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO appointments (id, professional_id, date, type)
+             VALUES (?1, ?2, date('now', '+3 days'), 'upcoming')",
+            params![Uuid::new_v4().to_string(), prof_id],
+        )
+        .unwrap();
+
+        let request = SyncRequest {
+            versions: SyncVersions::default(),
+            journal_entries: vec![],
+        };
+
+        let response = build_sync_response(&conn, &request, "Léa").unwrap();
+        assert!(response.is_some());
+        let resp = response.unwrap();
+
+        // Verify all entity types present
+        assert!(resp.medications.is_some());
+        assert!(resp.labs.is_some());
+        assert!(resp.timeline.is_some());
+        assert!(resp.profile.is_some());
+        assert!(resp.appointment.is_some());
+
+        // Verify counts
+        assert_eq!(resp.medications.as_ref().unwrap().len(), 20);
+        assert_eq!(resp.labs.as_ref().unwrap().len(), 10); // limit=10
+        assert_eq!(resp.timeline.as_ref().unwrap().len(), 10);
+
+        // Verify serialized payload is reasonable size (under 1MB)
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(
+            json.len() < 1_000_000,
+            "Sync payload should be under 1MB, got {} bytes",
+            json.len()
+        );
+    }
+
+    #[test]
+    fn journal_sync_duplicate_batch_idempotent() {
+        let conn = test_db();
+        let shared_id = Uuid::new_v4().to_string();
+
+        // Same entry duplicated within a single batch
+        let entries = vec![
+            MobileJournalEntry {
+                id: shared_id.clone(),
+                severity: 3,
+                body_location: None,
+                free_text: Some("First attempt".to_string()),
+                activity_context: None,
+                symptom_chip: Some("pain".to_string()),
+                created_at: "2026-01-15".to_string(),
+            },
+            MobileJournalEntry {
+                id: shared_id.clone(),
+                severity: 3,
+                body_location: None,
+                free_text: Some("Duplicate attempt".to_string()),
+                activity_context: None,
+                symptom_chip: Some("pain".to_string()),
+                created_at: "2026-01-15".to_string(),
+            },
+        ];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        // Both IDs reported as synced (INSERT OR IGNORE succeeds silently)
+        assert_eq!(result.synced_ids.len(), 2);
+
+        // But only one row in the database
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM symptoms", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn assemble_profile_all_allergy_severities() {
+        let conn = test_db();
+
+        for severity in &["mild", "moderate", "severe", "life_threatening"] {
+            conn.execute(
+                "INSERT INTO allergies (id, allergen, severity, source, verified)
+                 VALUES (?1, ?2, ?3, 'patient_reported', 1)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    format!("Allergen_{severity}"),
+                    severity,
+                ],
+            )
+            .unwrap();
+        }
+
+        let profile = assemble_profile_summary(&conn, "Test").unwrap();
+        assert_eq!(profile.allergies.len(), 4);
+    }
+
+    #[test]
+    fn sync_response_versions_always_current() {
+        let conn = test_db();
+        let doc_id = insert_doc(&conn);
+
+        conn.execute(
+            "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, document_id)
+             VALUES (?1, 'Metformin', '500mg', 'daily', 'scheduled', 'active', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        let request = SyncRequest {
+            versions: SyncVersions::default(),
+            journal_entries: vec![],
+        };
+
+        let resp = build_sync_response(&conn, &request, "Léa")
+            .unwrap()
+            .unwrap();
+
+        // Response versions should reflect current state, not phone state
+        assert_eq!(resp.versions.medications, 1);
+        assert_eq!(resp.versions.labs, 0);
+    }
+
+    #[test]
+    fn assemble_medications_recently_stopped_with_end_date() {
+        let conn = test_db();
+        let doc_id = insert_doc(&conn);
+
+        // Recently stopped with end_date within 6 months — should appear
+        conn.execute(
+            "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, end_date, document_id)
+             VALUES (?1, 'Amoxicillin', '250mg', 'thrice daily', 'scheduled', 'stopped', date('now', '-1 month'), ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        // Old stopped medication — should NOT appear
+        conn.execute(
+            "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, end_date, document_id)
+             VALUES (?1, 'OldDrug', '100mg', 'daily', 'scheduled', 'stopped', '2020-01-01', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        let meds = assemble_medications(&conn).unwrap();
+        assert_eq!(meds.len(), 1);
+        assert_eq!(meds[0].generic_name, "Amoxicillin");
+    }
+
+    #[test]
+    fn lab_trend_stable_within_threshold() {
+        let conn = test_db();
+        let doc_id = insert_doc(&conn);
+
+        // Two results within 1% of each other — should be "stable"
+        conn.execute(
+            "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+             VALUES (?1, 'Glucose', 5.0, 'mmol/L', 'normal', '2026-01-01', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO lab_results (id, test_name, value, unit, abnormal_flag, collection_date, document_id)
+             VALUES (?1, 'Glucose', 5.04, 'mmol/L', 'normal', '2026-01-15', ?2)",
+            params![Uuid::new_v4().to_string(), doc_id],
+        )
+        .unwrap();
+
+        let labs = assemble_recent_labs(&conn, 10).unwrap();
+        let recent = &labs[0]; // Most recent (Jan 15)
+        assert_eq!(recent.test_name, "Glucose");
+        assert_eq!(recent.trend_direction.as_deref(), Some("stable"));
+    }
+
+    #[test]
+    fn format_alert_title_covers_all_types() {
+        assert_eq!(format_alert_title("conflict"), "Medication Conflict");
+        assert_eq!(format_alert_title("contradiction"), "Data Contradiction");
+        assert_eq!(format_alert_title("critical"), "Critical Alert");
+        assert_eq!(format_alert_title("emergency"), "Emergency Alert");
+        assert_eq!(format_alert_title("duplicate"), "Duplicate Entry");
+        assert_eq!(format_alert_title("gap"), "Coverage Gap");
+        assert_eq!(format_alert_title("trend"), "Trend Alert");
+        assert_eq!(format_alert_title("some_custom_type"), "some custom type");
+    }
 }

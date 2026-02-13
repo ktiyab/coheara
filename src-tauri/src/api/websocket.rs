@@ -196,7 +196,7 @@ async fn handle_ws(
         let _ = sink.close().await;
     });
 
-    // Send Welcome message
+    // Send Welcome message with reconnection policy
     let profile_name = core
         .read_session()
         .ok()
@@ -207,6 +207,7 @@ async fn handle_ws(
         .send(WsOutgoing::Welcome {
             profile_name,
             session_id,
+            reconnect_policy: crate::device_manager::ReconnectionPolicy::default(),
         })
         .await;
 
@@ -359,6 +360,7 @@ async fn handle_chat_query(
     // Run blocking DB + RAG work on a dedicated thread
     let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let tx = tx_blocking;
+        let db_path = core.db_path().map_err(|e| e.to_string())?;
         let conn = core.open_db().map_err(|e| e.to_string())?;
         let safety = SafetyFilterImpl::new();
         let manager = ConversationManager::new(&conn);
@@ -401,8 +403,8 @@ async fn handle_chat_query(
             let _ = chat::update_conversation_title(&conn, &conv_id_str, &title);
         }
 
-        // 5. Try RAG pipeline
-        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn);
+        // 5. Try RAG pipeline (production: SqliteVectorStore + ONNX/mock embedder)
+        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path);
 
         match rag_response {
             Some(response) => {
@@ -521,19 +523,25 @@ async fn handle_chat_query(
 }
 
 /// Attempt to run the RAG pipeline for a WebSocket query.
+///
+/// Uses production components (same as chat commands):
+/// - **LLM**: OllamaRagGenerator (MedGemma via local Ollama)
+/// - **Embedder**: OnnxEmbedder when available; MockEmbedder fallback
+/// - **Vector store**: SqliteVectorStore (persistent, brute-force cosine similarity)
 fn try_ws_rag_query(
     query_text: &str,
     conversation_id: uuid::Uuid,
     conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
 ) -> Option<crate::pipeline::rag::types::RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
-    use crate::pipeline::rag::retrieval::InMemoryVectorSearch;
     use crate::pipeline::rag::types::PatientQuery;
+    use crate::pipeline::storage::vectordb::SqliteVectorStore;
 
     let generator = OllamaRagGenerator::try_auto_detect()?;
-    let embedder = crate::pipeline::storage::embedder::MockEmbedder::new();
-    let vector_store = InMemoryVectorSearch::new();
+    let vector_store = SqliteVectorStore::new(db_path.to_path_buf());
+    let embedder = crate::pipeline::storage::embedder::build_embedder();
 
     let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
     let query = PatientQuery {
@@ -727,7 +735,6 @@ mod tests {
     use crate::api::router::mobile_api_router_with_ctx;
     use crate::api::types::{generate_token, hash_token, ApiContext};
     use crate::core_state::CoreState;
-    use futures_util::{SinkExt as _, StreamExt as _};
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite;
 
@@ -793,6 +800,14 @@ mod tests {
         assert_eq!(parsed["type"], "Welcome");
         assert!(parsed["session_id"].is_string());
         assert!(parsed["profile_name"].is_string());
+
+        // IMP-020: Verify reconnection policy is present
+        let policy = &parsed["reconnect_policy"];
+        assert!(policy.is_object(), "Welcome must include reconnect_policy");
+        assert_eq!(policy["initial_delay_ms"], 1000);
+        assert_eq!(policy["max_delay_ms"], 30000);
+        assert_eq!(policy["max_retries"], 10);
+        assert_eq!(policy["jitter_ms"], 500);
 
         let _ = ws.close(None).await;
         server.abort();

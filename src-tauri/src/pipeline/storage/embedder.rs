@@ -228,6 +228,42 @@ fn deterministic_vector(text: &str, dim: usize) -> Vec<f32> {
     vec
 }
 
+/// Build the best available embedding model at runtime.
+///
+/// When `onnx-embeddings` feature is enabled and model files are present,
+/// loads the real all-MiniLM-L6-v2 ONNX model. Otherwise falls back to
+/// MockEmbedder which produces deterministic vectors (structured data
+/// retrieval still works via SQLite, only semantic search is degraded).
+pub fn build_embedder() -> Box<dyn EmbeddingModel> {
+    #[cfg(feature = "onnx-embeddings")]
+    {
+        let model_dir = crate::config::embedding_model_dir();
+        if model_dir.join("model.onnx").exists() && model_dir.join("tokenizer.json").exists() {
+            match OnnxEmbedder::load(&model_dir) {
+                Ok(e) => {
+                    tracing::info!(dir = %model_dir.display(), "ONNX embedder loaded");
+                    return Box::new(e);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "ONNX embedder failed to load, using mock");
+                }
+            }
+        } else {
+            tracing::info!(
+                "ONNX model files not found at {}, using mock embedder",
+                model_dir.display()
+            );
+        }
+    }
+
+    #[cfg(not(feature = "onnx-embeddings"))]
+    {
+        tracing::debug!("onnx-embeddings feature not enabled, using mock embedder");
+    }
+
+    Box::new(MockEmbedder::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

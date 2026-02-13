@@ -710,8 +710,10 @@ describe('sync-manager — audit logging', () => {
 
 		// Second sync: changes (200) — timestamp must be after the 204's lastSyncAt
 		const futureTime = new Date(Date.now() + 60_000).toISOString();
+		const full = makeFullSyncResult();
+		const fullData = full.status === 200 ? full.data : makeSyncResponse();
 		mockPostSync.mockResolvedValue(makeDeltaResult({
-			...makeFullSyncResult().data,
+			...fullData,
 			synced_at: futureTime
 		}));
 		await requestSync();
