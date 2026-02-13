@@ -169,6 +169,7 @@ pub struct MobileJournalEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JournalSyncResult {
     pub synced_ids: Vec<String>,
+    pub rejected_ids: Vec<String>,
     pub correlations: Vec<JournalCorrelation>,
 }
 
@@ -485,8 +486,27 @@ pub fn assemble_profile_summary(
 // Journal Sync Processing (phone → desktop)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Validate a journal entry's fields before database insertion (RS-M0-04-D04).
+fn validate_journal_entry(entry: &MobileJournalEntry) -> Result<(), &'static str> {
+    if !(1..=5).contains(&entry.severity) {
+        return Err("severity out of range (must be 1-5)");
+    }
+    if uuid::Uuid::parse_str(&entry.id).is_err() {
+        return Err("invalid UUID format for id");
+    }
+    // Accept YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS date formats
+    if chrono::NaiveDate::parse_from_str(&entry.created_at, "%Y-%m-%d").is_err()
+        && chrono::NaiveDateTime::parse_from_str(&entry.created_at, "%Y-%m-%dT%H:%M:%S").is_err()
+    {
+        return Err("invalid date format for created_at");
+    }
+    Ok(())
+}
+
 /// Process journal entries piggybacked on sync request.
 ///
+/// Validates each entry before insertion (RS-M0-04-D04). Invalid entries are
+/// rejected with a warning log rather than silently inserted or dropped.
 /// Uses INSERT OR IGNORE for idempotency (duplicate UUIDs are silently skipped).
 /// After inserting, checks for medication-symptom temporal correlations.
 pub fn process_journal_sync(
@@ -494,9 +514,20 @@ pub fn process_journal_sync(
     entries: &[MobileJournalEntry],
 ) -> Result<JournalSyncResult, DatabaseError> {
     let mut synced_ids = Vec::new();
+    let mut rejected_ids = Vec::new();
     let mut correlations = Vec::new();
 
     for entry in entries {
+        if let Err(reason) = validate_journal_entry(entry) {
+            tracing::warn!(
+                entry_id = %entry.id,
+                reason = reason,
+                "Rejecting invalid journal entry from phone"
+            );
+            rejected_ids.push(entry.id.clone());
+            continue;
+        }
+
         // INSERT OR IGNORE for idempotency
         let rows_changed = conn.execute(
             "INSERT OR IGNORE INTO symptoms
@@ -526,6 +557,7 @@ pub fn process_journal_sync(
 
     Ok(JournalSyncResult {
         synced_ids,
+        rejected_ids,
         correlations,
     })
 }
@@ -1251,6 +1283,139 @@ mod tests {
         assert_eq!(result.synced_ids.len(), 1);
         assert!(!result.correlations.is_empty());
         assert_eq!(result.correlations[0].medication_name, "Metformin");
+    }
+
+    // -----------------------------------------------------------------------
+    // Journal validation (RS-M0-04-D04)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn journal_rejects_severity_out_of_range() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: Uuid::new_v4().to_string(),
+            severity: 0,
+            body_location: None,
+            free_text: Some("Bad severity".to_string()),
+            activity_context: None,
+            symptom_chip: Some("pain".to_string()),
+            created_at: "2026-01-15".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert!(result.synced_ids.is_empty());
+        assert_eq!(result.rejected_ids.len(), 1);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM symptoms", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn journal_rejects_severity_above_five() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: Uuid::new_v4().to_string(),
+            severity: 6,
+            body_location: None,
+            free_text: Some("Too high".to_string()),
+            activity_context: None,
+            symptom_chip: Some("pain".to_string()),
+            created_at: "2026-01-15".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert!(result.synced_ids.is_empty());
+        assert_eq!(result.rejected_ids.len(), 1);
+    }
+
+    #[test]
+    fn journal_rejects_invalid_uuid() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: "not-a-uuid".to_string(),
+            severity: 3,
+            body_location: None,
+            free_text: Some("Bad id".to_string()),
+            activity_context: None,
+            symptom_chip: None,
+            created_at: "2026-01-15".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert!(result.synced_ids.is_empty());
+        assert_eq!(result.rejected_ids.len(), 1);
+    }
+
+    #[test]
+    fn journal_rejects_invalid_date() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: Uuid::new_v4().to_string(),
+            severity: 3,
+            body_location: None,
+            free_text: Some("Bad date".to_string()),
+            activity_context: None,
+            symptom_chip: None,
+            created_at: "not-a-date".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert!(result.synced_ids.is_empty());
+        assert_eq!(result.rejected_ids.len(), 1);
+    }
+
+    #[test]
+    fn journal_mixed_valid_and_invalid() {
+        let conn = test_db();
+        let entries = vec![
+            MobileJournalEntry {
+                id: Uuid::new_v4().to_string(),
+                severity: 3,
+                body_location: None,
+                free_text: Some("Valid".to_string()),
+                activity_context: None,
+                symptom_chip: Some("pain".to_string()),
+                created_at: "2026-01-15".to_string(),
+            },
+            MobileJournalEntry {
+                id: Uuid::new_v4().to_string(),
+                severity: 99,
+                body_location: None,
+                free_text: Some("Invalid severity".to_string()),
+                activity_context: None,
+                symptom_chip: None,
+                created_at: "2026-01-15".to_string(),
+            },
+        ];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert_eq!(result.synced_ids.len(), 1);
+        assert_eq!(result.rejected_ids.len(), 1);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM symptoms", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn journal_accepts_datetime_format() {
+        let conn = test_db();
+        let entries = vec![MobileJournalEntry {
+            id: Uuid::new_v4().to_string(),
+            severity: 2,
+            body_location: None,
+            free_text: Some("Datetime format".to_string()),
+            activity_context: None,
+            symptom_chip: Some("general".to_string()),
+            created_at: "2026-01-15T14:30:00".to_string(),
+        }];
+
+        let result = process_journal_sync(&conn, &entries).unwrap();
+        assert_eq!(result.synced_ids.len(), 1);
+        assert!(result.rejected_ids.is_empty());
     }
 
     // -----------------------------------------------------------------------

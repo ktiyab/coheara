@@ -191,9 +191,9 @@ pub fn recover_profile(
         return Err(CryptoError::CorruptedProfile);
     }
 
-    let mut key_array = [0u8; 32];
+    let mut key_array = Zeroizing::new([0u8; 32]);
     key_array.copy_from_slice(&master_key_bytes);
-    let master_key = ProfileKey::from_bytes_internal(key_array);
+    let master_key = ProfileKey::from_bytes_internal(*key_array);
 
     // Verify the recovered key.
     // If password_blob.enc exists (password was changed), verification.enc is encrypted
@@ -340,9 +340,9 @@ fn resolve_master_key(profile_dir: &Path, password_key: ProfileKey) -> Result<Pr
         if master_key_bytes.len() != 32 {
             return Err(CryptoError::CorruptedProfile);
         }
-        let mut key_array = [0u8; 32];
+        let mut key_array = Zeroizing::new([0u8; 32]);
         key_array.copy_from_slice(&master_key_bytes);
-        Ok(ProfileKey::from_bytes_internal(key_array))
+        Ok(ProfileKey::from_bytes_internal(*key_array))
     } else {
         Ok(password_key)
     }

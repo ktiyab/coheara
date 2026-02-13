@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use tokio::sync::oneshot;
 
 use crate::api::types::{generate_token, hash_token};
@@ -256,7 +257,10 @@ impl PairingManager {
         if session.consumed {
             return Err(PairingError::TokenConsumed);
         }
-        if session.token != request.token {
+        // Constant-time comparison to prevent timing attacks (RS-M002-03)
+        let stored_hash = hash_token(&session.token);
+        let request_hash = hash_token(&request.token);
+        if stored_hash.ct_eq(&request_hash).unwrap_u8() == 0 {
             return Err(PairingError::TokenInvalid);
         }
         if session.created_at.elapsed() > Duration::from_secs(PAIRING_TOKEN_TTL_SECS) {
