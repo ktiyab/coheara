@@ -28,6 +28,7 @@
     "svelte-check": "^4",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vite": "^7"
+    "vite": "^7",
+    "@tauri-apps/cli": "^2"
   }
 }
