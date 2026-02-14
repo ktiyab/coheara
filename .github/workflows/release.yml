@@ -23,9 +23,56 @@ env:
   VCPKG_ROOT: C:\vcpkg
 
 jobs:
+  # ── Prerequisites gate ──────────────────────────────────────
+  check-secrets:
+    name: Check required secrets
+    runs-on: ubuntu-latest
+    outputs:
+      has_signing: ${{ steps.check.outputs.has_signing }}
+      has_android: ${{ steps.check.outputs.has_android }}
+    steps:
+      - name: Verify signing secrets
+        id: check
+        env:
+          TAURI_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          ANDROID_KS: ${{ secrets.ANDROID_KEYSTORE_FILE }}
+          ANDROID_KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          missing=""
+
+          if [ -z "$TAURI_KEY" ]; then
+            missing="$missing TAURI_SIGNING_PRIVATE_KEY"
+          fi
+          if [ -z "$ANDROID_KS" ]; then
+            missing="$missing ANDROID_KEYSTORE_FILE"
+          fi
+          if [ -z "$ANDROID_KS_PW" ]; then
+            missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          fi
+          if [ -z "$ANDROID_ALIAS" ]; then
+            missing="$missing ANDROID_KEY_ALIAS"
+          fi
+
+          if [ -z "$TAURI_KEY" ]; then
+            echo "has_signing=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not configured — desktop updater signing disabled"
+          else
+            echo "has_signing=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -z "$ANDROID_KS" ] || [ -z "$ANDROID_KS_PW" ] || [ -z "$ANDROID_ALIAS" ]; then
+            echo "has_android=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Android signing secrets missing:$missing — see Specs/build/CREDENTIALS-SECRETS.md"
+            exit 1
+          else
+            echo "has_android=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Mobile artifacts (bundled inside desktop installer) ─────
   build-mobile-pwa:
     name: Build Mobile PWA
+    needs: [check-secrets]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +99,7 @@ jobs:
 
   build-mobile-apk:
     name: Build Android APK
+    needs: [check-secrets]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +182,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable

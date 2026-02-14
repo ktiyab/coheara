@@ -13,8 +13,40 @@ permissions:
   contents: write
 
 jobs:
+  # ── Prerequisites gate ──────────────────────────────────────
+  check-secrets:
+    name: Check required secrets
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Verify iOS signing secrets
+        id: check
+        env:
+          CERT: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PW: ${{ secrets.P12_PASSWORD }}
+          PROFILE: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          [ -z "$CERT" ] && missing="$missing BUILD_CERTIFICATE_BASE64"
+          [ -z "$P12_PW" ] && missing="$missing P12_PASSWORD"
+          [ -z "$PROFILE" ] && missing="$missing BUILD_PROVISION_PROFILE_BASE64"
+          [ -z "$TEAM" ] && missing="$missing APPLE_TEAM_ID"
+
+          if [ -n "$missing" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::iOS build skipped — missing secrets:$missing"
+            echo "::warning::See Specs/build/04-IOS-SIGNING-WALKTHROUGH.md for setup instructions"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "All iOS signing secrets present"
+          fi
+
   build-ios:
     name: Build iOS IPA
+    needs: [check-secrets]
+    if: needs.check-secrets.outputs.ready == 'true'
     runs-on: macos-latest
 
     steps:
@@ -88,7 +120,9 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/App.xcarchive \
             -destination 'generic/platform=iOS' \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE="Manual" \
+            PROVISIONING_PROFILE_SPECIFIER="Coheara Ad Hoc"
 
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/App.xcarchive \
@@ -115,12 +149,3 @@ jobs:
           files: ${{ runner.temp }}/export/*.ipa
           draft: true
           tag_name: ${{ github.ref_name }}
-
-      # ── Signing setup ──────────────────────────────────────
-      # Required GitHub secrets:
-      #   - BUILD_CERTIFICATE_BASE64: base64-encoded .p12 distribution certificate
-      #   - P12_PASSWORD: certificate export password
-      #   - BUILD_PROVISION_PROFILE_BASE64: base64-encoded .mobileprovision
-      #   - APPLE_TEAM_ID: Apple Developer Team ID
-      #
-      # CSR generated locally. See Specs/build/CREDENTIALS-SECRETS.md for setup.
