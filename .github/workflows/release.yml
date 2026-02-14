@@ -80,17 +80,28 @@ jobs:
         run: npx cap sync android
         working-directory: mobile
 
-      - name: Build APK
+      # ── Decode signing keystore (required) ──────────────────
+      - name: Decode Android keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > mobile/android/app/release-key.jks
+
+      # ── Build signed release APK ────────────────────────────
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_FILE: release-key.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           cd mobile/android
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: mobile-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 1
 
   # ── Desktop builds (bundle PWA + APK inside installer) ──────
@@ -111,7 +122,6 @@ jobs:
             bundles: dmg
           # macOS Intel omitted: cross-compiling C libraries (tesseract/leptonica)
           # from ARM runner fails, and macos-13 (native Intel) is deprecated.
-          # Apple Silicon covers 95%+ of active Macs since late 2020.
           - label: Linux x64
             platform: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
@@ -192,22 +202,16 @@ jobs:
           path: src-tauri/resources/mobile-apk
 
       - name: Rename APK for distribution server
-        run: mv src-tauri/resources/mobile-apk/app-debug.apk src-tauri/resources/mobile-apk/coheara.apk
+        run: mv src-tauri/resources/mobile-apk/app-release.apk src-tauri/resources/mobile-apk/coheara.apk
         shell: bash
 
-      # ── Build ───────────────────────────────────────────────
+      # ── Build with updater signing ─────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ── Updater signing (optional) ──
-          # To enable: generate key with `tauri signer generate -w ~/.tauri/coheara.key`
-          # then add TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          # as GitHub repository secrets.
-          # ── macOS code signing (optional) ──
-          # To enable: add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
-          # APPLE_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_ISSUER,
-          # APPLE_API_KEY_ID as GitHub repository secrets.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Coheara ${{ github.ref_name }}'

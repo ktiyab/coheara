@@ -1,8 +1,10 @@
 name: Release iOS
 
+# iOS builds require an Apple Developer account ($99/year).
+# This workflow is MANUAL-ONLY until Apple credentials are configured.
+# Tag pushes do NOT trigger this workflow.
+
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
