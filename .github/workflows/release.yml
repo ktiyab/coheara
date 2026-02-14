@@ -1,4 +1,4 @@
-name: Release
+name: Release Desktop
 
 on:
   push:
@@ -63,6 +63,10 @@ jobs:
           - label: macOS ARM
             platform: macos-latest
             target: aarch64-apple-darwin
+            bundles: dmg
+          - label: macOS Intel
+            platform: macos-latest
+            target: x86_64-apple-darwin
             bundles: dmg
           - label: Linux x64
             platform: ubuntu-24.04
@@ -138,7 +142,7 @@ jobs:
           path: src-tauri/resources/mobile-pwa
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── Updater signing (optional) ──
@@ -160,7 +164,8 @@ jobs:
             | Platform | Download |
             |----------|----------|
             | Windows | `.exe` (NSIS installer) or `.msi` |
-            | macOS | `.dmg` |
+            | macOS ARM | `.dmg` (Apple Silicon) |
+            | macOS Intel | `.dmg` (Intel / Rosetta) |
             | Linux | `.deb` or `.AppImage` |
 
             ### Phone Companion
@@ -172,19 +177,3 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           tauriScript: npm run tauri
-
-      # ── Optional signing (only runs when secrets are configured) ──
-      # Uncomment and configure when ready for production signing:
-      #
-      # - name: Build Tauri app (signed)
-      #   uses: tauri-apps/tauri-action@v0
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #     APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      #     APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      #     APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      #     APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
