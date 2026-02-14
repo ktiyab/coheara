@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { CriticalLabAlert } from '$lib/types/trust';
 
+  import { navigation } from '$lib/stores/navigation.svelte';
+
   interface Props {
     alerts: CriticalLabAlert[];
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { alerts, onNavigate }: Props = $props();
+  let { alerts }: Props = $props();
 </script>
 
 <div class="px-6 py-2">
@@ -28,7 +29,7 @@
           <button
             class="text-sm text-red-700 font-medium mt-2 underline
                    min-h-[44px] min-w-[44px] -ml-1 px-1"
-            onclick={() => onNavigate('document-detail', { documentId: alert.document_id })}
+            onclick={() => navigation.navigate('document-detail', { documentId: alert.document_id })}
           >
             View source document
           </button>

@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { PromptSuggestion } from '$lib/types/chat';
+  import { profile } from '$lib/stores/profile.svelte';
 
   interface Props {
-    profileName: string;
     suggestions: PromptSuggestion[];
     onSuggestionTap: (suggestion: PromptSuggestion) => void;
   }
-  let { profileName, suggestions, onSuggestionTap }: Props = $props();
+  let { suggestions, onSuggestionTap }: Props = $props();
 </script>
 
 <div class="flex flex-col items-center justify-center h-full px-6 text-center max-w-md mx-auto">
@@ -16,7 +16,7 @@
   </div>
 
   <h2 class="text-xl font-bold text-stone-800 mb-2">
-    Hello {profileName}!
+    Hello {profile.name}!
   </h2>
   <p class="text-sm text-stone-500 mb-8 leading-relaxed">
     I can help you understand your medical documents. Ask me anything about your prescriptions,

@@ -1,9 +1,6 @@
 <!-- L4-04: Empty timeline state — prompts user to load first document. -->
 <script lang="ts">
-  interface Props {
-    onNavigate: (screen: string) => void;
-  }
-  let { onNavigate }: Props = $props();
+  import { navigation } from '$lib/stores/navigation.svelte';
 </script>
 
 <div class="flex flex-col items-center justify-center flex-1 px-8 py-12 text-center">
@@ -23,7 +20,7 @@
            hover:brightness-110 focus-visible:outline focus-visible:outline-2
            focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]
            min-h-[44px]"
-    onclick={() => onNavigate('import')}
+    onclick={() => navigation.navigate('import')}
   >
     Load a document
   </button>

@@ -14,9 +14,7 @@ use uuid::Uuid;
 
 use crate::core_state::CoreState;
 use crate::crypto::encryption::EncryptedData;
-use crate::db::repository::{
-    get_document, update_profile_trust_corrected, update_profile_trust_verified,
-};
+use crate::db::repository::get_document;
 use crate::db::sqlite::open_database;
 use crate::pipeline::structuring::types::StructuringResult;
 use crate::review::{
@@ -225,9 +223,15 @@ pub fn update_extracted_field(
     Ok(())
 }
 
-/// Confirm the review — apply corrections, update document, update trust metrics.
-/// The storage pipeline (L1-04) is invoked at this stage in the full pipeline,
-/// but for the IPC layer we update the document status and trust metrics directly.
+/// Confirm the review — apply corrections, run storage pipeline, update trust.
+///
+/// E2E-B03: After the patient confirms the extraction, this command:
+/// 1. Applies any field corrections
+/// 2. Runs the full storage pipeline (chunk → embed → vector → entities → markdown)
+/// 3. Marks the document as verified
+/// 4. Updates trust metrics (the storage pipeline handles verified+total count;
+///    corrections additionally increment the corrected counter)
+/// 5. Cleans up the pending structuring file
 #[tauri::command]
 pub fn confirm_review(
     app: AppHandle,
@@ -263,39 +267,41 @@ pub fn confirm_review(
         ReviewOutcome::Confirmed
     };
 
-    // Step 4: Update document as verified
+    // Step 4: Run the storage pipeline (chunk, embed, vector, entities, markdown, trust)
+    // This handles: chunking, embedding, vector storage, entity storage,
+    // encrypted markdown, document record update, and profile trust (verified + total).
+    let profiles_dir = session
+        .db_path
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("Invalid profile directory")?;
+
+    let storage_pipeline =
+        crate::pipeline::storage::orchestrator::build_storage_pipeline(session, profiles_dir);
+
+    let storage_result = crate::pipeline::storage::types::StoragePipeline::store(
+        &storage_pipeline,
+        &structuring,
+        session,
+    )
+    .map_err(|e| format!("Storage pipeline failed: {e}"))?;
+
+    // Step 5: Mark document as verified
     update_document_verified(&conn, &doc_id).map_err(|e| e.to_string())?;
 
-    // Step 5: Update profile trust metrics
-    match outcome {
-        ReviewOutcome::Confirmed => {
-            update_profile_trust_verified(&conn).map_err(|e| e.to_string())?;
-        }
-        ReviewOutcome::Corrected => {
-            update_profile_trust_corrected(&conn).map_err(|e| e.to_string())?;
-        }
+    // Step 6: If corrections were applied, increment the corrected counter
+    // (storage pipeline already handled verified + total in its trust update)
+    if corrections_applied > 0 {
+        crate::db::repository::increment_documents_corrected(&conn)
+            .map_err(|e| e.to_string())?;
     }
 
-    // Step 6: Count entities for the result summary
-    let entities = &structuring.extracted_entities;
-    let entities_summary = EntitiesStoredSummary {
-        medications: entities.medications.len(),
-        lab_results: entities.lab_results.len(),
-        diagnoses: entities.diagnoses.len(),
-        allergies: entities.allergies.len(),
-        procedures: entities.procedures.len(),
-        referrals: entities.referrals.len(),
-        instructions: entities.instructions.len(),
-    };
-    let total_fields = count_extracted_fields(entities);
+    let total_fields = count_extracted_fields(&structuring.extracted_entities);
 
     // Step 7: Clean up the pending structuring file
     let _ = remove_pending_structuring(session, &doc_id);
 
-    // Step 8: Re-save the (potentially corrected) structuring result for storage pipeline
-    let _ = save_pending_structuring(session, &structuring);
-
-    // Step 9: Emit event for home feed refresh
+    // Step 8: Emit event for home feed refresh
     let _ = app.emit("document-reviewed", doc_id.to_string());
 
     state.update_activity();
@@ -304,16 +310,25 @@ pub fn confirm_review(
         document_id = %doc_id,
         outcome = ?outcome,
         corrections = corrections_applied,
+        chunks_stored = storage_result.chunks_stored,
         total_fields = total_fields,
-        "Review confirmed"
+        "Review confirmed — storage pipeline complete"
     );
 
     Ok(ReviewConfirmResult {
         document_id: doc_id,
         status: outcome,
-        entities_stored: entities_summary,
+        entities_stored: EntitiesStoredSummary {
+            medications: storage_result.entities_stored.medications,
+            lab_results: storage_result.entities_stored.lab_results,
+            diagnoses: storage_result.entities_stored.diagnoses,
+            allergies: storage_result.entities_stored.allergies,
+            procedures: storage_result.entities_stored.procedures,
+            referrals: storage_result.entities_stored.referrals,
+            instructions: storage_result.entities_stored.instructions,
+        },
         corrections_applied,
-        chunks_stored: 0, // Full storage pipeline invoked separately
+        chunks_stored: storage_result.chunks_stored,
     })
 }
 

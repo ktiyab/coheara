@@ -144,6 +144,27 @@ fn open_profile_db(session: &ProfileSession) -> Result<Connection, StorageError>
     sqlite::open_database(session.db_path()).map_err(StorageError::Database)
 }
 
+/// Build a storage pipeline with production implementations.
+///
+/// - Chunker: `MedicalChunker` (semantic splitting by headings/paragraphs)
+/// - Embedder: ONNX all-MiniLM-L6-v2 if available, otherwise mock
+/// - VectorStore: SQLite-backed vector store at the profile's DB path
+pub fn build_storage_pipeline(
+    session: &ProfileSession,
+    profiles_dir: &Path,
+) -> DocumentStoragePipeline<
+    super::chunker::MedicalChunker,
+    Box<dyn super::types::EmbeddingModel>,
+    super::vectordb::SqliteVectorStore,
+> {
+    DocumentStoragePipeline::new(
+        super::chunker::MedicalChunker::new(),
+        super::embedder::build_embedder(),
+        super::vectordb::SqliteVectorStore::new(session.db_path().to_path_buf()),
+        profiles_dir,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

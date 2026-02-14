@@ -6,12 +6,7 @@
     getTransferStatus, processStagedFiles
   } from '$lib/api/transfer';
   import type { QrCodeData, UploadResult, TransferStatus } from '$lib/types/transfer';
-
-  interface Props {
-    onComplete: () => void;
-    onCancel: () => void;
-  }
-  let { onComplete, onCancel }: Props = $props();
+  import { navigation } from '$lib/stores/navigation.svelte';
 
   let status: TransferStatus = $state('starting');
   let qrData: QrCodeData | null = $state(null);
@@ -57,7 +52,7 @@
       if (count > 0) {
         // Files were imported — home screen should refresh
       }
-      onComplete();
+      navigation.navigate('home');
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       status = 'error';
@@ -78,7 +73,7 @@
       <p class="text-red-600 mb-4">{error}</p>
       <button
         class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={onCancel}
+        onclick={() => navigation.goBack()}
       >
         Go back
       </button>
@@ -137,7 +132,7 @@
     </button>
     <button
       class="mt-2 text-stone-500 text-sm min-h-[44px]"
-      onclick={onCancel}
+      onclick={() => navigation.goBack()}
     >
       Cancel
     </button>
@@ -153,7 +148,7 @@
       <p class="text-stone-500 mb-4">Transfer session ended.</p>
       <button
         class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={onCancel}
+        onclick={() => navigation.goBack()}
       >
         Go back
       </button>

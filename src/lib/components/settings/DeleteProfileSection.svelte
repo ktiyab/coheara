@@ -2,11 +2,12 @@
 <script lang="ts">
   import { eraseProfile } from '$lib/api/trust';
 
+  import { profile } from '$lib/stores/profile.svelte';
+
   interface Props {
-    profileName: string;
     onDeleted: () => void;
   }
-  let { profileName, onDeleted }: Props = $props();
+  let { onDeleted }: Props = $props();
 
   let showConfirm = $state(false);
   let confirmText = $state('');
@@ -55,7 +56,7 @@
   {:else}
     <div class="bg-red-50 rounded-xl p-5 border border-red-200">
       <p class="text-sm text-red-800 mb-4">
-        This will permanently delete all of <strong>{profileName}'s</strong> health data.
+        This will permanently delete all of <strong>{profile.name}'s</strong> health data.
         This cannot be undone.
       </p>
 

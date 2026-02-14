@@ -1,9 +1,5 @@
 <script lang="ts">
-  interface Props {
-    activeTab: string;
-    onNavigate: (tab: string) => void;
-  }
-  let { activeTab, onNavigate }: Props = $props();
+  import { navigation } from '$lib/stores/navigation.svelte';
 
   const tabs = [
     { id: 'home', label: 'Home', icon: '⌂' },
@@ -31,16 +27,16 @@
     <button
       class="flex flex-col items-center justify-center gap-1 flex-1 h-full
              min-h-[44px] min-w-[44px]
-             {activeTab === tab.id ? 'text-teal-600' : 'text-stone-400'}"
+             {navigation.activeTab === tab.id ? 'text-teal-600' : 'text-stone-400'}"
       onclick={() => {
         if (tab.id === 'more') {
           showMore = !showMore;
         } else {
           showMore = false;
-          onNavigate(tab.id);
+          navigation.navigate(tab.id);
         }
       }}
-      aria-current={activeTab === tab.id ? 'page' : undefined}
+      aria-current={navigation.activeTab === tab.id ? 'page' : undefined}
       aria-label={tab.label}
     >
       <span class="text-lg">{tab.icon}</span>
@@ -62,7 +58,7 @@
         role="menuitem"
         onclick={() => {
           showMore = false;
-          onNavigate(item.id);
+          navigation.navigate(item.id);
         }}
       >
         {item.label}

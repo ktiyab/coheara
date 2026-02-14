@@ -4,15 +4,16 @@
   import type { TimelineEvent, TimelineCorrelation } from '$lib/types/timeline';
   import { EVENT_COLORS, eventColorGroup } from '$lib/utils/timeline';
 
+  import { navigation } from '$lib/stores/navigation.svelte';
+
   interface Props {
     event: TimelineEvent;
     correlations: TimelineCorrelation[];
     anchor: { x: number; y: number };
     onClose: () => void;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
     onScrollToEvent: (eventId: string) => void;
   }
-  let { event, correlations, anchor, onClose, onNavigate, onScrollToEvent }: Props = $props();
+  let { event, correlations, anchor, onClose, onScrollToEvent }: Props = $props();
 
   let popupEl: HTMLDivElement | undefined = $state(undefined);
 
@@ -195,7 +196,7 @@
       <button
         class="flex-1 text-sm text-center py-2 rounded-lg bg-stone-100 text-stone-700
                hover:bg-stone-200 min-h-[44px]"
-        onclick={() => onNavigate('document-detail', { documentId: event.document_id! })}
+        onclick={() => navigation.navigate('document-detail', { documentId: event.document_id! })}
       >
         View document
       </button>
@@ -210,7 +211,7 @@
           : event.metadata.kind === 'Symptom' ? 'journal'
           : event.metadata.kind === 'Appointment' ? 'appointments'
           : 'documents';
-        onNavigate(route, { entityId: event.id });
+        navigation.navigate(route, { entityId: event.id });
       }}
     >
       Go to source

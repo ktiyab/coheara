@@ -16,17 +16,16 @@
     CitationView,
     PromptSuggestion,
   } from '$lib/types/chat';
+  import { profile } from '$lib/stores/profile.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ConversationList from './ConversationList.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
 
   interface Props {
-    profileName: string;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
     initialConversationId?: string;
   }
-  let { profileName, onNavigate, initialConversationId }: Props = $props();
+  let { initialConversationId }: Props = $props();
 
   // Conversation state
   let currentConversationId: string | null = $state(initialConversationId ?? null);
@@ -280,7 +279,6 @@
   >
     {#if !hasMessages && !isStreaming}
       <ChatEmptyState
-        {profileName}
         {suggestions}
         onSuggestionTap={handleSuggestionTap}
       />
@@ -289,7 +287,6 @@
         {#each messages as message (message.id)}
           <MessageBubble
             {message}
-            {onNavigate}
           />
         {/each}
 

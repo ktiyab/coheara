@@ -3,14 +3,10 @@
   import { onMount } from 'svelte';
   import { getPrivacyInfo, openDataFolder } from '$lib/api/trust';
   import type { PrivacyInfo } from '$lib/types/trust';
+  import { navigation } from '$lib/stores/navigation.svelte';
+  import { profile } from '$lib/stores/profile.svelte';
   import BackupRestoreSection from './BackupRestoreSection.svelte';
   import DeleteProfileSection from './DeleteProfileSection.svelte';
-
-  interface Props {
-    profileName: string;
-    onNavigate: (screen: string) => void;
-  }
-  let { profileName, onNavigate }: Props = $props();
 
   let privacyInfo: PrivacyInfo | null = $state(null);
   let loading = $state(true);
@@ -155,7 +151,7 @@
       <BackupRestoreSection />
 
       <!-- Delete Profile (danger zone) -->
-      <DeleteProfileSection {profileName} onDeleted={() => onNavigate('picker')} />
+      <DeleteProfileSection onDeleted={() => navigation.navigate('picker')} />
     </div>
   {/if}
 </div>

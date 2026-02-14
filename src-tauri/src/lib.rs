@@ -39,6 +39,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(core_state::CoreState::new()))
         .invoke_handler(tauri::generate_handler![
@@ -57,6 +58,7 @@ pub fn run() {
             commands::profile::update_activity,
             commands::home::get_home_data,
             commands::home::get_more_documents,
+            commands::home::get_document_detail,
             commands::home::dismiss_alert,
             commands::chat::start_conversation,
             commands::chat::send_chat_message,
@@ -113,6 +115,22 @@ pub fn run() {
             commands::distribution::stop_distribution,
             commands::distribution::get_distribution_status,
             commands::distribution::get_install_qr,
+            commands::import::import_document,
+            commands::import::import_documents_batch,
+            commands::import::process_document,
+            commands::import::process_documents_batch,
+            commands::coherence::run_coherence_scan,
+            commands::coherence::run_coherence_scan_document,
+            commands::coherence::get_coherence_alerts,
+            commands::coherence::dismiss_coherence_alert,
+            commands::coherence::dismiss_critical_coherence_alert,
+            commands::coherence::get_coherence_emergency_actions,
+            commands::mobile_api::start_mobile_api,
+            commands::mobile_api::stop_mobile_api,
+            commands::mobile_api::get_mobile_api_status,
+            commands::sync::get_sync_versions,
+            commands::sync::reset_sync_versions,
+            commands::sync::get_sync_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use crate::core_state::CoreState;
 use crate::home::{
-    compute_onboarding, fetch_profile_stats, fetch_recent_documents, DocumentCard, HomeData,
+    compute_onboarding, fetch_document_detail, fetch_profile_stats, fetch_recent_documents,
+    DocumentCard, DocumentDetail, HomeData,
 };
 
 /// Valid alert types matching the dismissed_alerts CHECK constraint.
@@ -62,6 +63,19 @@ pub fn get_more_documents(
     state.update_activity();
 
     fetch_recent_documents(&conn, clamped_limit, offset).map_err(|e| e.to_string())
+}
+
+/// Fetches detailed document info with all linked entities.
+#[tauri::command]
+pub fn get_document_detail(
+    document_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<DocumentDetail, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    state.update_activity();
+
+    fetch_document_detail(&conn, &document_id).map_err(|e| e.to_string())
 }
 
 /// Dismisses a coherence observation with reason.

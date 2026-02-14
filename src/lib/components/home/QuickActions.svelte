@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { navigation } from '$lib/stores/navigation.svelte';
+
   interface Props {
     hasDocuments: boolean;
-    onNavigate: (screen: string) => void;
   }
-  let { hasDocuments, onNavigate }: Props = $props();
+  let { hasDocuments }: Props = $props();
 
   const actions = [
     { id: 'import', label: '+ Document', sublabel: 'Load a file', primary: true },
@@ -21,7 +22,7 @@
                {!hasDocuments && action.primary
                  ? 'bg-teal-600 text-white shadow-md'
                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'}"
-        onclick={() => onNavigate(action.id)}
+        onclick={() => navigation.navigate(action.id)}
       >
         <span class="font-medium text-sm">{action.label}</span>
         <span class="text-xs opacity-70">{action.sublabel}</span>

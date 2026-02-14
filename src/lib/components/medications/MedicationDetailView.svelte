@@ -7,12 +7,12 @@
   import TaperingSchedule from './TaperingSchedule.svelte';
   import CompoundIngredients from './CompoundIngredients.svelte';
 
+  import { navigation } from '$lib/stores/navigation.svelte';
+
   interface Props {
     medicationId: string;
-    onBack: () => void;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { medicationId, onBack, onNavigate }: Props = $props();
+  let { medicationId }: Props = $props();
 
   let detail: MedicationDetail | null = $state(null);
   let loading = $state(true);
@@ -46,7 +46,7 @@
   <header class="px-6 pt-4 pb-2">
     <button
       class="text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]"
-      onclick={onBack}
+      onclick={() => navigation.goBack()}
       aria-label="Back to medication list"
     >
       &larr; Back
@@ -61,7 +61,7 @@
     <div class="px-6 py-8 text-center">
       <p class="text-red-600 mb-4">{error}</p>
       <button class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-              onclick={onBack}>
+              onclick={() => navigation.goBack()}>
         Go back
       </button>
     </div>

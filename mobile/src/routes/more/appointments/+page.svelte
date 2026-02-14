@@ -8,9 +8,23 @@
 	import AppointmentPrepView from '$lib/components/viewer/AppointmentPrepView.svelte';
 	import ShareSheet from '$lib/components/viewer/ShareSheet.svelte';
 
-	// In a real app, prep data would be fetched from desktop API
+	import { fetchAppointmentPrep } from '$lib/api/viewer.js';
+
 	let prepData = $state<AppointmentPrepData | null>(null);
 	let sharePayload = $state<SharePayload | null>(null);
+	let loadingPrep = $state(false);
+
+	// Fetch prep data when connected and appointment is available
+	$effect(() => {
+		const appointment = $nextAppointment;
+		const connected = $isConnected;
+		if (connected && appointment?.hasPrepData && !prepData && !loadingPrep) {
+			loadingPrep = true;
+			fetchAppointmentPrep(appointment.id)
+				.then((data) => { prepData = data; })
+				.finally(() => { loadingPrep = false; });
+		}
+	});
 
 	function handleShare(view: 'patient' | 'doctor'): void {
 		if (!prepData) return;
@@ -26,6 +40,12 @@
 	{#if !$nextAppointment}
 		<div class="empty-state">
 			<p>{emptyStateMessage('appointments')}</p>
+		</div>
+	{:else if loadingPrep}
+		<div class="loading-state">
+			<h2>Appointment with {$nextAppointment.doctorName}</h2>
+			<p class="appointment-date">{$nextAppointment.date}</p>
+			<p class="loading-note">Loading appointment preparation...</p>
 		</div>
 	{:else if !$isConnected && !prepData}
 		<div class="offline-state">
@@ -51,7 +71,7 @@
 		margin-bottom: 8px;
 	}
 
-	.empty-state, .offline-state {
+	.empty-state, .offline-state, .loading-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -61,7 +81,7 @@
 		padding: 24px;
 	}
 
-	.empty-state p, .offline-note {
+	.empty-state p, .offline-note, .loading-note {
 		color: var(--color-text-muted);
 		font-size: 16px;
 		line-height: 1.5;

@@ -267,6 +267,295 @@ pub fn compute_onboarding(conn: &Connection) -> Result<OnboardingProgress, Datab
     })
 }
 
+// ---------------------------------------------------------------------------
+// Document detail types
+// ---------------------------------------------------------------------------
+
+/// Full document detail with all linked entities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentDetail {
+    pub id: String,
+    pub document_type: String,
+    pub title: String,
+    pub source_filename: String,
+    pub professional_name: Option<String>,
+    pub professional_specialty: Option<String>,
+    pub document_date: Option<String>,
+    pub imported_at: String,
+    pub status: DocumentStatus,
+    pub ocr_confidence: Option<f64>,
+    pub notes: Option<String>,
+    pub medications: Vec<MedicationEntry>,
+    pub lab_results: Vec<LabResultEntry>,
+    pub diagnoses: Vec<DiagnosisEntry>,
+    pub allergies: Vec<AllergyEntry>,
+    pub procedures: Vec<ProcedureEntry>,
+    pub referrals: Vec<ReferralEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MedicationEntry {
+    pub id: String,
+    pub generic_name: String,
+    pub brand_name: Option<String>,
+    pub dose: String,
+    pub frequency: String,
+    pub route: String,
+    pub status: String,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabResultEntry {
+    pub id: String,
+    pub test_name: String,
+    pub value: Option<f64>,
+    pub value_text: Option<String>,
+    pub unit: Option<String>,
+    pub reference_range_low: Option<f64>,
+    pub reference_range_high: Option<f64>,
+    pub abnormal_flag: String,
+    pub collection_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosisEntry {
+    pub id: String,
+    pub name: String,
+    pub icd_code: Option<String>,
+    pub date_diagnosed: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllergyEntry {
+    pub id: String,
+    pub allergen: String,
+    pub reaction: Option<String>,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureEntry {
+    pub id: String,
+    pub name: String,
+    pub date: Option<String>,
+    pub outcome: Option<String>,
+    pub follow_up_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferralEntry {
+    pub id: String,
+    pub reason: Option<String>,
+    pub date: String,
+    pub status: String,
+}
+
+/// Fetches a single document with all linked entities.
+pub fn fetch_document_detail(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<DocumentDetail, DatabaseError> {
+    let row = conn.query_row(
+        "SELECT d.id, d.type, d.title, d.source_file, d.document_date, d.ingestion_date,
+                d.verified, d.ocr_confidence, d.notes,
+                p.name AS prof_name, p.specialty AS prof_specialty
+         FROM documents d
+         LEFT JOIN professionals p ON d.professional_id = p.id
+         WHERE d.id = ?1",
+        params![document_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?,
+                row.get::<_, Option<f64>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+            ))
+        },
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => {
+            DatabaseError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
+        }
+        other => DatabaseError::Sqlite(other),
+    })?;
+
+    let (id, doc_type, title, source_file, document_date, ingestion_date, verified, ocr_confidence, notes, prof_name, prof_specialty) = row;
+
+    let medications = fetch_medications(conn, document_id)?;
+    let lab_results = fetch_lab_results(conn, document_id)?;
+    let diagnoses = fetch_diagnoses(conn, document_id)?;
+    let allergies = fetch_allergies(conn, document_id)?;
+    let procedures = fetch_procedures(conn, document_id)?;
+    let referrals = fetch_referrals(conn, document_id)?;
+
+    Ok(DocumentDetail {
+        id,
+        document_type: format_document_type(&doc_type),
+        title,
+        source_filename: extract_filename(&source_file),
+        professional_name: prof_name,
+        professional_specialty: prof_specialty,
+        document_date,
+        imported_at: ingestion_date,
+        status: if verified {
+            DocumentStatus::Confirmed
+        } else {
+            DocumentStatus::PendingReview
+        },
+        ocr_confidence,
+        notes,
+        medications,
+        lab_results,
+        diagnoses,
+        allergies,
+        procedures,
+        referrals,
+    })
+}
+
+fn fetch_medications(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<MedicationEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, generic_name, brand_name, dose, frequency, route, status, start_date, end_date
+         FROM medications WHERE document_id = ?1
+         ORDER BY generic_name",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(MedicationEntry {
+            id: row.get(0)?,
+            generic_name: row.get(1)?,
+            brand_name: row.get(2)?,
+            dose: row.get(3)?,
+            frequency: row.get(4)?,
+            route: row.get(5)?,
+            status: row.get(6)?,
+            start_date: row.get(7)?,
+            end_date: row.get(8)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn fetch_lab_results(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<LabResultEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, test_name, value, value_text, unit, reference_range_low, reference_range_high,
+                abnormal_flag, collection_date
+         FROM lab_results WHERE document_id = ?1
+         ORDER BY collection_date DESC",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(LabResultEntry {
+            id: row.get(0)?,
+            test_name: row.get(1)?,
+            value: row.get(2)?,
+            value_text: row.get(3)?,
+            unit: row.get(4)?,
+            reference_range_low: row.get(5)?,
+            reference_range_high: row.get(6)?,
+            abnormal_flag: row.get(7)?,
+            collection_date: row.get(8)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn fetch_diagnoses(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<DiagnosisEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, icd_code, date_diagnosed, status
+         FROM diagnoses WHERE document_id = ?1
+         ORDER BY name",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(DiagnosisEntry {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            icd_code: row.get(2)?,
+            date_diagnosed: row.get(3)?,
+            status: row.get(4)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn fetch_allergies(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<AllergyEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, allergen, reaction, severity
+         FROM allergies WHERE document_id = ?1
+         ORDER BY severity DESC, allergen",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(AllergyEntry {
+            id: row.get(0)?,
+            allergen: row.get(1)?,
+            reaction: row.get(2)?,
+            severity: row.get(3)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn fetch_procedures(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<ProcedureEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, date, outcome, follow_up_required
+         FROM procedures WHERE document_id = ?1
+         ORDER BY date DESC",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(ProcedureEntry {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            date: row.get(2)?,
+            outcome: row.get(3)?,
+            follow_up_required: row.get(4)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn fetch_referrals(
+    conn: &Connection,
+    document_id: &str,
+) -> Result<Vec<ReferralEntry>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, reason, date, status
+         FROM referrals WHERE document_id = ?1
+         ORDER BY date DESC",
+    )?;
+    let rows = stmt.query_map(params![document_id], |row| {
+        Ok(ReferralEntry {
+            id: row.get(0)?,
+            reason: row.get(1)?,
+            date: row.get(2)?,
+            status: row.get(3)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
 /// Format a raw document type string for display.
 fn format_document_type(raw: &str) -> String {
     match raw {
@@ -628,5 +917,80 @@ mod tests {
         assert_eq!(extract_filename("/home/user/docs/blood.pdf"), "blood.pdf");
         assert_eq!(extract_filename("just_a_name.pdf"), "just_a_name.pdf");
         assert_eq!(extract_filename("/tmp/a"), "a");
+    }
+
+    // -----------------------------------------------------------------------
+    // fetch_document_detail
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn document_detail_not_found() {
+        let conn = open_memory_database().unwrap();
+        let result = fetch_document_detail(&conn, "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn document_detail_basic() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "lab_result", true, "/docs/labs.pdf");
+
+        let detail = fetch_document_detail(&conn, &doc_id).unwrap();
+        assert_eq!(detail.id, doc_id);
+        assert_eq!(detail.document_type, "Lab Report");
+        assert_eq!(detail.source_filename, "labs.pdf");
+        assert_eq!(detail.status, DocumentStatus::Confirmed);
+        assert!(detail.medications.is_empty());
+        assert!(detail.lab_results.is_empty());
+    }
+
+    #[test]
+    fn document_detail_with_entities() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/rx.pdf");
+        insert_test_medication(&conn, &doc_id);
+        insert_test_medication(&conn, &doc_id);
+        insert_test_lab_result(&conn, &doc_id);
+        insert_test_diagnosis(&conn, &doc_id);
+
+        let detail = fetch_document_detail(&conn, &doc_id).unwrap();
+        assert_eq!(detail.medications.len(), 2);
+        assert_eq!(detail.lab_results.len(), 1);
+        assert_eq!(detail.diagnoses.len(), 1);
+        assert!(detail.allergies.is_empty());
+        assert!(detail.procedures.is_empty());
+        assert!(detail.referrals.is_empty());
+
+        // Check medication fields
+        assert_eq!(detail.medications[0].generic_name, "Metformin");
+        assert_eq!(detail.medications[0].dose, "500mg");
+
+        // Check lab result fields
+        assert_eq!(detail.lab_results[0].test_name, "HbA1c");
+        assert_eq!(detail.lab_results[0].abnormal_flag, "normal");
+    }
+
+    #[test]
+    fn document_detail_with_professional() {
+        let conn = open_memory_database().unwrap();
+        let prof_id = Uuid::new_v4().to_string();
+        let doc_id = Uuid::new_v4().to_string();
+
+        insert_test_professional(&conn, &prof_id, "Dr. Patel", "Endocrinology");
+        conn.execute(
+            "INSERT INTO documents (id, type, title, ingestion_date, source_file, verified, professional_id)
+             VALUES (?1, 'prescription', 'Diabetes Rx', datetime('now'), '/docs/rx.pdf', 1, ?2)",
+            params![doc_id, prof_id],
+        )
+        .unwrap();
+
+        let detail = fetch_document_detail(&conn, &doc_id).unwrap();
+        assert_eq!(detail.professional_name.as_deref(), Some("Dr. Patel"));
+        assert_eq!(
+            detail.professional_specialty.as_deref(),
+            Some("Endocrinology")
+        );
     }
 }

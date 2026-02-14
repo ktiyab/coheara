@@ -107,6 +107,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use base64::Engine;
     use tower::ServiceExt;
 
     use crate::api::types::{generate_token, hash_token};
@@ -866,5 +867,200 @@ mod tests {
 
         let _ = futures_util::SinkExt::close(&mut ws).await;
         server.abort();
+    }
+
+    // ═════════════════════════════════════════════════════════
+    // E2E-M05: Additional endpoint integration tests
+    // ═════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn timeline_recent_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/timeline/recent", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["events"].is_array(), "events should be array");
+        assert!(json["correlations"].is_array(), "correlations should be array");
+        assert!(json["date_range"].is_object(), "date_range should be object");
+    }
+
+    #[tokio::test]
+    async fn appointments_list_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/appointments", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["appointments"].is_array(), "appointments should be array");
+    }
+
+    #[tokio::test]
+    async fn sync_returns_204_when_nothing_changed() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        // Send version 0 for all — but empty DB means nothing to return
+        let body = r#"{"versions":{"medications":0,"labs":0,"timeline":0,"alerts":0,"appointments":0,"profile":0},"journal_entries":[]}"#;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/sync")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        // Empty DB → 204 No Content (nothing changed)
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn document_upload_requires_pages() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let body = r#"{"metadata":{"page_count":0,"device_name":"Test Phone","captured_at":"2026-01-01T00:00:00Z"},"pages":[]}"#;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/documents/upload")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let json = response_json(response).await;
+        assert!(json["error"]["message"].as_str().unwrap().contains("No pages"));
+    }
+
+    #[tokio::test]
+    async fn document_upload_validates_page_limit() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        // Build 11 pages (exceeds MAX_PAGES=10)
+        let pages: Vec<serde_json::Value> = (0..11)
+            .map(|i| serde_json::json!({
+                "name": format!("page{i}"),
+                "data": "data:image/jpeg;base64,/9j/4AAQ",
+                "width": 100,
+                "height": 100,
+                "size_bytes": 100
+            }))
+            .collect();
+
+        let body = serde_json::json!({
+            "metadata": {
+                "page_count": 11,
+                "device_name": "Test Phone",
+                "captured_at": "2026-01-01T00:00:00Z"
+            },
+            "pages": pages
+        });
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/documents/upload")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let json = response_json(response).await;
+        assert!(json["error"]["message"].as_str().unwrap().contains("Maximum"));
+    }
+
+    #[tokio::test]
+    async fn document_upload_processes_valid_jpeg() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        // Create a minimal valid JPEG as base64
+        let jpeg_bytes: Vec<u8> = vec![
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+            0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9,
+        ];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+        let data_url = format!("data:image/jpeg;base64,{encoded}");
+
+        let body = serde_json::json!({
+            "metadata": {
+                "page_count": 1,
+                "device_name": "Test Phone",
+                "captured_at": "2026-01-01T00:00:00Z"
+            },
+            "pages": [{
+                "name": "test_page",
+                "data": data_url,
+                "width": 100,
+                "height": 100,
+                "size_bytes": jpeg_bytes.len()
+            }]
+        });
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/documents/upload")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-Request-Nonce", uuid::Uuid::new_v4().to_string())
+            .header("X-Request-Timestamp", chrono::Utc::now().timestamp().to_string())
+            .header("Content-Type", "application/json")
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["status"], "processing");
+        assert!(json["message"].as_str().unwrap().contains("1 page(s)"));
+        assert!(json["document_id"].is_string());
+    }
+
+    #[tokio::test]
+    async fn chat_conversations_list_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/chat/conversations", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert!(json["conversations"].is_array(), "conversations should be array");
+    }
+
+    #[tokio::test]
+    async fn journal_history_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/journal/history", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["symptoms"].is_array(), "symptoms should be array");
     }
 }

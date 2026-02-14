@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
+use crate::api::MobileApiServer;
 use crate::config;
 use crate::crypto::profile::ProfileSession;
 use crate::db;
@@ -45,6 +46,8 @@ pub struct CoreState {
     pub transfer_server: tokio::sync::Mutex<Option<TransferServer>>,
     /// App distribution server handle (ADS). Uses tokio Mutex for async.
     pub distribution_server: tokio::sync::Mutex<Option<DistributionServer>>,
+    /// Mobile API server handle (E2E-B06). Uses tokio Mutex for async.
+    pub api_server: tokio::sync::Mutex<Option<MobileApiServer>>,
     /// Paired mobile devices — ME-02 DeviceManager.
     devices: RwLock<DeviceManager>,
     /// Device pairing protocol — M0-02 PairingManager.
@@ -63,6 +66,7 @@ impl CoreState {
             last_activity: Mutex::new(Instant::now()),
             transfer_server: tokio::sync::Mutex::new(None),
             distribution_server: tokio::sync::Mutex::new(None),
+            api_server: tokio::sync::Mutex::new(None),
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
@@ -400,6 +404,7 @@ mod tests {
             last_activity: Mutex::new(Instant::now() - std::time::Duration::from_secs(1)),
             transfer_server: tokio::sync::Mutex::new(None),
             distribution_server: tokio::sync::Mutex::new(None),
+            api_server: tokio::sync::Mutex::new(None),
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),

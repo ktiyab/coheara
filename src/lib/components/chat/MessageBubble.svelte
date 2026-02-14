@@ -6,9 +6,8 @@
 
   interface Props {
     message: Message;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { message, onNavigate }: Props = $props();
+  let { message }: Props = $props();
 
   let isPatient = $derived(message.role === 'patient');
 
@@ -50,7 +49,7 @@
       {#if citations.length > 0}
         <div class="flex flex-wrap gap-2 mt-2 ml-1">
           {#each citations as citation}
-            <CitationChip {citation} {onNavigate} />
+            <CitationChip {citation} />
           {/each}
         </div>
       {/if}

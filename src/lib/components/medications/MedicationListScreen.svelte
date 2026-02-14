@@ -6,14 +6,10 @@
     MedicationListData,
     MedicationListFilter,
   } from '$lib/types/medication';
+  import { navigation } from '$lib/stores/navigation.svelte';
   import MedicationCardView from './MedicationCardView.svelte';
   import MedicationSearch from './MedicationSearch.svelte';
   import EmptyMedicationState from './EmptyMedicationState.svelte';
-
-  interface Props {
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
-  }
-  let { onNavigate }: Props = $props();
 
   let data: MedicationListData | null = $state(null);
   let loading = $state(true);
@@ -107,7 +103,7 @@
     </div>
   {:else if data && totalCount === 0 && !searchQuery}
     <EmptyMedicationState
-      onAddOtc={() => onNavigate('otc-entry')}
+      onAddOtc={() => navigation.navigate('otc-entry')}
     />
   {:else if data}
     <!-- Search and filter bar -->
@@ -141,7 +137,7 @@
       {#each data.medications as medication (medication.id)}
         <MedicationCardView
           {medication}
-          onTap={(med) => onNavigate('medication-detail', { medicationId: med.id })}
+          onTap={(med) => navigation.navigate('medication-detail', { medicationId: med.id })}
         />
       {:else}
         <div class="text-center py-8 text-stone-400 text-sm">
@@ -156,7 +152,7 @@
         class="w-full px-6 py-4 border border-dashed border-stone-300 rounded-xl
                text-stone-500 hover:border-[var(--color-primary)]
                hover:text-[var(--color-primary)] transition-all min-h-[44px]"
-        onclick={() => onNavigate('otc-entry')}
+        onclick={() => navigation.navigate('otc-entry')}
       >
         + Add an over-the-counter medication
       </button>

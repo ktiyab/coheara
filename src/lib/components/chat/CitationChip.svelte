@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { CitationView } from '$lib/types/chat';
 
+  import { navigation } from '$lib/stores/navigation.svelte';
+
   interface Props {
     citation: CitationView;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { citation, onNavigate }: Props = $props();
+  let { citation }: Props = $props();
 
   let showPanel = $state(false);
 
@@ -93,7 +94,7 @@
                  hover:bg-stone-200 transition-colors min-h-[44px]"
           onclick={() => {
             showPanel = false;
-            onNavigate('document-detail', { documentId: citation.document_id });
+            navigation.navigate('document-detail', { documentId: citation.document_id });
           }}
         >
           View full document

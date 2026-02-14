@@ -499,6 +499,19 @@ pub fn update_profile_trust_corrected(conn: &Connection) -> Result<(), DatabaseE
     Ok(())
 }
 
+/// E2E-B03: Increment only the corrected counter (no total/verified bump).
+/// Used after the storage pipeline has already called `update_profile_trust_verified`.
+pub fn increment_documents_corrected(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE profile_trust SET
+         documents_corrected = documents_corrected + 1,
+         last_updated = datetime('now')
+         WHERE id = 1",
+        [],
+    )?;
+    Ok(())
+}
+
 // ═══════════════════════════════════════════
 // Compound Ingredient Repository
 // ═══════════════════════════════════════════
@@ -1297,6 +1310,333 @@ pub fn get_symptoms_in_date_range(
         });
     }
     Ok(symptoms)
+}
+
+// ═══════════════════════════════════════════
+// Coherence Snapshot Queries (E2E-B04)
+// ═══════════════════════════════════════════
+
+/// All medications (active + stopped + paused) for coherence drift/conflict detection.
+pub fn get_all_medications(conn: &Connection) -> Result<Vec<Medication>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, generic_name, brand_name, dose, frequency, frequency_type, route,
+         prescriber_id, start_date, end_date, reason_start, reason_stop, is_otc, status,
+         administration_instructions, max_daily_dose, condition, dose_type, is_compound, document_id
+         FROM medications"
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(MedicationRow {
+            id: row.get(0)?,
+            generic_name: row.get(1)?,
+            brand_name: row.get(2)?,
+            dose: row.get(3)?,
+            frequency: row.get(4)?,
+            frequency_type: row.get(5)?,
+            route: row.get(6)?,
+            prescriber_id: row.get(7)?,
+            start_date: row.get(8)?,
+            end_date: row.get(9)?,
+            reason_start: row.get(10)?,
+            reason_stop: row.get(11)?,
+            is_otc: row.get(12)?,
+            status: row.get(13)?,
+            administration_instructions: row.get(14)?,
+            max_daily_dose: row.get(15)?,
+            condition: row.get(16)?,
+            dose_type: row.get(17)?,
+            is_compound: row.get(18)?,
+            document_id: row.get(19)?,
+        })
+    })?;
+
+    let mut meds = Vec::new();
+    for row in rows {
+        meds.push(medication_from_row(row?)?);
+    }
+    Ok(meds)
+}
+
+/// All diagnoses (active + resolved + monitoring) for coherence gap/drift detection.
+pub fn get_all_diagnoses(conn: &Connection) -> Result<Vec<Diagnosis>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, icd_code, date_diagnosed, diagnosing_professional_id, status, document_id
+         FROM diagnoses",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+        ))
+    })?;
+
+    let mut diagnoses = Vec::new();
+    for row in rows {
+        let (id, name, icd_code, date_diagnosed, prof_id, status, doc_id) = row?;
+        diagnoses.push(Diagnosis {
+            id: Uuid::parse_str(&id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+            name,
+            icd_code,
+            date_diagnosed: date_diagnosed
+                .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+            diagnosing_professional_id: prof_id.and_then(|s| Uuid::parse_str(&s).ok()),
+            status: DiagnosisStatus::from_str(&status)?,
+            document_id: Uuid::parse_str(&doc_id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+        });
+    }
+    Ok(diagnoses)
+}
+
+/// All lab results for coherence critical-lab and temporal detection.
+pub fn get_all_lab_results(conn: &Connection) -> Result<Vec<LabResult>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, test_name, test_code, value, value_text, unit,
+         reference_range_low, reference_range_high, abnormal_flag, collection_date,
+         lab_facility, ordering_physician_id, document_id
+         FROM lab_results ORDER BY collection_date DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(LabRow {
+            id: row.get(0)?,
+            test_name: row.get(1)?,
+            test_code: row.get(2)?,
+            value: row.get(3)?,
+            value_text: row.get(4)?,
+            unit: row.get(5)?,
+            reference_range_low: row.get(6)?,
+            reference_range_high: row.get(7)?,
+            abnormal_flag: row.get(8)?,
+            collection_date: row.get(9)?,
+            lab_facility: row.get(10)?,
+            ordering_physician_id: row.get(11)?,
+            document_id: row.get(12)?,
+        })
+    })?;
+
+    let mut labs = Vec::new();
+    for row in rows {
+        labs.push(lab_from_row(row?)?);
+    }
+    Ok(labs)
+}
+
+/// All symptoms for coherence temporal correlation detection.
+pub fn get_all_symptoms(conn: &Connection) -> Result<Vec<Symptom>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, category, specific, severity, body_region, duration, character,
+         aggravating, relieving, timing_pattern, onset_date, onset_time, recorded_date,
+         still_active, resolved_date, related_medication_id, related_diagnosis_id, source, notes
+         FROM symptoms ORDER BY onset_date DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i32>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+            row.get::<_, Option<String>>(9)?,
+            row.get::<_, String>(10)?,
+            row.get::<_, Option<String>>(11)?,
+            row.get::<_, String>(12)?,
+            row.get::<_, i32>(13)?,
+            row.get::<_, Option<String>>(14)?,
+            row.get::<_, Option<String>>(15)?,
+            row.get::<_, Option<String>>(16)?,
+            row.get::<_, String>(17)?,
+            row.get::<_, Option<String>>(18)?,
+        ))
+    })?;
+
+    let mut symptoms = Vec::new();
+    for row in rows {
+        let (
+            id, category, specific, severity, body_region, duration, character,
+            aggravating, relieving, timing_pattern, onset_date, onset_time, recorded_date,
+            still_active, resolved_date, related_med_id, related_diag_id, source, notes,
+        ) = row?;
+        symptoms.push(Symptom {
+            id: Uuid::parse_str(&id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+            category,
+            specific,
+            severity,
+            body_region,
+            duration,
+            character,
+            aggravating,
+            relieving,
+            timing_pattern,
+            onset_date: NaiveDate::parse_from_str(&onset_date, "%Y-%m-%d").unwrap_or_default(),
+            onset_time,
+            recorded_date: NaiveDate::parse_from_str(&recorded_date, "%Y-%m-%d")
+                .unwrap_or_default(),
+            still_active: still_active != 0,
+            resolved_date: resolved_date
+                .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+            related_medication_id: related_med_id.and_then(|s| Uuid::parse_str(&s).ok()),
+            related_diagnosis_id: related_diag_id.and_then(|s| Uuid::parse_str(&s).ok()),
+            source: SymptomSource::from_str(&source)?,
+            notes,
+        });
+    }
+    Ok(symptoms)
+}
+
+/// All procedures for coherence temporal correlation detection.
+pub fn get_all_procedures(conn: &Connection) -> Result<Vec<Procedure>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, date, performing_professional_id, facility, outcome,
+         follow_up_required, follow_up_date, document_id
+         FROM procedures ORDER BY date DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, i32>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, String>(8)?,
+        ))
+    })?;
+
+    let mut procedures = Vec::new();
+    for row in rows {
+        let (id, name, date, prof_id, facility, outcome, follow_up, follow_up_date, doc_id) = row?;
+        procedures.push(Procedure {
+            id: Uuid::parse_str(&id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+            name,
+            date: date.and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+            performing_professional_id: prof_id.and_then(|s| Uuid::parse_str(&s).ok()),
+            facility,
+            outcome,
+            follow_up_required: follow_up != 0,
+            follow_up_date: follow_up_date
+                .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+            document_id: Uuid::parse_str(&doc_id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+        });
+    }
+    Ok(procedures)
+}
+
+/// All professionals for coherence prescriber resolution.
+pub fn get_all_professionals(conn: &Connection) -> Result<Vec<Professional>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, specialty, institution, first_seen_date, last_seen_date
+         FROM professionals",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(Professional {
+            id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
+            name: row.get(1)?,
+            specialty: row.get(2)?,
+            institution: row.get(3)?,
+            first_seen_date: row
+                .get::<_, Option<String>>(4)?
+                .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+            last_seen_date: row
+                .get::<_, Option<String>>(5)?
+                .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+        })
+    })?;
+
+    rows.map(|r| r.map_err(DatabaseError::from)).collect()
+}
+
+/// All dose changes for coherence drift/temporal detection.
+pub fn get_all_dose_changes(conn: &Connection) -> Result<Vec<DoseChange>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, medication_id, old_dose, new_dose, old_frequency, new_frequency,
+         change_date, changed_by_id, reason, document_id
+         FROM dose_changes ORDER BY change_date DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+            row.get::<_, Option<String>>(9)?,
+        ))
+    })?;
+
+    let mut changes = Vec::new();
+    for row in rows {
+        let (id, med_id, old_dose, new_dose, old_freq, new_freq, change_date, changed_by, reason, doc_id) = row?;
+        changes.push(DoseChange {
+            id: Uuid::parse_str(&id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+            medication_id: Uuid::parse_str(&med_id)
+                .map_err(|e| DatabaseError::ConstraintViolation(e.to_string()))?,
+            old_dose,
+            new_dose,
+            old_frequency: old_freq,
+            new_frequency: new_freq,
+            change_date: NaiveDate::parse_from_str(&change_date, "%Y-%m-%d").unwrap_or_default(),
+            changed_by_id: changed_by.and_then(|s| Uuid::parse_str(&s).ok()),
+            reason,
+            document_id: doc_id.and_then(|s| Uuid::parse_str(&s).ok()),
+        });
+    }
+    Ok(changes)
+}
+
+/// All compound ingredients for coherence allergy cross-referencing.
+pub fn get_all_compound_ingredients(conn: &Connection) -> Result<Vec<CompoundIngredient>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, medication_id, ingredient_name, ingredient_dose, maps_to_generic
+         FROM compound_ingredients"
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(CompoundIngredient {
+            id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_default(),
+            medication_id: Uuid::parse_str(&row.get::<_, String>(1)?).unwrap_or_default(),
+            ingredient_name: row.get(2)?,
+            ingredient_dose: row.get(3)?,
+            maps_to_generic: row.get(4)?,
+        })
+    })?;
+
+    rows.map(|r| r.map_err(DatabaseError::from)).collect()
+}
+
+/// Build dismissed alert keys set from dismissed_alerts table.
+pub fn get_dismissed_alert_keys(conn: &Connection) -> Result<std::collections::HashSet<(String, String)>, DatabaseError> {
+    let alerts = get_dismissed_alerts(conn)?;
+    let mut keys = std::collections::HashSet::new();
+    for alert in alerts {
+        keys.insert((alert.alert_type.as_str().to_string(), alert.entity_ids));
+    }
+    Ok(keys)
 }
 
 // ═══════════════════════════════════════════

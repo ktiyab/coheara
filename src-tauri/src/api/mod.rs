@@ -11,8 +11,10 @@ pub mod endpoints;
 pub mod error;
 pub mod middleware;
 pub mod router;
+pub mod server;
 pub mod types;
 pub mod websocket;
 
 pub use router::mobile_api_router;
+pub use server::{MobileApiServer, MobileApiSession, MobileApiStatus};
 pub use types::ApiContext;

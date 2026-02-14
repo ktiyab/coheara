@@ -7,23 +7,20 @@
   import AppointmentHistory from './AppointmentHistory.svelte';
   import PostNotesFlow from './PostNotesFlow.svelte';
 
-  interface Props {
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
-  }
-  let { onNavigate }: Props = $props();
-
   type View = 'history' | 'prep' | 'post-notes';
   let view: View = $state('history');
   let appointments: StoredAppointment[] = $state([]);
   let selectedAppointmentId: string | null = $state(null);
   let loading = $state(true);
+  let error: string | null = $state(null);
 
   async function refresh() {
     loading = true;
+    error = null;
     try {
       appointments = await listAppointments();
     } catch (e) {
-      console.error('Failed to load appointments:', e);
+      error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
     }
@@ -57,13 +54,22 @@
       onComplete={async () => { view = 'history'; await refresh(); }}
       onCancel={() => view = 'history'}
     />
+  {:else if error}
+    <div class="flex flex-col items-center justify-center flex-1 px-6 text-center">
+      <p class="text-red-600 mb-4">Something went wrong: {error}</p>
+      <button
+        class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
+        onclick={refresh}
+      >
+        Try again
+      </button>
+    </div>
   {:else}
     <AppointmentHistory
       {appointments}
       {loading}
       onPrepare={() => view = 'prep'}
       onAddNotes={(id) => { selectedAppointmentId = id; view = 'post-notes'; }}
-      {onNavigate}
     />
   {/if}
 </div>

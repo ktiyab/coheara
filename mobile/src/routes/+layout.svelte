@@ -4,10 +4,15 @@
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import BottomTabs from '$lib/components/BottomTabs.svelte';
 	import BiometricGate from '$lib/components/BiometricGate.svelte';
+	import QrPairingFlow from '$lib/components/QrPairingFlow.svelte';
 	import { connection } from '$lib/stores/connection.js';
 	import { isAuthenticated, authState } from '$lib/stores/session.js';
 
 	const { children } = $props();
+
+	const showPairing = $derived(
+		$connection.status === 'unpaired' || $connection.status === 'connecting'
+	);
 
 	function handleUnlock(): void {
 		// Biometric verification triggered — handled by lifecycle
@@ -20,23 +25,22 @@
 		<BiometricGate onUnlock={handleUnlock} />
 	{/if}
 
-	<!-- Status bar -->
-	<StatusBar />
+	<!-- Status bar (hidden during pairing scanner) -->
+	{#if !showPairing}
+		<StatusBar />
+	{/if}
 
 	<!-- Content area -->
 	<main class="content-area">
-		{#if $connection.status === 'unpaired'}
-			<div class="unpaired-message">
-				<h1>Welcome to Coheara</h1>
-				<p>Connect to your desktop to get started.</p>
-			</div>
+		{#if showPairing}
+			<QrPairingFlow />
 		{:else}
 			{@render children()}
 		{/if}
 	</main>
 
-	<!-- Bottom tabs (hidden when unpaired) -->
-	{#if $connection.status !== 'unpaired'}
+	<!-- Bottom tabs (hidden when unpaired/pairing) -->
+	{#if !showPairing}
 		<BottomTabs />
 	{/if}
 </div>
@@ -55,24 +59,4 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	.unpaired-message {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		text-align: center;
-		padding: 24px;
-	}
-
-	.unpaired-message h1 {
-		font-size: var(--font-header);
-		font-weight: 700;
-		margin: 0 0 8px;
-	}
-
-	.unpaired-message p {
-		font-size: 16px;
-		color: var(--color-text-muted);
-	}
 </style>

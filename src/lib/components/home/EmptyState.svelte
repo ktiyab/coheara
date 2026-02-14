@@ -1,8 +1,5 @@
 <script lang="ts">
-  interface Props {
-    onNavigate: (screen: string) => void;
-  }
-  let { onNavigate }: Props = $props();
+  import { navigation } from '$lib/stores/navigation.svelte';
 </script>
 
 <div class="flex flex-col items-center justify-center px-8 py-12 text-center">
@@ -23,7 +20,7 @@
            hover:bg-teal-700 focus-visible:outline focus-visible:outline-2
            focus-visible:outline-offset-2 focus-visible:outline-teal-600
            min-h-[44px]"
-    onclick={() => onNavigate('import')}
+    onclick={() => navigation.navigate('import')}
   >
     Load your first document
   </button>

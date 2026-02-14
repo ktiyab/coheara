@@ -7,9 +7,8 @@
     loading: boolean;
     onPrepare: () => void;
     onAddNotes: (id: string) => void;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { appointments, loading, onPrepare, onAddNotes, onNavigate }: Props = $props();
+  let { appointments, loading, onPrepare, onAddNotes }: Props = $props();
 
   let upcoming = $derived.by(() => {
     const items: StoredAppointment[] = appointments;

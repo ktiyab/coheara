@@ -15,9 +15,8 @@
 
   interface Props {
     sinceAppointmentId?: string;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { sinceAppointmentId, onNavigate }: Props = $props();
+  let { sinceAppointmentId }: Props = $props();
 
   let timelineData: TimelineData | null = $state(null);
   let loading = $state(true);
@@ -137,7 +136,7 @@
       </button>
     </div>
   {:else if timelineData && timelineData.events.length === 0}
-    <EmptyTimeline {onNavigate} />
+    <EmptyTimeline />
   {:else if timelineData}
     <!-- Filter bar -->
     <FilterBar
@@ -204,7 +203,6 @@
           )}
           anchor={popupAnchor}
           onClose={handleClosePopup}
-          {onNavigate}
           onScrollToEvent={(eventId) => {
             handleClosePopup();
             const target = timelineData!.events.find(e => e.id === eventId);

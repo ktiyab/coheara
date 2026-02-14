@@ -1,5 +1,6 @@
 <!-- M1-05: Document Capture screen — camera → preview → upload → done -->
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import { isConnected } from '$lib/stores/connection.js';
 	import {
 		captureSession,
@@ -9,17 +10,18 @@
 		pageCount,
 		canAddPage,
 		startCaptureSession,
-		addPage,
+		addPageSafe,
 		cancelCapture,
 		setUploadStarted,
-		updateUploadProgress,
 		setUploadComplete,
 		setUploadFailed,
 		addProcessingDocument,
 		queueForOffline
 	} from '$lib/stores/capture.js';
-	import { makeGoodQuality } from '$lib/utils/capture.js';
+	import { evaluateQuality, makeGoodQuality } from '$lib/utils/capture.js';
+	import { uploadDocument } from '$lib/api/capture.js';
 	import type { QualityCheck } from '$lib/types/capture.js';
+	import { JPEG_QUALITY, TARGET_MAX_WIDTH } from '$lib/types/capture.js';
 	import CameraOverlay from '$lib/components/capture/CameraOverlay.svelte';
 	import QualityIndicator from '$lib/components/capture/QualityIndicator.svelte';
 	import CaptureButton from '$lib/components/capture/CaptureButton.svelte';
@@ -33,14 +35,137 @@
 		}
 	});
 
-	// Simulated quality state (in real Capacitor, this comes from camera preview frames)
+	// Camera state
+	let videoEl: HTMLVideoElement | undefined = $state();
+	let canvasEl: HTMLCanvasElement | undefined = $state();
+	let stream: MediaStream | null = null;
+	let qualityFrameId = 0;
+	let cameraReady = $state(false);
+	let cameraError = $state('');
+
 	let currentQuality = $state<QualityCheck>(makeGoodQuality());
 
-	function handleCapture(): void {
-		// In real Capacitor: Camera.getPhoto() → receives dataUrl
-		// For now: simulate capture with placeholder
-		const mockDataUrl = 'data:image/jpeg;base64,/9j/placeholder';
-		addPage(mockDataUrl, 2400, 3200, 1500000, currentQuality);
+	// Upload abort controller
+	let uploadAbort: AbortController | null = null;
+
+	// Start camera when entering camera step
+	$effect(() => {
+		if ($captureStep === 'camera') {
+			startCamera();
+		}
+		return () => {
+			stopCamera();
+		};
+	});
+
+	async function startCamera(): Promise<void> {
+		cameraReady = false;
+		cameraError = '';
+		try {
+			stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment', width: { ideal: 2400 }, height: { ideal: 3200 } }
+			});
+			if (videoEl) {
+				videoEl.srcObject = stream;
+				await videoEl.play();
+				cameraReady = true;
+				startQualityLoop();
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Unknown error';
+			if (msg.includes('NotAllowed') || msg.includes('Permission')) {
+				cameraError = 'Camera access denied. Enable camera in your device settings.';
+			} else {
+				cameraError = `Camera error: ${msg}`;
+			}
+		}
+	}
+
+	function stopCamera(): void {
+		cancelAnimationFrame(qualityFrameId);
+		if (stream) {
+			for (const track of stream.getTracks()) {
+				track.stop();
+			}
+			stream = null;
+		}
+		if (videoEl) {
+			videoEl.srcObject = null;
+		}
+		cameraReady = false;
+	}
+
+	function startQualityLoop(): void {
+		if (!videoEl || !canvasEl) return;
+
+		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return;
+
+		function analyzeFrame(): void {
+			if (!videoEl || !canvasEl || !ctx || videoEl.readyState < videoEl.HAVE_ENOUGH_DATA) {
+				qualityFrameId = requestAnimationFrame(analyzeFrame);
+				return;
+			}
+
+			// Downsample for fast analysis
+			const w = Math.min(320, videoEl.videoWidth);
+			const h = Math.round((w / videoEl.videoWidth) * videoEl.videoHeight);
+			canvasEl.width = w;
+			canvasEl.height = h;
+			ctx.drawImage(videoEl, 0, 0, w, h);
+
+			const imageData = ctx.getImageData(0, 0, w, h);
+			const brightness = analyzeBrightness(imageData);
+
+			// Simplified quality — brightness is real, others default to ok
+			currentQuality = evaluateQuality(brightness, 150, true, 4, 0.7, 5);
+
+			// Run at ~5 fps for quality feedback
+			qualityFrameId = setTimeout(() => requestAnimationFrame(analyzeFrame), 200) as unknown as number;
+		}
+
+		qualityFrameId = requestAnimationFrame(analyzeFrame);
+	}
+
+	function analyzeBrightness(imageData: ImageData): number {
+		const data = imageData.data;
+		let sum = 0;
+		const step = 16; // Sample every 16th pixel for speed
+		let count = 0;
+		for (let i = 0; i < data.length; i += 4 * step) {
+			// Luminance: 0.299R + 0.587G + 0.114B
+			sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+			count++;
+		}
+		return count > 0 ? sum / count : 128;
+	}
+
+	async function handleCapture(): Promise<void> {
+		if (!videoEl || !canvasEl) return;
+
+		// Capture full-resolution frame
+		const vw = videoEl.videoWidth;
+		const vh = videoEl.videoHeight;
+
+		// Scale to target width
+		const scale = vw > TARGET_MAX_WIDTH ? TARGET_MAX_WIDTH / vw : 1;
+		const outW = Math.round(vw * scale);
+		const outH = Math.round(vh * scale);
+
+		canvasEl.width = outW;
+		canvasEl.height = outH;
+		const ctx = canvasEl.getContext('2d');
+		if (!ctx) return;
+
+		ctx.drawImage(videoEl, 0, 0, outW, outH);
+		const dataUrl = canvasEl.toDataURL('image/jpeg', JPEG_QUALITY);
+
+		// Estimate size from data URL
+		const commaIdx = dataUrl.indexOf(',');
+		const sizeBytes = Math.round((dataUrl.length - commaIdx - 1) * 0.75);
+
+		await addPageSafe(dataUrl, outW, outH, sizeBytes, currentQuality);
+		stopCamera();
 		$captureStep = 'preview';
 	}
 
@@ -52,35 +177,38 @@
 		$captureStep = 'camera';
 	}
 
-	function handleSend(): void {
-		if (!$captureSession || $captureSession.pages.length === 0) return;
+	async function handleSend(): Promise<void> {
+		const session = get(captureSession);
+		if (!session || session.pages.length === 0) return;
 
-		if (!$isConnected) {
-			// Queue for offline
-			queueForOffline($captureSession.pages);
+		if (!get(isConnected)) {
+			queueForOffline(session.pages);
 			$captureStep = 'done';
 			return;
 		}
 
-		// Start upload
-		const pages = $captureSession.pages;
+		const pages = session.pages;
 		setUploadStarted(pages.length);
 
-		// Simulate upload progress (in real app: actual fetch with progress events)
-		let percent = 0;
-		const interval = setInterval(() => {
-			percent += 20;
-			if (percent >= 100) {
-				clearInterval(interval);
-				setUploadComplete();
-				addProcessingDocument(`doc-${Date.now()}`, pages.length);
-			} else {
-				updateUploadProgress(percent, 1);
-			}
-		}, 500);
+		uploadAbort = new AbortController();
+
+		const result = await uploadDocument(pages, 'Mobile Camera', uploadAbort.signal);
+
+		if (result.ok && result.data) {
+			setUploadComplete();
+			addProcessingDocument(result.data.document_id, pages.length);
+		} else {
+			setUploadFailed(result.errorMessage ?? 'Upload failed');
+		}
+
+		uploadAbort = null;
 	}
 
 	function handleCancel(): void {
+		if (uploadAbort) {
+			uploadAbort.abort();
+			uploadAbort = null;
+		}
 		cancelCapture();
 	}
 </script>
@@ -100,18 +228,31 @@
 			</div>
 		{/if}
 
-		<div class="camera-viewport">
-			<div class="camera-placeholder">
-				<CameraOverlay quality={currentQuality} />
+		{#if cameraError}
+			<div class="camera-error">
+				<p>{cameraError}</p>
+				<button class="retry-btn" onclick={startCamera}>Try Again</button>
 			</div>
-		</div>
+		{:else}
+			<div class="camera-viewport">
+				<video bind:this={videoEl} class="camera-video" playsinline muted></video>
+				<canvas bind:this={canvasEl} class="scan-canvas"></canvas>
+				{#if cameraReady}
+					<CameraOverlay quality={currentQuality} />
+				{:else}
+					<div class="camera-loading">
+						<p>Starting camera...</p>
+					</div>
+				{/if}
+			</div>
 
-		<div class="camera-controls">
-			<QualityIndicator quality={currentQuality} />
-			<div class="capture-btn-wrapper">
-				<CaptureButton disabled={false} onCapture={handleCapture} />
+			<div class="camera-controls">
+				<QualityIndicator quality={currentQuality} />
+				<div class="capture-btn-wrapper">
+					<CaptureButton disabled={!cameraReady} onCapture={handleCapture} />
+				</div>
 			</div>
-		</div>
+		{/if}
 
 	{:else if $captureStep === 'preview'}
 		<div class="preview-header">
@@ -211,21 +352,57 @@
 
 	.camera-viewport {
 		flex: 1;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.camera-video {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.scan-canvas {
+		display: none;
+	}
+
+	.camera-loading {
+		position: absolute;
+		inset: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 16px;
-		position: relative;
+		color: #D6D3D1;
+		font-size: 15px;
 	}
 
-	.camera-placeholder {
-		width: 100%;
-		height: 100%;
-		min-height: 300px;
-		background: #2A2A2A;
+	.camera-error {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+		text-align: center;
+	}
+
+	.camera-error p {
+		color: #D6D3D1;
+		font-size: 15px;
+		line-height: 1.5;
+		margin: 0 0 16px;
+	}
+
+	.retry-btn {
+		padding: 12px 24px;
+		background: var(--color-primary);
+		color: white;
+		border: none;
 		border-radius: 12px;
-		position: relative;
-		overflow: hidden;
+		font-size: 16px;
+		font-weight: 600;
+		cursor: pointer;
+		min-height: var(--min-touch-target);
 	}
 
 	.camera-controls {

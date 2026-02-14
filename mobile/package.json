@@ -1,6 +1,6 @@
 {
   "name": "coheara-mobile",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -42,6 +42,8 @@
     "@capacitor/screen-orientation": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
-    "@capgo/capacitor-native-biometric": "^8.3.7"
+    "@capgo/capacitor-native-biometric": "^8.3.7",
+    "jsqr": "^1.4.0",
+    "tweetnacl": "^1.0.3"
   }
 }

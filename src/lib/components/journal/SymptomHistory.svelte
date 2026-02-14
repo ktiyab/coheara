@@ -8,9 +8,8 @@
     symptoms: StoredSymptom[];
     loading: boolean;
     onRefresh: () => Promise<void>;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { symptoms, loading, onRefresh, onNavigate }: Props = $props();
+  let { symptoms, loading, onRefresh }: Props = $props();
 
   let filterCategory = $state('all');
   let filterActive = $state(false);

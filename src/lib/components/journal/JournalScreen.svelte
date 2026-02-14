@@ -7,11 +7,6 @@
   import SymptomHistory from './SymptomHistory.svelte';
   import NudgeBanner from './NudgeBanner.svelte';
 
-  interface Props {
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
-  }
-  let { onNavigate }: Props = $props();
-
   let view: 'history' | 'recording' = $state('history');
   let symptoms: StoredSymptom[] = $state([]);
   let nudge: NudgeDecision | null = $state(null);
@@ -94,7 +89,6 @@
         {symptoms}
         loading={false}
         onRefresh={refresh}
-        {onNavigate}
       />
     {/if}
   {/if}

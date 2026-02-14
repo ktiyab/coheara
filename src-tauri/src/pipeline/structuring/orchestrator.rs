@@ -16,12 +16,12 @@ const MIN_INPUT_LENGTH: usize = 10;
 /// Orchestrates the full medical document structuring pipeline:
 /// sanitize → prompt → LLM → parse → classify → confidence → result
 pub struct DocumentStructurer {
-    llm: Box<dyn LlmClient>,
+    llm: Box<dyn LlmClient + Send + Sync>,
     model_name: String,
 }
 
 impl DocumentStructurer {
-    pub fn new(llm: Box<dyn LlmClient>, model_name: &str) -> Self {
+    pub fn new(llm: Box<dyn LlmClient + Send + Sync>, model_name: &str) -> Self {
         Self {
             llm,
             model_name: model_name.to_string(),

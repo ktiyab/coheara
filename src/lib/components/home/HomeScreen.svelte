@@ -3,17 +3,13 @@
   import { getHomeData, getMoreDocuments } from '$lib/api/home';
   import { listen } from '@tauri-apps/api/event';
   import type { HomeData, DocumentCard } from '$lib/types/home';
+  import { navigation } from '$lib/stores/navigation.svelte';
+  import { profile } from '$lib/stores/profile.svelte';
   import QuickActions from './QuickActions.svelte';
   import DocumentCardView from './DocumentCardView.svelte';
   import OnboardingMilestones from './OnboardingMilestones.svelte';
   import EmptyState from './EmptyState.svelte';
   import CriticalAlertBanner from './CriticalAlertBanner.svelte';
-
-  interface Props {
-    profileName: string;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
-  }
-  let { profileName, onNavigate }: Props = $props();
 
   let homeData: HomeData | null = $state(null);
   let loading = $state(true);
@@ -47,9 +43,9 @@
 
   function handleDocumentTap(card: DocumentCard) {
     if (card.status === 'PendingReview') {
-      onNavigate('review', { documentId: card.id });
+      navigation.navigate('review', { documentId: card.id });
     } else {
-      onNavigate('document-detail', { documentId: card.id });
+      navigation.navigate('document-detail', { documentId: card.id });
     }
   }
 
@@ -59,7 +55,7 @@
     return () => { unlisten.then(fn => fn()); };
   });
 
-  let greeting = $derived(`Welcome back, ${profileName}`);
+  let greeting = $derived(`Welcome back, ${profile.name}`);
 
   function relativeTime(dateStr: string | null): string {
     if (!dateStr) return 'No documents yet';
@@ -106,19 +102,17 @@
     {#if homeData.critical_alerts.length > 0}
       <CriticalAlertBanner
         alerts={homeData.critical_alerts}
-        {onNavigate}
       />
     {/if}
 
     <!-- Quick actions -->
     <QuickActions
       hasDocuments={homeData.stats.total_documents > 0}
-      {onNavigate}
     />
 
     <!-- Document feed or empty state -->
     {#if homeData.stats.total_documents === 0}
-      <EmptyState {onNavigate} />
+      <EmptyState />
     {:else}
       <div class="px-6 py-3 flex flex-col gap-3">
         {#each homeData.recent_documents as card (card.id)}
@@ -142,7 +136,6 @@
     {#if !homeData.onboarding.first_document_loaded || !homeData.onboarding.first_question_asked}
       <OnboardingMilestones
         progress={homeData.onboarding}
-        {onNavigate}
       />
     {/if}
   {/if}

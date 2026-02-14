@@ -7,14 +7,13 @@
   import ExtractedView from './ExtractedView.svelte';
   import ConfidenceSummary from './ConfidenceSummary.svelte';
   import ReviewActions from './ReviewActions.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
   import ReviewSuccess from './ReviewSuccess.svelte';
 
   interface Props {
     documentId: string;
-    onBack: () => void;
-    onNavigate: (screen: string, params?: Record<string, string>) => void;
   }
-  let { documentId, onBack, onNavigate }: Props = $props();
+  let { documentId }: Props = $props();
 
   let reviewData: ReviewData | null = $state(null);
   let originalFileBase64: string | null = $state(null);
@@ -83,8 +82,8 @@
     status={confirmResult.status}
     entities={confirmResult.entities}
     correctionsApplied={corrections.length}
-    onViewDocument={() => onNavigate('document-detail', { documentId })}
-    onBackToHome={() => onNavigate('home')}
+    onViewDocument={() => navigation.navigate('document-detail', { documentId })}
+    onBackToHome={() => navigation.navigate('home')}
   />
 {:else}
   <div class="flex flex-col h-screen bg-stone-50">
@@ -93,7 +92,7 @@
       <button
         class="min-h-[44px] min-w-[44px] flex items-center justify-center
                text-stone-500 hover:text-stone-700"
-        onclick={onBack}
+        onclick={() => navigation.goBack()}
         aria-label="Back to documents"
       >
         &larr;
@@ -194,7 +193,7 @@
         {corrections}
         {flaggedFields}
         onConfirmSuccess={handleConfirmSuccess}
-        onReject={onBack}
+        onReject={() => navigation.goBack()}
       />
     {/if}
   </div>
