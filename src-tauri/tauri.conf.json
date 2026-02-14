@@ -46,6 +46,7 @@
     "createUpdaterArtifacts": "v1Compatible",
     "resources": [
       "resources/mobile-pwa/**/*",
+      "resources/mobile-apk/**/*",
       "resources/medication_aliases.json",
       "resources/dose_ranges.json"
     ]

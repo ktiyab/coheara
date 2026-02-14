@@ -23,6 +23,7 @@ env:
   VCPKG_ROOT: C:\vcpkg
 
 jobs:
+  # ── Mobile artifacts (bundled inside desktop installer) ─────
   build-mobile-pwa:
     name: Build Mobile PWA
     runs-on: ubuntu-latest
@@ -31,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
@@ -49,9 +50,53 @@ jobs:
           path: mobile/build/
           retention-days: 1
 
+  build-mobile-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: mobile
+
+      - name: Build web assets
+        run: npm run build
+        working-directory: mobile
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+        working-directory: mobile
+
+      - name: Build APK
+        run: |
+          cd mobile/android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1
+
+  # ── Desktop builds (bundle PWA + APK inside installer) ──────
   build:
     name: Build (${{ matrix.label }})
-    needs: build-mobile-pwa
+    needs: [build-mobile-pwa, build-mobile-apk]
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +176,7 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
-      # ── Build ───────────────────────────────────────────────
+      # ── Bundle mobile artifacts into desktop ────────────────
       - run: npm ci
 
       - name: Download Mobile PWA
@@ -140,6 +185,17 @@ jobs:
           name: mobile-pwa
           path: src-tauri/resources/mobile-pwa
 
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-apk
+          path: src-tauri/resources/mobile-apk
+
+      - name: Rename APK for distribution server
+        run: mv src-tauri/resources/mobile-apk/app-debug.apk src-tauri/resources/mobile-apk/coheara.apk
+        shell: bash
+
+      # ── Build ───────────────────────────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -167,7 +223,7 @@ jobs:
             | Linux | `.deb` or `.AppImage` |
 
             ### Phone Companion
-            Open Settings → Companion Setup in the desktop app, then scan the QR code with your phone. No app store needed.
+            Open Settings → Companion Setup in the desktop app, then scan the QR code with your phone. No app store needed — the Android APK and PWA are bundled inside the desktop installer.
 
             ### Prerequisites
             - [Ollama](https://ollama.com/download) + `ollama pull medgemma:4b` for AI features

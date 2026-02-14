@@ -36,8 +36,17 @@ fn resolve_pwa_dir(app: &AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// Resolve APK path from app data directory.
-fn resolve_apk_path() -> Option<PathBuf> {
+/// Resolve APK path: bundled resources first, then app data fallback.
+fn resolve_apk_path(app: &AppHandle) -> Option<PathBuf> {
+    // 1. Bundled resources (production builds — APK shipped inside desktop installer)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled = resource_dir.join("resources").join("mobile-apk").join("coheara.apk");
+        if bundled.exists() {
+            return Some(bundled);
+        }
+    }
+
+    // 2. App data directory (user-placed or dev mode)
     let apk = crate::config::app_data_dir()
         .join("mobile-apk")
         .join("coheara.apk");
@@ -71,7 +80,7 @@ pub async fn start_distribution(
         port: 0, // Ephemeral port
         rate_limit_per_min: 60,
         pwa_dir: resolve_pwa_dir(&app),
-        apk_path: resolve_apk_path(),
+        apk_path: resolve_apk_path(&app),
     };
 
     let server = distribution::start_distribution_server(config)
@@ -131,7 +140,7 @@ pub async fn get_distribution_status(
     let guard = state.distribution_server.lock().await;
     match guard.as_ref() {
         Some(server) => {
-            let has_apk = resolve_apk_path().is_some();
+            let has_apk = resolve_apk_path(&app).is_some();
             let has_pwa = resolve_pwa_dir(&app).is_some();
 
             Ok(Some(server.status(has_apk, has_pwa).await))
