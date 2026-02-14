@@ -57,9 +57,11 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 hkdf = "0.12"
 rcgen = "0.13"
 tauri-plugin-updater = "2"
+tower-http = { version = "0.5", features = ["fs", "set-header", "cors"] }
+tower = { version = "0.4", features = ["util"] }
+mime_guess = "2"
 
 [dev-dependencies]
-tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
 tokio-tungstenite = "0.24"
 

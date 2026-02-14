@@ -1,0 +1,26 @@
+{
+  "name": "Coheara Companion",
+  "short_name": "Coheara",
+  "description": "Your health data companion — connects to Coheara Desktop over local WiFi.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#4A6FA5",
+  "background_color": "#fafaf9",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["health", "medical"]
+}

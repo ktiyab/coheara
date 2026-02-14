@@ -1,6 +1,7 @@
 pub mod appointment;
 pub mod chat;
 pub mod devices;
+pub mod distribution;
 pub mod home;
 pub mod journal;
 pub mod medications;

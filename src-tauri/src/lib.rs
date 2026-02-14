@@ -17,6 +17,7 @@ pub mod medications; // L3-05: Medication List
 pub mod journal; // L4-01: Symptom Journal
 pub mod appointment; // L4-02: Appointment Prep
 pub mod wifi_transfer; // L4-03: WiFi Transfer
+pub mod distribution; // ADS: App Distribution Server
 pub mod timeline; // L4-04: Timeline View
 pub mod sync; // M0-04: Sync Engine
 pub mod trust; // L5-01: Trust & Safety
@@ -108,6 +109,10 @@ pub fn run() {
             commands::pairing::get_pending_approval,
             commands::pairing::approve_pairing,
             commands::pairing::deny_pairing,
+            commands::distribution::start_distribution,
+            commands::distribution::stop_distribution,
+            commands::distribution::get_distribution_status,
+            commands::distribution::get_install_qr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

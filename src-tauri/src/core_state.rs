@@ -13,6 +13,7 @@ use crate::crypto::profile::ProfileSession;
 use crate::db;
 use crate::device_manager::DeviceManager;
 use crate::pairing::PairingManager;
+use crate::distribution::DistributionServer;
 use crate::wifi_transfer::TransferServer;
 
 /// Default inactivity timeout: 15 minutes.
@@ -42,6 +43,8 @@ pub struct CoreState {
     last_activity: Mutex<Instant>,
     /// WiFi transfer server handle (L4-03). Uses tokio Mutex for async.
     pub transfer_server: tokio::sync::Mutex<Option<TransferServer>>,
+    /// App distribution server handle (ADS). Uses tokio Mutex for async.
+    pub distribution_server: tokio::sync::Mutex<Option<DistributionServer>>,
     /// Paired mobile devices — ME-02 DeviceManager.
     devices: RwLock<DeviceManager>,
     /// Device pairing protocol — M0-02 PairingManager.
@@ -59,6 +62,7 @@ impl CoreState {
             inactivity_timeout_secs: DEFAULT_INACTIVITY_TIMEOUT_SECS,
             last_activity: Mutex::new(Instant::now()),
             transfer_server: tokio::sync::Mutex::new(None),
+            distribution_server: tokio::sync::Mutex::new(None),
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
@@ -395,6 +399,7 @@ mod tests {
             inactivity_timeout_secs: 0,
             last_activity: Mutex::new(Instant::now() - std::time::Duration::from_secs(1)),
             transfer_server: tokio::sync::Mutex::new(None),
+            distribution_server: tokio::sync::Mutex::new(None),
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
