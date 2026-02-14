@@ -45,7 +45,7 @@ jobs:
         run: |
           cd mobile/ios/App
           xcodebuild -resolvePackageDependencies \
-            -workspace App.xcworkspace \
+            -project App.xcodeproj \
             -scheme App
 
       # ── Build unsigned (always works) ───────────────────────
@@ -56,7 +56,7 @@ jobs:
         run: |
           cd mobile/ios/App
           xcodebuild build \
-            -workspace App.xcworkspace \
+            -project App.xcodeproj \
             -scheme App \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
@@ -101,7 +101,7 @@ jobs:
         run: |
           cd mobile/ios/App
           xcodebuild archive \
-            -workspace App.xcworkspace \
+            -project App.xcodeproj \
             -scheme App \
             -configuration Release \
             -archivePath $RUNNER_TEMP/App.xcarchive \
