@@ -63,7 +63,7 @@ jobs:
 
   check-backend:
     name: Rust checks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -93,7 +93,8 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             tesseract-ocr \
             libtesseract-dev \
-            libleptonica-dev
+            libleptonica-dev \
+            libclang-dev
 
       - run: npm ci
 
