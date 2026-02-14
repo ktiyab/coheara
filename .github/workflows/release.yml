@@ -19,6 +19,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Windows vcpkg root (pre-installed on GHA Windows runners)
+  VCPKG_ROOT: C:\vcpkg
 
 jobs:
   build-mobile-pwa:
@@ -61,10 +63,6 @@ jobs:
           - label: macOS ARM
             platform: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg
-          - label: macOS Intel
-            platform: macos-13
-            target: x86_64-apple-darwin
             bundles: dmg
           - label: Linux x64
             platform: ubuntu-24.04
@@ -143,17 +141,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS signing (optional — remove if no Apple Developer account)
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          # Windows vcpkg (tesseract-sys finds libs via VCPKG_ROOT)
-          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+          # ── Updater signing (optional) ──
+          # To enable: generate key with `tauri signer generate -w ~/.tauri/coheara.key`
+          # then add TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          # as GitHub repository secrets.
+          # ── macOS code signing (optional) ──
+          # To enable: add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+          # APPLE_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_ISSUER,
+          # APPLE_API_KEY_ID as GitHub repository secrets.
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Coheara ${{ github.ref_name }}'
@@ -177,3 +172,19 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           tauriScript: npm run tauri
+
+      # ── Optional signing (only runs when secrets are configured) ──
+      # Uncomment and configure when ready for production signing:
+      #
+      # - name: Build Tauri app (signed)
+      #   uses: tauri-apps/tauri-action@v0
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #     APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      #     APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      #     APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      #     APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
