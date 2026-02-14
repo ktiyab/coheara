@@ -104,7 +104,7 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             tesseract-ocr \
             libtesseract-dev \
-            leptonica-progs
+            libleptonica-dev
 
       - name: Install macOS Tesseract
         if: startsWith(matrix.platform, 'macos')
