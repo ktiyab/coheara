@@ -34,6 +34,33 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  check-mobile:
+    name: Mobile checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: npm ci
+        working-directory: mobile
+
+      - name: Svelte/TypeScript type check
+        run: npm run check
+        working-directory: mobile
+
+      - name: Tests
+        run: npm test
+        working-directory: mobile
+
+      - name: Build PWA
+        run: npm run build
+        working-directory: mobile
+
   check-backend:
     name: Rust checks
     runs-on: ubuntu-22.04

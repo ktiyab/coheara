@@ -21,8 +21,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build-mobile-pwa:
+    name: Build Mobile PWA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: npm ci
+        working-directory: mobile
+
+      - name: Build PWA
+        run: npm run build
+        working-directory: mobile
+
+      - name: Upload PWA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-pwa
+          path: mobile/build/
+          retention-days: 1
+
   build:
     name: Build (${{ matrix.label }})
+    needs: build-mobile-pwa
     strategy:
       fail-fast: false
       matrix:
@@ -89,6 +116,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Download Mobile PWA
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-pwa
+          path: src-tauri/resources/mobile-pwa
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -115,6 +148,9 @@ jobs:
             | Windows | `.exe` (NSIS installer) or `.msi` |
             | macOS | `.dmg` |
             | Linux | `.deb` or `.AppImage` |
+
+            ### Phone Companion
+            Open Settings → Companion Setup in the desktop app, then scan the QR code with your phone. No app store needed.
 
             ### Prerequisites
             - [Ollama](https://ollama.com/download) + `ollama pull medgemma:4b` for AI features

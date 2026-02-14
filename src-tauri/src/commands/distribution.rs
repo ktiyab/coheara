@@ -6,14 +6,43 @@
 //! - get_distribution_status: Check if server is running + stats
 //! - get_install_qr: Get QR code for phone to scan
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::core_state::CoreState;
 use crate::distribution::{
     self, DistributionConfig, DistributionStatus, InstallQrCode,
 };
+
+/// Resolve mobile PWA directory: bundled resources first, then app data fallback.
+fn resolve_pwa_dir(app: &AppHandle) -> Option<PathBuf> {
+    // 1. Bundled resources (production builds)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled = resource_dir.join("resources").join("mobile-pwa");
+        if bundled.join("index.html").exists() {
+            return Some(bundled);
+        }
+    }
+
+    // 2. App data directory (user-placed or dev mode)
+    let app_data = crate::config::app_data_dir();
+    let user_pwa = app_data.join("mobile-pwa");
+    if user_pwa.join("index.html").exists() {
+        return Some(user_pwa);
+    }
+
+    None
+}
+
+/// Resolve APK path from app data directory.
+fn resolve_apk_path() -> Option<PathBuf> {
+    let apk = crate::config::app_data_dir()
+        .join("mobile-apk")
+        .join("coheara.apk");
+    if apk.exists() { Some(apk) } else { None }
+}
 
 /// Start the app distribution server.
 ///
@@ -22,6 +51,7 @@ use crate::distribution::{
 #[tauri::command]
 pub async fn start_distribution(
     state: State<'_, Arc<CoreState>>,
+    app: AppHandle,
 ) -> Result<InstallQrCode, String> {
     // Check if profile is unlocked
     if state.is_locked() {
@@ -36,24 +66,12 @@ pub async fn start_distribution(
         }
     }
 
-    // Determine asset paths
-    let app_data = crate::config::app_data_dir();
-    let pwa_dir = app_data.join("mobile-pwa");
-    let apk_path = app_data.join("mobile-apk").join("coheara.apk");
-
+    // Resolve asset paths: bundled resources first, then user data fallback
     let config = DistributionConfig {
         port: 0, // Ephemeral port
         rate_limit_per_min: 60,
-        pwa_dir: if pwa_dir.join("index.html").exists() {
-            Some(pwa_dir)
-        } else {
-            None
-        },
-        apk_path: if apk_path.exists() {
-            Some(apk_path)
-        } else {
-            None
-        },
+        pwa_dir: resolve_pwa_dir(&app),
+        apk_path: resolve_apk_path(),
     };
 
     let server = distribution::start_distribution_server(config)
@@ -108,19 +126,13 @@ pub async fn stop_distribution(
 #[tauri::command]
 pub async fn get_distribution_status(
     state: State<'_, Arc<CoreState>>,
+    app: AppHandle,
 ) -> Result<Option<DistributionStatus>, String> {
     let guard = state.distribution_server.lock().await;
     match guard.as_ref() {
         Some(server) => {
-            let app_data = crate::config::app_data_dir();
-            let has_apk = app_data
-                .join("mobile-apk")
-                .join("coheara.apk")
-                .exists();
-            let has_pwa = app_data
-                .join("mobile-pwa")
-                .join("index.html")
-                .exists();
+            let has_apk = resolve_apk_path().is_some();
+            let has_pwa = resolve_pwa_dir(&app).is_some();
 
             Ok(Some(server.status(has_apk, has_pwa).await))
         }
