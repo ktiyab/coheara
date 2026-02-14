@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.antigravity.coheara',
+  appId: 'com.coheara.app',
   appName: 'Coheara',
   webDir: 'build',
   server: {

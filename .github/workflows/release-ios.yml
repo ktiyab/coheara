@@ -1,10 +1,8 @@
 name: Release iOS
 
-# iOS builds require an Apple Developer account ($99/year).
-# This workflow is MANUAL-ONLY until Apple credentials are configured.
-# Tag pushes do NOT trigger this workflow.
-
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -50,25 +48,8 @@ jobs:
             -project App.xcodeproj \
             -scheme App
 
-      # ── Build unsigned (always works) ───────────────────────
-      - name: Build unsigned iOS app
-        if: env.BUILD_CERTIFICATE_BASE64 == ''
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-        run: |
-          cd mobile/ios/App
-          xcodebuild build \
-            -project App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      # ── Build signed (requires Apple Developer secrets) ─────
+      # ── Install Apple signing credentials ───────────────────
       - name: Install Apple certificate and provisioning profile
-        if: env.BUILD_CERTIFICATE_BASE64 != ''
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -95,10 +76,9 @@ jobs:
           mkdir -p "$PP_PATH"
           echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PP_PATH/build.mobileprovision"
 
+      # ── Build signed IPA ────────────────────────────────────
       - name: Build signed IPA
-        if: env.BUILD_CERTIFICATE_BASE64 != ''
         env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd mobile/ios/App
@@ -116,33 +96,31 @@ jobs:
             -exportPath $RUNNER_TEMP/export
 
       - name: Cleanup keychain
-        if: always() && env.BUILD_CERTIFICATE_BASE64 != ''
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+        if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
 
       # ── Upload artifacts ────────────────────────────────────
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coheara-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 30
+
       - name: Upload IPA to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') && env.BUILD_CERTIFICATE_BASE64 != ''
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
         with:
           files: ${{ runner.temp }}/export/*.ipa
           draft: true
           tag_name: ${{ github.ref_name }}
 
-      # ── Signing setup instructions ──────────────────────────
-      # To enable signed iOS builds:
+      # ── Signing setup ──────────────────────────────────────
+      # Required GitHub secrets:
+      #   - BUILD_CERTIFICATE_BASE64: base64-encoded .p12 distribution certificate
+      #   - P12_PASSWORD: certificate export password
+      #   - BUILD_PROVISION_PROFILE_BASE64: base64-encoded .mobileprovision
+      #   - APPLE_TEAM_ID: Apple Developer Team ID
       #
-      # 1. Export your Apple Distribution certificate as .p12 from Keychain Access
-      # 2. Base64-encode it: base64 -i certificate.p12
-      # 3. Create an App Store provisioning profile in Apple Developer portal
-      # 4. Base64-encode it: base64 -i profile.mobileprovision
-      #
-      # 5. Add these GitHub repository secrets:
-      #    - BUILD_CERTIFICATE_BASE64: base64-encoded .p12 certificate
-      #    - P12_PASSWORD: certificate export password
-      #    - BUILD_PROVISION_PROFILE_BASE64: base64-encoded provisioning profile
-      #    - APPLE_TEAM_ID: your Apple Developer Team ID
+      # CSR generated locally. See Specs/build/CREDENTIALS-SECRETS.md for setup.

@@ -1,4 +1,4 @@
-package com.antigravity.coheara;
+package com.coheara.app;
 
 import com.getcapacitor.BridgeActivity;
 
