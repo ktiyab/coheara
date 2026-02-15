@@ -403,8 +403,14 @@ async fn handle_chat_query(
             let _ = chat::update_conversation_title(&conn, &conv_id_str, &title);
         }
 
-        // 5. Try RAG pipeline (production: SqliteVectorStore + ONNX/mock embedder)
-        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path);
+        // 5. Resolve active model via preferences (L6-04), then try RAG pipeline
+        let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        let resolved_model = core
+            .resolver()
+            .resolve(&conn, &ollama_client)
+            .ok()
+            .map(|r| r.name);
+        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref());
 
         match rag_response {
             Some(response) => {
@@ -533,13 +539,16 @@ fn try_ws_rag_query(
     conversation_id: uuid::Uuid,
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
+    resolved_model: Option<&str>,
 ) -> Option<crate::pipeline::rag::types::RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
     use crate::pipeline::rag::types::PatientQuery;
     use crate::pipeline::storage::vectordb::SqliteVectorStore;
 
-    let generator = OllamaRagGenerator::try_auto_detect()?;
+    // Use preference-resolved model if available (L6-04)
+    let model_name = resolved_model?;
+    let generator = OllamaRagGenerator::with_resolved_model(model_name.to_string())?;
     let vector_store = SqliteVectorStore::new(db_path.to_path_buf());
     let embedder = crate::pipeline::storage::embedder::build_embedder();
 

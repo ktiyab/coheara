@@ -131,6 +131,22 @@ pub fn run() {
             commands::sync::get_sync_versions,
             commands::sync::reset_sync_versions,
             commands::sync::get_sync_summary,
+            // L6-01: Ollama Integration
+            commands::ai_setup::ollama_health_check,
+            commands::ai_setup::list_ollama_models,
+            commands::ai_setup::show_ollama_model,
+            commands::ai_setup::pull_ollama_model,
+            commands::ai_setup::cancel_model_pull,
+            commands::ai_setup::delete_ollama_model,
+            commands::ai_setup::get_recommended_models,
+            // L6-04: Model Preferences
+            commands::ai_setup::set_active_model,
+            commands::ai_setup::get_active_model,
+            commands::ai_setup::clear_active_model,
+            commands::ai_setup::set_user_preference_cmd,
+            commands::ai_setup::get_user_preference_cmd,
+            // L6-03: AI Setup Wizard
+            commands::ai_setup::verify_ai_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

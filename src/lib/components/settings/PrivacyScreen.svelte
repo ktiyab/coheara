@@ -119,6 +119,41 @@
         </div>
       </section>
 
+      <!-- AI Engine -->
+      <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
+        <h2 class="text-sm font-medium text-stone-500 mb-3">AI ENGINE</h2>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-stone-600">Status</span>
+            <span class={profile.isAiAvailable ? 'text-green-700 font-medium' : 'text-amber-700'}>
+              {profile.isAiAvailable ? 'Ready' : 'Not configured'}
+            </span>
+          </div>
+          {#if profile.aiStatus?.ollama_model}
+            <div class="flex justify-between">
+              <span class="text-stone-600">Model</span>
+              <span class="text-stone-800">{profile.aiStatus.ollama_model}</span>
+            </div>
+          {/if}
+        </div>
+        <div class="flex gap-3 mt-3">
+          {#if !profile.isAiAvailable}
+            <button
+              class="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 min-h-[44px]"
+              onclick={() => navigation.navigate('ai-setup')}
+            >
+              Set up AI
+            </button>
+          {/if}
+          <button
+            class="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
+            onclick={() => navigation.navigate('ai-settings')}
+          >
+            AI settings
+          </button>
+        </div>
+      </section>
+
       <!-- Verify It Yourself -->
       <section class="bg-blue-50 rounded-xl p-5 border border-blue-100">
         <h2 class="text-sm font-medium text-blue-700 mb-3">VERIFY IT YOURSELF</h2>

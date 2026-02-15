@@ -15,6 +15,7 @@ use crate::db;
 use crate::device_manager::DeviceManager;
 use crate::pairing::PairingManager;
 use crate::distribution::DistributionServer;
+use crate::pipeline::structuring::preferences::ActiveModelResolver;
 use crate::wifi_transfer::TransferServer;
 
 /// Default inactivity timeout: 15 minutes.
@@ -54,6 +55,8 @@ pub struct CoreState {
     pairing: Mutex<PairingManager>,
     /// Audit log for all data access events.
     audit: AuditLogger,
+    /// L6-04: Model preference resolver (singleton, shared cache).
+    model_resolver: ActiveModelResolver,
 }
 
 impl CoreState {
@@ -70,6 +73,7 @@ impl CoreState {
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
+            model_resolver: ActiveModelResolver::new(),
         }
     }
 
@@ -217,6 +221,13 @@ impl CoreState {
     }
 
     // ── Pairing manager (M0-02) ─────────────────────────
+
+    // ── Model resolver (L6-04) ────────────────────────────
+
+    /// Access the shared model resolver.
+    pub fn resolver(&self) -> &ActiveModelResolver {
+        &self.model_resolver
+    }
 
     /// Lock the pairing manager for exclusive access.
     pub fn lock_pairing(
@@ -408,6 +419,7 @@ mod tests {
             devices: RwLock::new(DeviceManager::new()),
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
+            model_resolver: ActiveModelResolver::new(),
         };
         assert!(state.check_timeout());
     }

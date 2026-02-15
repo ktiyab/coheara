@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getActiveProfileName, checkAiStatus } from '$lib/api/profile';
+  import { getActiveModel, getUserPreference } from '$lib/api/ai';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import TabBar from '$lib/components/navigation/TabBar.svelte';
@@ -17,6 +18,8 @@
   import DocumentDetailScreen from '$lib/components/documents/DocumentDetailScreen.svelte';
   import PrivacyScreen from '$lib/components/settings/PrivacyScreen.svelte';
   import PairingScreen from '$lib/components/settings/PairingScreen.svelte';
+  import AiSettingsScreen from '$lib/components/settings/AiSettingsScreen.svelte';
+  import AiSetupWizard from '$lib/components/settings/AiSetupWizard.svelte';
 
   onMount(async () => {
     try {
@@ -27,17 +30,35 @@
 
     // Non-blocking AI status check (IMP-015)
     checkAiStatus()
-      .then((status) => { profile.aiStatus = status; })
+      .then((status) => {
+        profile.aiStatus = status;
+
+        // L6-03: First-run AI setup wizard detection
+        if (!status.ollama_available || !status.ollama_model) {
+          Promise.all([
+            getActiveModel().catch(() => null),
+            getUserPreference('dismissed_ai_setup').catch(() => null),
+          ]).then(([activeModel, dismissed]) => {
+            if (!activeModel && dismissed !== 'true' && navigation.activeScreen === 'home') {
+              navigation.navigate('ai-setup');
+            }
+          });
+        }
+      })
       .catch(() => { /* Silently ignore — will be null */ });
   });
 </script>
 
 <!-- AI status banner when Ollama unavailable (IMP-015) -->
 {#if profile.aiStatus && !profile.isAiAvailable}
-  <div class="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800 flex items-center gap-2">
+  <button
+    class="w-full bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800 flex items-center gap-2 hover:bg-amber-100 cursor-pointer text-left"
+    onclick={() => navigation.navigate('ai-settings')}
+  >
     <span class="text-amber-500">!</span>
-    <span>{profile.aiStatus.summary}</span>
-  </div>
+    <span class="flex-1">{profile.aiStatus.summary}</span>
+    <span class="text-amber-400 text-xs">Settings &rarr;</span>
+  </button>
 {/if}
 
 <!-- Screen content -->
@@ -64,6 +85,10 @@
     <TransferScreen />
   {:else if navigation.activeScreen === 'settings'}
     <PrivacyScreen />
+  {:else if navigation.activeScreen === 'ai-settings'}
+    <AiSettingsScreen />
+  {:else if navigation.activeScreen === 'ai-setup'}
+    <AiSetupWizard />
   {:else if navigation.activeScreen === 'pairing'}
     <PairingScreen />
   {:else if navigation.activeScreen === 'import'}

@@ -1,3 +1,4 @@
+pub mod ai_setup;
 pub mod appointment;
 pub mod chat;
 pub mod coherence;
@@ -16,6 +17,12 @@ pub mod sync;
 pub mod timeline;
 pub mod transfer;
 pub mod trust;
+
+use std::sync::Arc;
+
+use tauri::State;
+
+use crate::core_state::CoreState;
 
 /// Health check IPC command — verifies backend is running
 #[tauri::command]
@@ -41,30 +48,39 @@ pub struct AiStatus {
 ///
 /// Called by the frontend on app load / Home screen to show the user
 /// whether AI chat is functional before they attempt a conversation.
+/// Uses L6-01 health_check() for reachability and L6-04 resolver for model.
 #[tauri::command]
-pub fn check_ai_status() -> AiStatus {
+pub fn check_ai_status(
+    state: State<'_, Arc<CoreState>>,
+) -> AiStatus {
     use crate::pipeline::structuring::ollama::OllamaClient;
 
-    // Check Ollama
     let client = OllamaClient::default_local();
-    let (ollama_available, ollama_model) = match client.find_best_model() {
-        Ok(model) => (true, Some(model)),
-        Err(_) => (false, None),
+
+    // Check Ollama reachability via health check (L6-01)
+    let health = client.health_check().ok();
+    let ollama_available = health.as_ref().is_some_and(|h| h.reachable);
+
+    // Try to resolve active model via preferences (L6-04)
+    let ollama_model = if ollama_available {
+        state
+            .open_db()
+            .ok()
+            .and_then(|conn| {
+                state.resolver().resolve(&conn, &client).ok().map(|r| r.name)
+            })
+    } else {
+        None
     };
 
     // Check embedder
     let embedder_type = detect_embedder_type();
 
-    let summary = match (ollama_available, embedder_type.as_str()) {
-        (true, "onnx") => format!(
-            "AI ready — {} + ONNX embeddings",
-            ollama_model.as_deref().unwrap_or("unknown")
-        ),
-        (true, _) => format!(
-            "AI ready — {} (semantic search limited)",
-            ollama_model.as_deref().unwrap_or("unknown")
-        ),
-        (false, _) => "Ollama not detected — install Ollama and pull a MedGemma model".to_string(),
+    let summary = match (ollama_available, &ollama_model, embedder_type.as_str()) {
+        (true, Some(model), "onnx") => format!("AI ready — {model} + ONNX embeddings"),
+        (true, Some(model), _) => format!("AI ready — {model} (semantic search limited)"),
+        (true, None, _) => "Ollama running — no model selected. Set up AI in Settings.".to_string(),
+        (false, _, _) => "Ollama not detected — install Ollama and pull a model".to_string(),
     };
 
     AiStatus {
@@ -97,11 +113,16 @@ mod tests {
     }
 
     #[test]
-    fn ai_status_returns_valid_structure() {
-        let status = check_ai_status();
-        // In CI/test, Ollama is not running
-        assert!(!status.summary.is_empty());
-        assert!(status.embedder_type == "mock" || status.embedder_type == "onnx");
+    fn ai_status_struct_serializes() {
+        let status = AiStatus {
+            ollama_available: false,
+            ollama_model: None,
+            embedder_type: "mock".to_string(),
+            summary: "Ollama not detected".to_string(),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"ollama_available\":false"));
+        assert!(json.contains("\"embedder_type\":\"mock\""));
     }
 
     #[test]

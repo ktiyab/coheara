@@ -17,7 +17,8 @@ const TAB_SCREENS = new Set([
 	'documents',
 	'timeline',
 	'appointments',
-	'settings'
+	'settings',
+	'ai-settings'
 ]);
 
 /** Main tab IDs (non-"more" screens). */

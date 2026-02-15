@@ -226,16 +226,23 @@ pub async fn process_document(
         },
     );
 
-    // Build the document processor
-    let processor = crate::pipeline::processor::build_processor()
-        .map_err(|e| format!("Failed to initialize processor: {e}"))?;
-
     // Acquire session + DB
     let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
     let conn = open_database(session.db_path()).map_err(|e| format!("Database error: {e}"))?;
+
+    // Resolve active model via preferences (L6-04)
+    let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let resolved = state
+        .resolver()
+        .resolve(&conn, &ollama)
+        .map_err(|e| format!("No AI model available: {e}"))?;
+
+    // Build the document processor with the resolved model
+    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+        .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
     // Emit: extraction starting
     let _ = app.emit(
@@ -345,15 +352,22 @@ pub async fn process_documents_batch(
         return Err("Maximum 20 files per processing batch (LLM is slow per file)".into());
     }
 
-    // Build processor once for the batch
-    let processor = crate::pipeline::processor::build_processor()
-        .map_err(|e| format!("Failed to initialize processor: {e}"))?;
-
     let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
     let conn = open_database(session.db_path()).map_err(|e| format!("Database error: {e}"))?;
+
+    // Resolve active model via preferences (L6-04)
+    let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let resolved = state
+        .resolver()
+        .resolve(&conn, &ollama)
+        .map_err(|e| format!("No AI model available: {e}"))?;
+
+    // Build processor once for the batch
+    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+        .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
     let total = file_paths.len();
     let mut results = Vec::with_capacity(total);

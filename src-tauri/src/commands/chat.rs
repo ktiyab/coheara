@@ -91,8 +91,14 @@ pub fn send_chat_message(
         let _ = update_conversation_title(&conn, &conversation_id, &title);
     }
 
-    // 4. Attempt RAG pipeline; fall back to placeholder if unavailable
-    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path) {
+    // 4. Resolve active model via preferences (L6-04), then attempt RAG pipeline
+    let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let resolved_model = state
+        .resolver()
+        .resolve(&conn, &ollama_client)
+        .ok()
+        .map(|r| r.name);
+    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref()) {
         Some(rag_response) => {
             // 5. Filter RAG response through safety layers
             emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
@@ -118,12 +124,14 @@ fn try_rag_query(
     conversation_id: Uuid,
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
+    resolved_model: Option<&str>,
 ) -> Option<RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::storage::vectordb::SqliteVectorStore;
 
-    // Check if Ollama is available with a MedGemma model
-    let generator = OllamaRagGenerator::try_auto_detect()?;
+    // Use preference-resolved model if available (L6-04)
+    let model_name = resolved_model?;
+    let generator = OllamaRagGenerator::with_resolved_model(model_name.to_string())?;
 
     // Production vector store — persistent SQLite-backed chunk storage
     let vector_store = SqliteVectorStore::new(db_path.to_path_buf());

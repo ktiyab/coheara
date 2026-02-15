@@ -313,18 +313,15 @@ fn update_ocr_confidence(
 /// - LLM: `OllamaClient` → `DocumentStructurer`
 ///
 /// Returns an error if required services are unavailable (no Ollama, no model).
-pub fn build_processor() -> Result<DocumentProcessor, ProcessingError> {
+pub fn build_processor(model: &str) -> Result<DocumentProcessor, ProcessingError> {
     let ocr = build_ocr_engine()?;
     let pdf = Box::new(crate::pipeline::extraction::pdf::PdfTextExtractor);
     let extractor = Box::new(DocumentExtractor::new(ocr, pdf));
 
     let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
-    let model = ollama
-        .find_best_model()
-        .map_err(ProcessingError::Structuring)?;
     tracing::info!(model = %model, "Document processor using LLM model");
 
-    let structurer = Box::new(DocumentStructurer::new(Box::new(ollama), &model));
+    let structurer = Box::new(DocumentStructurer::new(Box::new(ollama), model));
 
     Ok(DocumentProcessor::new(extractor, structurer))
 }

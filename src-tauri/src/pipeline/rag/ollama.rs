@@ -24,17 +24,23 @@ impl OllamaRagGenerator {
         Self { client, model }
     }
 
-    /// Try to create a generator using the best available MedGemma model.
-    /// Returns `None` if Ollama is unreachable or no model is found.
-    pub fn try_auto_detect() -> Option<Self> {
+    /// Create a generator with a pre-resolved model name and default local client.
+    ///
+    /// Use `ActiveModelResolver` to resolve the model name before calling this.
+    /// Returns `None` if the model is not actually available on Ollama.
+    pub fn with_resolved_model(model: String) -> Option<Self> {
         let client = OllamaClient::default_local();
-        match client.find_best_model() {
-            Ok(model) => {
-                tracing::info!(model = %model, "Ollama RAG generator: model auto-detected");
+        match client.is_model_available(&model) {
+            Ok(true) => {
+                tracing::info!(model = %model, "Ollama RAG generator: model confirmed");
                 Some(Self::new(client, model))
             }
+            Ok(false) => {
+                tracing::debug!(model = %model, "Ollama RAG generator: model not available");
+                None
+            }
             Err(e) => {
-                tracing::debug!(error = %e, "Ollama RAG generator: no model available");
+                tracing::debug!(error = %e, "Ollama RAG generator: cannot reach Ollama");
                 None
             }
         }

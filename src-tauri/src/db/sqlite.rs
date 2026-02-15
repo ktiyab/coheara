@@ -40,6 +40,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
         (4, include_str!("../../resources/migrations/004_coherence_alerts.sql")),
         (5, include_str!("../../resources/migrations/005_audit_log.sql")),
         (6, include_str!("../../resources/migrations/006_vector_chunks.sql")),
+        (7, include_str!("../../resources/migrations/007_model_preferences.sql")),
     ];
 
     for (version, sql) in migrations {
@@ -82,9 +83,9 @@ mod tests {
     #[test]
     fn database_initializes_all_tables() {
         let conn = open_memory_database().unwrap();
-        // 18 entity tables + schema_version + dose_references + 3 device pairing + sync_versions + coherence_alerts + audit_log + vector_chunks = 27 total
+        // 18 entity tables + schema_version + dose_references + 3 device pairing + sync_versions + coherence_alerts + audit_log + vector_chunks + model_preferences + user_preferences = 29 total
         let count = count_tables(&conn).unwrap();
-        assert!(count >= 24, "Expected at least 24 tables, got {count}");
+        assert!(count >= 26, "Expected at least 26 tables, got {count}");
     }
 
     #[test]
@@ -93,7 +94,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]

@@ -5,7 +5,9 @@ pub mod classify;
 pub mod sanitize;
 pub mod confidence;
 pub mod ollama;
+pub mod ollama_types;
 pub mod orchestrator;
+pub mod preferences;
 
 pub use types::*;
 pub use prompt::*;
@@ -14,7 +16,9 @@ pub use classify::*;
 pub use sanitize::*;
 pub use confidence::*;
 pub use ollama::*;
+pub use ollama_types::*;
 pub use orchestrator::*;
+pub use preferences::*;
 
 use thiserror::Error;
 
