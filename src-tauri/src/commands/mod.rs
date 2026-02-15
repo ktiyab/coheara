@@ -23,6 +23,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::core_state::CoreState;
+use crate::pipeline::structuring::preferences::ResolvedModel;
 
 /// Health check IPC command — verifies backend is running
 #[tauri::command]
@@ -36,8 +37,8 @@ pub fn health_check() -> String {
 pub struct AiStatus {
     /// Whether Ollama is reachable on localhost:11434.
     pub ollama_available: bool,
-    /// Which MedGemma model was detected (if any).
-    pub ollama_model: Option<String>,
+    /// Resolved active model with quality and source (L6-04 §11).
+    pub active_model: Option<ResolvedModel>,
     /// Embedding backend: "onnx" or "mock".
     pub embedder_type: String,
     /// Human-readable status summary.
@@ -62,12 +63,12 @@ pub fn check_ai_status(
     let ollama_available = health.as_ref().is_some_and(|h| h.reachable);
 
     // Try to resolve active model via preferences (L6-04)
-    let ollama_model = if ollama_available {
+    let active_model = if ollama_available {
         state
             .open_db()
             .ok()
             .and_then(|conn| {
-                state.resolver().resolve(&conn, &client).ok().map(|r| r.name)
+                state.resolver().resolve(&conn, &client).ok()
             })
     } else {
         None
@@ -76,16 +77,16 @@ pub fn check_ai_status(
     // Check embedder
     let embedder_type = detect_embedder_type();
 
-    let summary = match (ollama_available, &ollama_model, embedder_type.as_str()) {
-        (true, Some(model), "onnx") => format!("AI ready — {model} + ONNX embeddings"),
-        (true, Some(model), _) => format!("AI ready — {model} (semantic search limited)"),
+    let summary = match (ollama_available, &active_model, embedder_type.as_str()) {
+        (true, Some(model), "onnx") => format!("AI ready — {} + ONNX embeddings", model.name),
+        (true, Some(model), _) => format!("AI ready — {} (semantic search limited)", model.name),
         (true, None, _) => "Ollama running — no model selected. Set up AI in Settings.".to_string(),
         (false, _, _) => "Ollama not detected — install Ollama and pull a model".to_string(),
     };
 
     AiStatus {
         ollama_available,
-        ollama_model,
+        active_model,
         embedder_type,
         summary,
     }
@@ -116,12 +117,13 @@ mod tests {
     fn ai_status_struct_serializes() {
         let status = AiStatus {
             ollama_available: false,
-            ollama_model: None,
+            active_model: None,
             embedder_type: "mock".to_string(),
             summary: "Ollama not detected".to_string(),
         };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"ollama_available\":false"));
+        assert!(json.contains("\"active_model\":null"));
         assert!(json.contains("\"embedder_type\":\"mock\""));
     }
 

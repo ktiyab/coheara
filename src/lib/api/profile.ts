@@ -44,9 +44,11 @@ export async function getActiveProfileName(): Promise<string> {
   return invoke<string>('get_active_profile_name');
 }
 
+import type { ResolvedModel } from '$lib/types/ai';
+
 export interface AiStatus {
   ollama_available: boolean;
-  ollama_model: string | null;
+  active_model: ResolvedModel | null;
   embedder_type: string;
   summary: string;
 }

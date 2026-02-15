@@ -67,8 +67,26 @@
   function handlePullProgress(progress: ModelPullProgress) {
     ai.pullProgress = progress;
     if (progress.status === 'complete') {
-      // Refresh model list after successful pull
-      refreshModels();
+      // Refresh model list and auto-select if no active model (AC-24)
+      onPullComplete(progress.model_name);
+    }
+  }
+
+  async function onPullComplete(pulledName: string) {
+    try {
+      const [models, active] = await Promise.all([
+        listOllamaModels(),
+        getActiveModel(),
+      ]);
+      ai.models = models;
+      ai.activeModel = active;
+
+      // AC-24: Auto-select the pulled model when no active model exists
+      if (!active) {
+        ai.activeModel = await setActiveModel(pulledName);
+      }
+    } catch {
+      // Silent — don't overwrite existing state
     }
   }
 

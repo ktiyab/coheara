@@ -9,7 +9,7 @@
   - Settings → "Set up AI" button
 -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import {
     ollamaHealthCheck,
     listOllamaModels,
@@ -43,6 +43,19 @@
   let detectedPlatform = $state<'windows' | 'macos' | 'linux'>('windows');
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let unlistenPull: (() => void) | null = null;
+  let stepContentEl: HTMLDivElement | undefined = $state();
+
+  // ACC-L6-15: Move focus to step content when step changes
+  $effect(() => {
+    // Subscribe to step (reactive read)
+    const _currentStep = step;
+    // After DOM update, focus the step container
+    tick().then(() => {
+      if (stepContentEl && _currentStep !== 'detect') {
+        stepContentEl.focus();
+      }
+    });
+  });
 
   // Step position for progress indicator
   const STEPS: WizardStep[] = ['detect', 'install', 'pull', 'verify'];
@@ -270,10 +283,10 @@
   }
 
   function handleDone() {
-    // Update profile AI status
+    // Update profile AI status with full ResolvedModel (L6-04 §11)
     profile.aiStatus = {
       ollama_available: true,
-      ollama_model: ai.activeModel?.name ?? null,
+      active_model: ai.activeModel ?? null,
       embedder_type: 'onnx',
       summary: 'AI engine ready',
     };
@@ -317,8 +330,9 @@
     {/if}
   </header>
 
-  <!-- Step content -->
-  <div class="flex-1 px-6 pb-6">
+  <!-- Step content (ACC-L6-15: focusable for screen reader announcements) -->
+  <div class="flex-1 px-6 pb-6" bind:this={stepContentEl} tabindex="-1" style="outline: none;"
+    aria-live="polite">
     {#if step === 'detect'}
       <!-- ═══ DETECT ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
@@ -340,7 +354,7 @@
             <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
               <h3 class="text-sm font-medium text-blue-800 mb-2">Windows</h3>
               <p class="text-sm text-blue-700 mb-3">
-                Download Ollama from <span class="font-mono font-medium">ollama.com/download</span> and run the installer.
+                Download Ollama from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a> and run the installer.
               </p>
               <p class="text-xs text-blue-600">After installing, start Ollama from your Start Menu.</p>
             </div>
@@ -348,7 +362,7 @@
             <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
               <h3 class="text-sm font-medium text-blue-800 mb-2">macOS</h3>
               <p class="text-sm text-blue-700 mb-3">
-                Download from <span class="font-mono font-medium">ollama.com/download</span> or install with Homebrew:
+                Download from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a> or install with Homebrew:
               </p>
               <code class="block bg-blue-100 rounded-lg px-3 py-2 text-sm text-blue-900 select-all">brew install ollama</code>
               <p class="text-xs text-blue-600 mt-2">After installing, open Ollama from Applications.</p>

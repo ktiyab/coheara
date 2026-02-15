@@ -129,10 +129,17 @@
               {profile.isAiAvailable ? 'Ready' : 'Not configured'}
             </span>
           </div>
-          {#if profile.aiStatus?.ollama_model}
+          {#if profile.aiStatus?.active_model}
             <div class="flex justify-between">
               <span class="text-stone-600">Model</span>
-              <span class="text-stone-800">{profile.aiStatus.ollama_model}</span>
+              <span class="text-stone-800">
+                {profile.aiStatus.active_model.name}
+                {#if profile.aiStatus.active_model.quality === 'Medical'}
+                  <span class="text-xs text-teal-600 ml-1">(Medical)</span>
+                {:else}
+                  <span class="text-xs text-stone-400 ml-1">(General)</span>
+                {/if}
+              </span>
             </div>
           {/if}
         </div>

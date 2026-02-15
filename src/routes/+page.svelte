@@ -34,7 +34,7 @@
         profile.aiStatus = status;
 
         // L6-03: First-run AI setup wizard detection
-        if (!status.ollama_available || !status.ollama_model) {
+        if (!status.ollama_available || !status.active_model) {
           Promise.all([
             getActiveModel().catch(() => null),
             getUserPreference('dismissed_ai_setup').catch(() => null),
