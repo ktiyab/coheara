@@ -143,6 +143,17 @@ pub const BOUNDARY_FALLBACK_MESSAGE: &str =
     "I can help you understand what your medical documents say. \
      Could you rephrase your question about your documents?";
 
+/// I18N-06: Get boundary fallback message in the given language.
+pub fn boundary_fallback_message_i18n(lang: &str) -> &'static str {
+    match lang {
+        "fr" => "Je peux vous aider à comprendre vos documents médicaux. \
+                 Pourriez-vous reformuler votre question concernant vos documents ?",
+        "de" => "Ich kann Ihnen helfen, Ihre medizinischen Dokumente zu verstehen. \
+                 Könnten Sie Ihre Frage zu Ihren Dokumenten umformulieren?",
+        _ => BOUNDARY_FALLBACK_MESSAGE,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +194,33 @@ mod tests {
             InputModificationKind::InjectionPatternRemoved,
             InputModificationKind::ControlCharacterRemoved
         );
+    }
+
+    // I18N-06: Boundary fallback message translations
+
+    #[test]
+    fn boundary_fallback_en_default() {
+        let msg = boundary_fallback_message_i18n("en");
+        assert_eq!(msg, BOUNDARY_FALLBACK_MESSAGE);
+    }
+
+    #[test]
+    fn boundary_fallback_fr() {
+        let msg = boundary_fallback_message_i18n("fr");
+        assert!(msg.contains("documents médicaux"), "French boundary: {msg}");
+        assert!(msg.contains("reformuler"));
+    }
+
+    #[test]
+    fn boundary_fallback_de() {
+        let msg = boundary_fallback_message_i18n("de");
+        assert!(msg.contains("medizinischen Dokumente"), "German boundary: {msg}");
+        assert!(msg.contains("umformulieren"));
+    }
+
+    #[test]
+    fn boundary_fallback_unknown_lang() {
+        let msg = boundary_fallback_message_i18n("ja");
+        assert_eq!(msg, BOUNDARY_FALLBACK_MESSAGE);
     }
 }

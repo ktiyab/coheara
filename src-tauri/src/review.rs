@@ -133,6 +133,8 @@ pub struct EntitiesStoredSummary {
 pub struct ReviewRejectResult {
     pub document_id: Uuid,
     pub reason: Option<String>,
+    /// True if the document can be reprocessed (retry action was chosen).
+    pub can_retry: bool,
 }
 
 /// Confidence threshold below which fields are flagged.
@@ -843,7 +845,7 @@ mod tests {
         update_profile_trust_corrected, get_profile_trust,
     };
     use crate::models::document::Document;
-    use crate::models::enums::DocumentType;
+    use crate::models::enums::{DocumentType, PipelineStatus};
     use crate::pipeline::structuring::types::*;
     use chrono::{NaiveDate, NaiveDateTime};
 
@@ -901,6 +903,7 @@ mod tests {
                     unit: Some("%".into()),
                     reference_range_low: Some(4.0),
                     reference_range_high: Some(6.0),
+                    reference_range_text: None,
                     abnormal_flag: Some("high".into()),
                     collection_date: None,
                     confidence: 0.88,
@@ -932,6 +935,8 @@ mod tests {
             },
             structuring_confidence: 0.85,
             markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
         }
     }
 
@@ -954,6 +959,7 @@ mod tests {
             source_deleted: false,
             perceptual_hash: Some("abc123".into()),
             notes: None,
+            pipeline_status: PipelineStatus::Imported,
         }
     }
 
@@ -1075,6 +1081,7 @@ mod tests {
             unit: None,
             reference_range_low: None,
             reference_range_high: None,
+            reference_range_text: None,
             abnormal_flag: None,
             collection_date: None,
             confidence: 0.90,

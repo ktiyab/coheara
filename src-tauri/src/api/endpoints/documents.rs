@@ -15,6 +15,7 @@ use crate::api::error::ApiError;
 use crate::api::types::{ApiContext, DeviceContext};
 use crate::db::sqlite::open_database;
 use crate::pipeline::import::importer::{import_file, ImportStatus};
+use crate::pipeline::import::staging::{write_encrypted_staging, decrypt_staging_to_temp};
 
 /// Maximum pages per upload request.
 const MAX_PAGES: usize = 10;
@@ -74,7 +75,7 @@ pub async fn upload(
     // Acquire session — derive staging dir from db_path
     // Profile structure: profiles/{uuid}/database/profile.db
     // Staging dir: profiles/{uuid}/staging/mobile/
-    let (db_path, staging_dir) = {
+    let (db_path, staging_dir, db_key) = {
         let guard = ctx.core.read_session().map_err(ApiError::from)?;
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         let profile_dir = session
@@ -83,7 +84,7 @@ pub async fn upload(
             .and_then(|db_dir| db_dir.parent())
             .ok_or_else(|| ApiError::Internal("Invalid profile path structure".into()))?;
         let staging: PathBuf = profile_dir.join("staging").join("mobile");
-        (session.db_path().to_path_buf(), staging)
+        (session.db_path().to_path_buf(), staging, *session.key_bytes())
     };
 
     // Create staging directory
@@ -91,7 +92,7 @@ pub async fn upload(
         .map_err(|e| ApiError::Internal(format!("Staging directory: {e}")))?;
 
     let conn =
-        open_database(&db_path).map_err(|e| ApiError::Internal(format!("Database: {e}")))?;
+        open_database(&db_path, Some(&db_key)).map_err(|e| ApiError::Internal(format!("Database: {e}")))?;
 
     // Decode and stage each page
     let mut staged_paths: Vec<PathBuf> = Vec::with_capacity(payload.pages.len());
@@ -119,7 +120,8 @@ pub async fn upload(
         );
         let file_path = staging_dir.join(&file_name);
 
-        std::fs::write(&file_path, &image_bytes)
+        // SEC-02-G03: Encrypt staging file so plaintext never hits disk
+        write_encrypted_staging(&image_bytes, &file_path, &db_key)
             .map_err(|e| ApiError::Internal(format!("Failed to write staging file: {e}")))?;
 
         staged_paths.push(file_path);
@@ -131,7 +133,19 @@ pub async fn upload(
 
     let mut document_ids: Vec<String> = Vec::new();
     for file_path in &staged_paths {
-        match import_file(file_path, session, &conn) {
+        // SEC-02-G03: Decrypt encrypted staging file to temp for import
+        let temp_file = match decrypt_staging_to_temp(file_path, &db_key) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    device = %device.device_name,
+                    "Mobile upload: staging decryption failed"
+                );
+                continue;
+            }
+        };
+        match import_file(temp_file.path(), session, &conn) {
             Ok(result) => {
                 if result.status == ImportStatus::Staged {
                     document_ids.push(result.document_id.to_string());
@@ -145,13 +159,13 @@ pub async fn upload(
             }
             Err(e) => {
                 tracing::warn!(
-                    path = %file_path.display(),
                     error = %e,
                     device = %device.device_name,
                     "Mobile upload: import failed"
                 );
             }
         }
+        // temp_file dropped here → auto-deleted
     }
 
     // Log access for audit
@@ -215,10 +229,12 @@ fn detect_extension(bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Clean up staged files on error.
+/// Clean up staged files on error (SEC-02-G05: secure erasure).
 fn cleanup_staged(paths: &[PathBuf]) {
     for path in paths {
-        let _ = std::fs::remove_file(path);
+        if let Err(e) = crate::crypto::secure_delete_file(path) {
+            tracing::warn!("Failed to securely delete staging file: {e}");
+        }
     }
 }
 

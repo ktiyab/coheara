@@ -21,6 +21,7 @@
   let appointmentDate = $state('');
   let prep: AppointmentPrep | null = $state(null);
   let error: string | null = $state(null);
+  let phiWarning: string | null = $state(null);
 
   onMount(async () => {
     try {
@@ -48,8 +49,10 @@
 
   async function handleExport(type: 'patient' | 'professional' | 'both') {
     if (!prep) return;
+    phiWarning = null;
     try {
-      await exportPrepPdf(prep, type);
+      const result = await exportPrepPdf(prep, type);
+      phiWarning = result.phi_warning;
     } catch (e) {
       console.error('Export failed:', e);
     }
@@ -100,6 +103,11 @@
     </div>
 
   {:else if step === 'viewing' && prep}
+    {#if phiWarning}
+      <div class="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl" role="alert">
+        <p class="text-amber-800 text-sm font-medium">{phiWarning}</p>
+      </div>
+    {/if}
     <PrepViewer
       {prep}
       onExport={handleExport}

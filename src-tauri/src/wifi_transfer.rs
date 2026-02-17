@@ -147,6 +147,8 @@ struct ServerState {
     max_file_size: u64,
     allowed_mime_types: Vec<String>,
     staging_dir: PathBuf,
+    /// SEC-02-G04: Encryption key for staging files (copied from profile session).
+    encryption_key: [u8; 32],
     last_activity: Arc<TokioMutex<Instant>>,
     failed_attempts: Arc<TokioMutex<HashMap<IpAddr, u32>>>,
     received_files: Arc<TokioMutex<Vec<UploadResult>>>,
@@ -286,6 +288,7 @@ pub fn generate_qr_code(url: &str) -> Result<String, String> {
 pub async fn start_transfer_server(
     staging_dir: PathBuf,
     config: TransferConfig,
+    encryption_key: [u8; 32],
 ) -> Result<TransferServer, String> {
     // 1. Detect local IP
     let local_ip = local_ip_address::local_ip()
@@ -339,6 +342,7 @@ pub async fn start_transfer_server(
         max_file_size: config.max_file_size,
         allowed_mime_types: config.allowed_mime_types,
         staging_dir,
+        encryption_key,
         last_activity: last_activity.clone(),
         failed_attempts: Arc::new(TokioMutex::new(HashMap::new())),
         received_files: received_files.clone(),
@@ -552,7 +556,12 @@ async fn handle_upload(
         .staging_dir
         .join(format!("{}_{}", Uuid::new_v4(), safe_filename));
 
-    if let Err(e) = std::fs::write(&staged_path, &bytes) {
+    // SEC-02-G04: Encrypt staging file so plaintext never hits disk
+    if let Err(e) = crate::pipeline::import::staging::write_encrypted_staging(
+        &bytes,
+        &staged_path,
+        &state.encryption_key,
+    ) {
         tracing::error!("Failed to stage file: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

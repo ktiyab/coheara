@@ -143,6 +143,12 @@ export interface StoredAppointment {
   has_post_notes: boolean;
 }
 
+/** SEC-02-G06: PDF export result with PHI safety warning. */
+export interface PdfExportResult {
+  paths: string[];
+  phi_warning: string;
+}
+
 export const SPECIALTIES = [
   'GP',
   'Cardiologist',

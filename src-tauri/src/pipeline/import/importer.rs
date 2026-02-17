@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::crypto::ProfileSession;
 use crate::db::repository;
 use crate::models::document::Document;
-use crate::models::enums::DocumentType;
+use crate::models::enums::{DocumentType, PipelineStatus};
 use super::format::{detect_format, sanitize_filename, FileCategory, FormatDetection};
 use super::hash::{compute_hash, hash_similarity};
 use super::staging::stage_file;
@@ -129,6 +129,7 @@ pub fn import_file(
         source_deleted: false,
         perceptual_hash: Some(hash),
         notes: None,
+        pipeline_status: PipelineStatus::Imported,
     };
     repository::insert_document(conn, &doc)?;
 

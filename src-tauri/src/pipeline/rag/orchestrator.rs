@@ -7,12 +7,13 @@ use super::citation::{
 use super::classify::{classify_query, retrieval_strategy};
 use super::context::assemble_context;
 use super::conversation::ConversationManager;
-use super::prompt::{build_conversation_prompt, no_context_response, CONVERSATION_SYSTEM_PROMPT};
+use super::prompt::{build_conversation_prompt, conversation_system_prompt_i18n, no_context_response_i18n};
 use super::retrieval::retrieve;
 use super::types::{
     AssembledContext, ContextSummary, PatientQuery, RagResponse, VectorSearch,
 };
 use super::RagError;
+use crate::pipeline::safety::sanitize::sanitize_patient_input;
 use crate::pipeline::storage::types::EmbeddingModel;
 
 /// Trait for LLM text generation within the RAG pipeline.
@@ -28,6 +29,8 @@ pub struct DocumentRagPipeline<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorS
     embedder: &'a E,
     vector_store: &'a V,
     conn: &'a Connection,
+    /// I18N-19: Language for system prompt and no-context response.
+    lang: String,
 }
 
 impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline<'a, G, E, V> {
@@ -42,6 +45,24 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             embedder,
             vector_store,
             conn,
+            lang: "en".to_string(),
+        }
+    }
+
+    /// I18N-19: Create a pipeline with a specific response language.
+    pub fn with_language(
+        generator: &'a G,
+        embedder: &'a E,
+        vector_store: &'a V,
+        conn: &'a Connection,
+        lang: &str,
+    ) -> Self {
+        Self {
+            generator,
+            embedder,
+            vector_store,
+            conn,
+            lang: lang.to_string(),
         }
     }
 
@@ -122,13 +143,19 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             .get_history(query.conversation_id)
             .unwrap_or_default();
 
-        // Step 7: Build prompt
-        let prompt = build_conversation_prompt(&query.text, &assembled, &history);
+        // Step 6b: Sanitize query before prompt construction (SEC-01-G03)
+        let sanitized_query = sanitize_patient_input(&query.text, 2000)
+            .map(|s| s.text)
+            .unwrap_or_else(|_| query.text.clone());
 
-        // Step 8: Generate response via LLM
+        // Step 7: Build prompt
+        let prompt = build_conversation_prompt(&sanitized_query, &assembled, &history);
+
+        // Step 8: Generate response via LLM (I18N-19: language-keyed system prompt)
+        let system_prompt = conversation_system_prompt_i18n(&self.lang);
         let raw_response = self
             .generator
-            .generate(CONVERSATION_SYSTEM_PROMPT, &prompt)?;
+            .generate(&system_prompt, &prompt)?;
 
         // Step 9: Parse boundary check + clean response
         let (boundary_check, cleaned_response) = parse_boundary_check(&raw_response);
@@ -149,6 +176,18 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             assembled.chunks_included.len(),
         );
 
+        // Step 12b: M.11 — Low confidence gate
+        // If confidence is very low, prepend a disclaimer to help the patient
+        let display_text = if confidence < 0.3 {
+            tracing::info!(confidence, "Low RAG confidence — adding disclaimer");
+            format!(
+                "**Note:** This response is based on limited information from your documents. \
+                Please verify with your healthcare provider.\n\n{display_text}"
+            )
+        } else {
+            display_text
+        };
+
         // Step 13: Build response
         let context_used = build_context_summary(&assembled, &retrieved.structured_data);
 
@@ -164,7 +203,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
 
     fn no_context_result(&self, query_type: super::types::QueryType) -> RagResponse {
         RagResponse {
-            text: no_context_response(),
+            text: no_context_response_i18n(&self.lang),
             citations: vec![],
             confidence: 0.0,
             query_type,
@@ -427,6 +466,7 @@ mod tests {
                 source_deleted: false,
                 perceptual_hash: None,
                 notes: None,
+                pipeline_status: PipelineStatus::Imported,
             },
         )
         .unwrap();

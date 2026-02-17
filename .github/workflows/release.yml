@@ -234,6 +234,31 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
+      - name: Set LIBCLANG_PATH (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # bindgen needs libclang.dll for FFI generation (leptonica-sys, tesseract-sys)
+          # GHA windows-latest runners ship LLVM pre-installed — make it explicit
+          $candidates = @(
+            "$env:ProgramFiles\LLVM\bin",
+            "$env:ProgramFiles\LLVM\lib"
+          )
+          # Also check Visual Studio bundled Clang
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath 2>$null
+          if ($vsPath) {
+            $candidates += "$vsPath\VC\Tools\Llvm\x64\bin"
+          }
+          foreach ($dir in $candidates) {
+            if (Test-Path (Join-Path $dir "libclang.dll")) {
+              echo "LIBCLANG_PATH=$dir" >> $env:GITHUB_ENV
+              Write-Host "LIBCLANG_PATH set to $dir"
+              exit 0
+            }
+          }
+          Write-Host "::error::libclang.dll not found — install LLVM or add Clang tools to VS Build Tools"
+          exit 1
+
       # ── Bundle mobile artifacts into desktop ────────────────
       - run: npm ci
 

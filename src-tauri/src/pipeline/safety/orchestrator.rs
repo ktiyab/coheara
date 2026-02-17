@@ -3,11 +3,11 @@ use crate::pipeline::rag::types::{BoundaryCheck, RagResponse};
 use super::boundary::check_boundary;
 use super::grounding::check_grounding;
 use super::keywords::scan_keywords;
-use super::rephrase::{rephrase_violations, select_fallback_message};
+use super::rephrase::{rephrase_violations, select_fallback_message_i18n};
 use super::sanitize::sanitize_patient_input;
 use super::types::{
     FilterOutcome, FilteredResponse, SafetyError, SafetyFilter, SanitizedInput,
-    ViolationCategory, BOUNDARY_FALLBACK_MESSAGE,
+    ViolationCategory, boundary_fallback_message_i18n,
 };
 
 /// The production safety filter with all 3 layers.
@@ -16,6 +16,8 @@ pub struct SafetyFilterImpl {
     max_rephrase_attempts: usize,
     /// Maximum input query length (characters).
     max_input_length: usize,
+    /// I18N-06: Language for fallback messages ("en", "fr", "de").
+    lang: String,
 }
 
 impl SafetyFilterImpl {
@@ -23,6 +25,16 @@ impl SafetyFilterImpl {
         Self {
             max_rephrase_attempts: 3,
             max_input_length: 2_000,
+            lang: "en".to_string(),
+        }
+    }
+
+    /// I18N-06: Create a safety filter with localized fallback messages.
+    pub fn with_language(lang: &str) -> Self {
+        Self {
+            max_rephrase_attempts: 3,
+            max_input_length: 2_000,
+            lang: lang.to_string(),
         }
     }
 }
@@ -41,10 +53,11 @@ impl SafetyFilter for SafetyFilterImpl {
         // Layer 1: Boundary check (non-rephrasable — block immediately)
         let boundary_violations = check_boundary(&response.boundary_check);
         if !boundary_violations.is_empty() {
+            let boundary_fallback = boundary_fallback_message_i18n(&self.lang).to_string();
             log_violations(&boundary_violations);
             log_filter_outcome(&FilterOutcome::Blocked {
                 violations: boundary_violations.clone(),
-                fallback_message: BOUNDARY_FALLBACK_MESSAGE.to_string(),
+                fallback_message: boundary_fallback.clone(),
             });
             return Ok(FilteredResponse {
                 text: String::new(),
@@ -54,7 +67,7 @@ impl SafetyFilter for SafetyFilterImpl {
                 boundary_check: BoundaryCheck::OutOfBounds,
                 filter_outcome: FilterOutcome::Blocked {
                     violations: boundary_violations,
-                    fallback_message: BOUNDARY_FALLBACK_MESSAGE.to_string(),
+                    fallback_message: boundary_fallback,
                 },
             });
         }
@@ -88,7 +101,7 @@ impl SafetyFilter for SafetyFilterImpl {
             || has_unrepairable_violations(&all_violations)
         {
             log_violations(&all_violations);
-            let fallback = select_fallback_message(&all_violations);
+            let fallback = select_fallback_message_i18n(&all_violations, &self.lang);
             let outcome = FilterOutcome::Blocked {
                 violations: all_violations,
                 fallback_message: fallback,
@@ -129,7 +142,7 @@ impl SafetyFilter for SafetyFilterImpl {
                     // Rephrase didn't fix everything — block
                     let mut remaining = recheck_kw;
                     remaining.extend(recheck_gr);
-                    let fallback = select_fallback_message(&all_violations);
+                    let fallback = select_fallback_message_i18n(&all_violations, &self.lang);
                     let outcome = FilterOutcome::Blocked {
                         violations: remaining,
                         fallback_message: fallback,
@@ -147,7 +160,7 @@ impl SafetyFilter for SafetyFilterImpl {
             }
             None => {
                 // Rephrasing not possible — block
-                let fallback = select_fallback_message(&all_violations);
+                let fallback = select_fallback_message_i18n(&all_violations, &self.lang);
                 let outcome = FilterOutcome::Blocked {
                     violations: all_violations,
                     fallback_message: fallback,

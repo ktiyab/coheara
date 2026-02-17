@@ -5,6 +5,7 @@
 //! concurrent read access from multiple transports.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
@@ -57,6 +58,9 @@ pub struct CoreState {
     audit: AuditLogger,
     /// L6-04: Model preference resolver (singleton, shared cache).
     model_resolver: ActiveModelResolver,
+    /// S.1: Whether AI generation has been verified since last check.
+    /// Set to true by `verify_ai_status`, cleared on degraded/error events.
+    ai_verified: AtomicBool,
 }
 
 impl CoreState {
@@ -74,6 +78,7 @@ impl CoreState {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
+            ai_verified: AtomicBool::new(false),
         }
     }
 
@@ -96,7 +101,8 @@ impl CoreState {
     pub fn open_db(&self) -> Result<rusqlite::Connection, CoreError> {
         let guard = self.session.read().map_err(|_| CoreError::LockPoisoned)?;
         let session = guard.as_ref().ok_or(CoreError::NoActiveSession)?;
-        db::open_database(session.db_path()).map_err(CoreError::Database)
+        db::open_database(session.db_path(), Some(session.key_bytes()))
+            .map_err(CoreError::Database)
     }
 
     /// Get the database path for the active session (owned copy).
@@ -106,6 +112,16 @@ impl CoreState {
         let guard = self.session.read().map_err(|_| CoreError::LockPoisoned)?;
         let session = guard.as_ref().ok_or(CoreError::NoActiveSession)?;
         Ok(session.db_path().to_path_buf())
+    }
+
+    /// Get the database encryption key for the active session (owned copy).
+    ///
+    /// Needed by components that open their own connections and require
+    /// SQLCipher encryption (e.g. SqliteVectorStore, storage orchestrator).
+    pub fn db_key(&self) -> Result<[u8; 32], CoreError> {
+        let guard = self.session.read().map_err(|_| CoreError::LockPoisoned)?;
+        let session = guard.as_ref().ok_or(CoreError::NoActiveSession)?;
+        Ok(*session.key_bytes())
     }
 
     // ── Session mutation (write path) ───────────────────────
@@ -227,6 +243,29 @@ impl CoreState {
     /// Access the shared model resolver.
     pub fn resolver(&self) -> &ActiveModelResolver {
         &self.model_resolver
+    }
+
+    /// S.1: Check if AI generation has been verified.
+    pub fn is_ai_verified(&self) -> bool {
+        self.ai_verified.load(Ordering::Relaxed)
+    }
+
+    /// S.1: Mark AI generation as verified (after successful test generation).
+    pub fn set_ai_verified(&self, verified: bool) {
+        self.ai_verified.store(verified, Ordering::Relaxed);
+    }
+
+    /// I18N-03: Get the user's preferred language from user_preferences.
+    /// Returns "en" if no preference set or if profile is locked.
+    pub fn get_profile_language(&self) -> String {
+        self.open_db()
+            .ok()
+            .and_then(|conn| {
+                crate::db::repository::get_user_preference(&conn, "language")
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_else(|| "en".to_string())
     }
 
     /// Lock the pairing manager for exclusive access.
@@ -420,6 +459,7 @@ mod tests {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
+            ai_verified: AtomicBool::new(false),
         };
         assert!(state.check_timeout());
     }
@@ -629,5 +669,20 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))
             .unwrap();
         assert_eq!(remaining, 1);
+    }
+
+    #[test]
+    fn ai_verified_flag_defaults_to_false() {
+        let state = CoreState::new();
+        assert!(!state.is_ai_verified());
+    }
+
+    #[test]
+    fn ai_verified_flag_can_be_set_and_cleared() {
+        let state = CoreState::new();
+        state.set_ai_verified(true);
+        assert!(state.is_ai_verified());
+        state.set_ai_verified(false);
+        assert!(!state.is_ai_verified());
     }
 }

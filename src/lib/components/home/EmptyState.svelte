@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
 </script>
 
@@ -8,11 +9,11 @@
   </div>
 
   <h2 class="text-lg font-medium text-stone-700 mb-2">
-    No documents yet
+    {$t('home.no_documents')}
   </h2>
   <p class="text-sm text-stone-500 mb-6 max-w-[280px]">
-    Load your first medical document to get started.
-    Coheara will help you understand your health records.
+    {$t('home.empty_description_1')}
+    {$t('home.empty_description_2')}
   </p>
 
   <button
@@ -22,6 +23,6 @@
            min-h-[44px]"
     onclick={() => navigation.navigate('import')}
   >
-    Load your first document
+    {$t('home.empty_cta')}
   </button>
 </div>

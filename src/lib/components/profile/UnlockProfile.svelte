@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { unlockProfile } from '$lib/api/profile';
   import type { ProfileInfo } from '$lib/types/profile';
 
@@ -26,9 +27,9 @@
     } catch (e) {
       attempts += 1;
       if (attempts >= 3) {
-        error = 'Wrong password. If you forgot it, use your recovery phrase.';
+        error = $t('profile.wrong_password_recovery');
       } else {
-        error = 'Wrong password. Please try again.';
+        error = $t('profile.wrong_password');
       }
     } finally {
       loading = false;
@@ -40,9 +41,9 @@
   <button
     class="self-start text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]"
     onclick={onBack}
-    aria-label="Back to profile list"
+    aria-label={$t('profile.back_to_list')}
   >
-    &larr; Back
+    &larr; {$t('common.back')}
   </button>
 
   <div class="w-16 h-16 rounded-full bg-stone-200 flex items-center justify-center
@@ -53,15 +54,15 @@
   <h2 class="text-2xl font-bold text-stone-800">{profile.name}</h2>
 
   {#if profile.password_hint}
-    <p class="text-stone-400 text-sm">Hint: {profile.password_hint}</p>
+    <p class="text-stone-400 text-sm">{$t('profile.hint_prefix')}{profile.password_hint}</p>
   {/if}
 
   <label class="w-full flex flex-col gap-1">
-    <span class="text-stone-600 text-sm font-medium">Password</span>
+    <span class="text-stone-600 text-sm font-medium">{$t('profile.password_field')}</span>
     <input
       type="password"
       bind:value={password}
-      placeholder="Enter your password"
+      placeholder={$t('profile.enter_password')}
       class="px-4 py-3 rounded-lg border border-stone-300 text-lg min-h-[44px]
              focus:border-[var(--color-primary)] focus:outline-none"
       autocomplete="current-password"
@@ -79,7 +80,7 @@
     onclick={handleUnlock}
     disabled={loading || !password}
   >
-    {loading ? 'Unlocking...' : 'Unlock'}
+    {loading ? $t('common.unlocking') : $t('profile.unlock_button')}
   </button>
 
   {#if attempts >= 3}
@@ -87,7 +88,7 @@
       class="text-[var(--color-primary)] text-sm underline min-h-[44px]"
       onclick={onForgotPassword}
     >
-      I forgot my password — use recovery phrase
+      {$t('profile.forgot_password')}
     </button>
   {/if}
 </div>

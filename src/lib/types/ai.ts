@@ -86,10 +86,21 @@ const MEDICAL_PREFIXES = [
 	'pubmed'
 ];
 
+/**
+ * Extract the model component from a full model name.
+ * Strips namespace prefix and tag suffix: "namespace/model:tag" → "model"
+ * Mirrors Rust extract_model_component() in ollama_types.rs.
+ */
+export function extractModelComponent(fullName: string): string {
+	const withoutTag = fullName.split(':')[0] ?? fullName;
+	const parts = withoutTag.split('/');
+	return (parts[parts.length - 1] ?? withoutTag).toLowerCase();
+}
+
 /** Check if a model name is classified as medical. */
 export function isMedicalModel(name: string): boolean {
-	const lower = name.toLowerCase();
-	return MEDICAL_PREFIXES.some((prefix) => lower.startsWith(prefix));
+	const component = extractModelComponent(name);
+	return MEDICAL_PREFIXES.some((prefix) => component.startsWith(prefix));
 }
 
 /** Format bytes to human-readable size (e.g., "2.5 GB"). */

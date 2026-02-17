@@ -1,21 +1,22 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
 
   const tabs = [
-    { id: 'home', label: 'Home', icon: '⌂' },
-    { id: 'chat', label: 'Chat', icon: '💬' },
-    { id: 'journal', label: 'Journal', icon: '♡' },
-    { id: 'medications', label: 'Meds', icon: '💊' },
-    { id: 'more', label: 'More', icon: '⋯' },
+    { id: 'home', key: 'nav.home', icon: '⌂' },
+    { id: 'chat', key: 'nav.chat', icon: '💬' },
+    { id: 'journal', key: 'nav.journal', icon: '♡' },
+    { id: 'medications', key: 'nav.medications', icon: '💊' },
+    { id: 'more', key: 'nav.more', icon: '⋯' },
   ];
 
   let showMore = $state(false);
 
   const moreItems = [
-    { id: 'documents', label: 'Documents' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'appointments', label: 'Appointments' },
-    { id: 'settings', label: 'Settings' },
+    { id: 'documents', key: 'nav.documents' },
+    { id: 'timeline', key: 'nav.timeline' },
+    { id: 'appointments', key: 'nav.appointments' },
+    { id: 'settings', key: 'nav.settings' },
   ];
 </script>
 
@@ -37,10 +38,10 @@
         }
       }}
       aria-current={navigation.activeTab === tab.id ? 'page' : undefined}
-      aria-label={tab.label}
+      aria-label={$t(tab.key)}
     >
       <span class="text-lg">{tab.icon}</span>
-      <span class="text-xs">{tab.label}</span>
+      <span class="text-xs">{$t(tab.key)}</span>
     </button>
   {/each}
 </nav>
@@ -61,7 +62,7 @@
           navigation.navigate(item.id);
         }}
       >
-        {item.label}
+        {$t(item.key)}
       </button>
     {/each}
   </div>

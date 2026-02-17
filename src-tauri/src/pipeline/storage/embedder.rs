@@ -318,4 +318,118 @@ mod tests {
         let embedder = MockEmbedder::new();
         assert_eq!(embedder.dimension(), 384);
     }
+
+    // ── M.2: Semantic cluster test suite ──────────────────────────
+    // Ground-truth pairs for validating embedding quality.
+    // With MockEmbedder: verifies determinism and vector properties.
+    // With real ONNX model: verifies semantic clustering.
+
+    fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm_a == 0.0 || norm_b == 0.0 {
+            return 0.0;
+        }
+        dot / (norm_a * norm_b)
+    }
+
+    /// M.2-G01: Embedding dimensions are consistent across all text types.
+    #[test]
+    fn embedding_dimension_consistent_across_content() {
+        let embedder = MockEmbedder::new();
+        let medical = embedder.embed("Metformin 500mg twice daily").unwrap();
+        let french = embedder.embed("Le patient présente une douleur thoracique").unwrap();
+        let lab = embedder.embed("HbA1c 7.2% elevated above target").unwrap();
+        let short = embedder.embed("pain").unwrap();
+        let long = embedder.embed(
+            "The patient has been experiencing chronic lower back pain for the past six months \
+            with intermittent episodes of acute exacerbation particularly after physical activity"
+        ).unwrap();
+
+        assert_eq!(medical.len(), EMBEDDING_DIM);
+        assert_eq!(french.len(), EMBEDDING_DIM);
+        assert_eq!(lab.len(), EMBEDDING_DIM);
+        assert_eq!(short.len(), EMBEDDING_DIM);
+        assert_eq!(long.len(), EMBEDDING_DIM);
+    }
+
+    /// M.2-G02: All embeddings are L2-normalized (unit vectors).
+    #[test]
+    fn all_embeddings_l2_normalized() {
+        let embedder = MockEmbedder::new();
+        let texts = [
+            "Metformin",
+            "douleur thoracique",
+            "HbA1c 7.2%",
+            "allergie pénicilline sévère",
+            "blood pressure 120/80",
+        ];
+        for text in &texts {
+            let vec = embedder.embed(text).unwrap();
+            let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+            assert!(
+                (norm - 1.0).abs() < 0.01,
+                "Vector for '{text}' not normalized: norm={norm}"
+            );
+        }
+    }
+
+    /// M.2-G03: Identical medical terms produce identical embeddings.
+    #[test]
+    fn identical_medical_terms_same_embedding() {
+        let embedder = MockEmbedder::new();
+        let v1 = embedder.embed("Metformin 500mg").unwrap();
+        let v2 = embedder.embed("Metformin 500mg").unwrap();
+        let sim = cosine_sim(&v1, &v2);
+        assert!((sim - 1.0).abs() < 0.001, "Identical texts should have similarity 1.0, got {sim}");
+    }
+
+    /// M.2-G04: Batch embedding matches individual embedding.
+    #[test]
+    fn batch_embedding_matches_individual() {
+        let embedder = MockEmbedder::new();
+        let texts = ["Metformin 500mg", "HbA1c 7.2%", "allergie pénicilline"];
+        let batch = embedder.embed_batch(&texts).unwrap();
+        for (i, text) in texts.iter().enumerate() {
+            let individual = embedder.embed(text).unwrap();
+            assert_eq!(batch[i], individual, "Batch[{i}] differs from individual for '{text}'");
+        }
+    }
+
+    /// M.2-G05: Different texts produce different embeddings.
+    /// Ground-truth pairs for when real model is available:
+    /// - Same-domain pairs should be MORE similar than cross-domain pairs.
+    #[test]
+    fn different_texts_produce_different_vectors() {
+        let embedder = MockEmbedder::new();
+
+        // Medical domain
+        let med1 = embedder.embed("Metformin 500mg twice daily for diabetes").unwrap();
+        let med2 = embedder.embed("Lisinopril 10mg daily for hypertension").unwrap();
+
+        // Lab domain
+        let lab1 = embedder.embed("HbA1c 7.2% elevated above target range").unwrap();
+        let lab2 = embedder.embed("Cholesterol LDL 130 mg/dL borderline high").unwrap();
+
+        // Cross-domain
+        let cooking = embedder.embed("Add two cups of flour to the mixing bowl").unwrap();
+
+        // All different texts should produce different vectors
+        assert!(cosine_sim(&med1, &med2) < 1.0);
+        assert!(cosine_sim(&lab1, &lab2) < 1.0);
+        assert!(cosine_sim(&med1, &cooking) < 1.0);
+
+        // NOTE: With real model, we'd assert:
+        // cosine_sim(&med1, &med2) > cosine_sim(&med1, &cooking)
+        // cosine_sim(&lab1, &lab2) > cosine_sim(&lab1, &cooking)
+    }
+
+    /// M.2-G06: Empty text handling.
+    #[test]
+    fn empty_text_produces_valid_embedding() {
+        let embedder = MockEmbedder::new();
+        let vec = embedder.embed("").unwrap();
+        assert_eq!(vec.len(), EMBEDDING_DIM);
+    }
 }

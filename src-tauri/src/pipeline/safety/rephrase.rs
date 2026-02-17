@@ -163,7 +163,14 @@ pub fn rephrase_violations(text: &str, violations: &[Violation]) -> Option<Strin
 }
 
 /// Select an appropriate fallback message based on violation types.
+/// Returns English fallback — use `select_fallback_message_i18n` for localized messages.
 pub fn select_fallback_message(violations: &[Violation]) -> String {
+    select_fallback_message_i18n(violations, "en")
+}
+
+/// I18N-06: Select an appropriate fallback message in the given language.
+/// Falls back to English for unsupported languages.
+pub fn select_fallback_message_i18n(violations: &[Violation], lang: &str) -> String {
     // Prioritize by severity
     let has_alarm = violations
         .iter()
@@ -175,8 +182,15 @@ pub fn select_fallback_message(violations: &[Violation]) -> String {
         .iter()
         .any(|v| v.category == ViolationCategory::DiagnosticLanguage);
 
+    match lang {
+        "fr" => select_fallback_fr(has_alarm, has_prescriptive, has_diagnostic),
+        "de" => select_fallback_de(has_alarm, has_prescriptive, has_diagnostic),
+        _ => select_fallback_en(has_alarm, has_prescriptive, has_diagnostic),
+    }
+}
+
+fn select_fallback_en(has_alarm: bool, has_prescriptive: bool, has_diagnostic: bool) -> String {
     if has_alarm {
-        // NC-07: calm framing even in fallback
         "I can help you understand what your medical documents say. \
          If you have health concerns, your healthcare provider is the best person to talk to."
             .to_string()
@@ -192,6 +206,50 @@ pub fn select_fallback_message(violations: &[Violation]) -> String {
     } else {
         "I can help you understand your medical documents. \
          Could you rephrase your question about your documents?"
+            .to_string()
+    }
+}
+
+/// I18N-06: French fallback messages — formal "vous" address.
+fn select_fallback_fr(has_alarm: bool, has_prescriptive: bool, has_diagnostic: bool) -> String {
+    if has_alarm {
+        "Je peux vous aider à comprendre vos documents médicaux. \
+         Si vous avez des préoccupations de santé, votre professionnel de santé est la personne la mieux placée pour en parler."
+            .to_string()
+    } else if has_prescriptive {
+        "Je peux vous aider à comprendre vos documents, mais je ne suis pas en mesure de recommander \
+         des traitements ou des actions. Votre professionnel de santé peut vous aider. \
+         Souhaitez-vous que je vous aide à préparer une question pour votre prochain rendez-vous ?"
+            .to_string()
+    } else if has_diagnostic {
+        "Je peux partager ce que vos documents indiquent, mais je ne suis pas en mesure de poser des diagnostics. \
+         Souhaitez-vous que je vous explique ce que vos documents mentionnent ?"
+            .to_string()
+    } else {
+        "Je peux vous aider à comprendre vos documents médicaux. \
+         Pourriez-vous reformuler votre question concernant vos documents ?"
+            .to_string()
+    }
+}
+
+/// I18N-06: German fallback messages — formal "Sie" address.
+fn select_fallback_de(has_alarm: bool, has_prescriptive: bool, has_diagnostic: bool) -> String {
+    if has_alarm {
+        "Ich kann Ihnen helfen, Ihre medizinischen Dokumente zu verstehen. \
+         Bei gesundheitlichen Bedenken ist Ihr Arzt die beste Ansprechperson."
+            .to_string()
+    } else if has_prescriptive {
+        "Ich kann Ihnen helfen, Ihre Dokumente zu verstehen, bin aber nicht in der Lage, \
+         Behandlungen oder Maßnahmen zu empfehlen. Ihr Arzt kann Ihnen dabei helfen. \
+         Möchten Sie, dass ich Ihnen helfe, eine Frage für Ihren nächsten Termin vorzubereiten?"
+            .to_string()
+    } else if has_diagnostic {
+        "Ich kann Ihnen mitteilen, was Ihre Dokumente besagen, bin aber nicht in der Lage, Diagnosen zu stellen. \
+         Möchten Sie, dass ich Ihnen erkläre, was Ihre Dokumente erwähnen?"
+            .to_string()
+    } else {
+        "Ich kann Ihnen helfen, Ihre medizinischen Dokumente zu verstehen. \
+         Könnten Sie Ihre Frage zu Ihren Dokumenten umformulieren?"
             .to_string()
     }
 }
@@ -337,5 +395,60 @@ mod tests {
     fn fallback_alarm_takes_priority() {
         let msg = select_fallback_message(&[alarm_violation(), diagnostic_violation()]);
         assert!(msg.contains("healthcare provider"));
+    }
+
+    // =================================================================
+    // I18N-06: TRANSLATED FALLBACK MESSAGES
+    // =================================================================
+
+    #[test]
+    fn fallback_fr_alarm() {
+        let msg = select_fallback_message_i18n(&[alarm_violation()], "fr");
+        assert!(msg.contains("professionnel de santé"), "French alarm fallback: {msg}");
+        assert!(!msg.contains("emergency"));
+    }
+
+    #[test]
+    fn fallback_fr_prescriptive() {
+        let msg = select_fallback_message_i18n(&[prescriptive_violation()], "fr");
+        assert!(msg.contains("rendez-vous") || msg.contains("professionnel"), "French prescriptive fallback: {msg}");
+    }
+
+    #[test]
+    fn fallback_fr_diagnostic() {
+        let msg = select_fallback_message_i18n(&[diagnostic_violation()], "fr");
+        assert!(msg.contains("documents"), "French diagnostic fallback: {msg}");
+    }
+
+    #[test]
+    fn fallback_de_alarm() {
+        let msg = select_fallback_message_i18n(&[alarm_violation()], "de");
+        assert!(msg.contains("Arzt"), "German alarm fallback: {msg}");
+        assert!(!msg.contains("emergency"));
+    }
+
+    #[test]
+    fn fallback_de_prescriptive() {
+        let msg = select_fallback_message_i18n(&[prescriptive_violation()], "de");
+        assert!(msg.contains("Termin") || msg.contains("Arzt"), "German prescriptive fallback: {msg}");
+    }
+
+    #[test]
+    fn fallback_de_diagnostic() {
+        let msg = select_fallback_message_i18n(&[diagnostic_violation()], "de");
+        assert!(msg.contains("Dokumente"), "German diagnostic fallback: {msg}");
+    }
+
+    #[test]
+    fn fallback_unknown_lang_defaults_to_en() {
+        let msg = select_fallback_message_i18n(&[alarm_violation()], "ja");
+        assert!(msg.contains("healthcare provider"), "Unknown lang should fallback to EN: {msg}");
+    }
+
+    #[test]
+    fn fallback_en_matches_default() {
+        let default = select_fallback_message(&[alarm_violation()]);
+        let explicit = select_fallback_message_i18n(&[alarm_violation()], "en");
+        assert_eq!(default, explicit);
     }
 }

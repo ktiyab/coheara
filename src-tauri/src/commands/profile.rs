@@ -85,6 +85,21 @@ pub fn unlock_profile(
         tracing::warn!("Failed to hydrate devices: {e}");
     }
 
+    // P.6: Startup consistency cleanup (repair stuck pipeline states, trust drift)
+    {
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        if let Some(session) = guard.as_ref() {
+            match crate::db::sqlite::open_database(session.db_path(), Some(session.key_bytes())) {
+                Ok(conn) => match crate::db::repository::repair_consistency(&conn) {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(repairs = n, "P.6: Startup consistency cleanup applied"),
+                    Err(e) => tracing::warn!(error = %e, "P.6: Startup consistency cleanup failed"),
+                },
+                Err(e) => tracing::warn!(error = %e, "P.6: Could not open DB for startup cleanup"),
+            }
+        }
+    }
+
     // Notify connected phones about profile change (RS-M0-03-003)
     if let Ok(mut devices) = state.write_devices() {
         devices.broadcast(WsOutgoing::ProfileChanged {

@@ -2,7 +2,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::enums::DocumentType;
+use super::enums::{DocumentType, PipelineStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
@@ -19,4 +19,5 @@ pub struct Document {
     pub source_deleted: bool,
     pub perceptual_hash: Option<String>,
     pub notes: Option<String>,
+    pub pipeline_status: PipelineStatus,
 }

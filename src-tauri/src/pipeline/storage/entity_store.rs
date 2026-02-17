@@ -12,10 +12,16 @@ use crate::models::enums::*;
 use crate::pipeline::structuring::types::{ExtractedProfessional, StructuringResult};
 
 /// Store extracted entities into SQLite, returning counts and warnings.
+///
+/// P.3: Idempotent — clears any existing entities for this document before
+/// inserting fresh ones, making reprocessing safe.
 pub fn store_entities(
     conn: &Connection,
     result: &StructuringResult,
 ) -> Result<(EntitiesStoredCount, Vec<StorageWarning>), StorageError> {
+    // P.3: Clear existing entities for idempotent reprocessing
+    repository::clear_document_entities(conn, &result.document_id)?;
+
     let mut counts = EntitiesStoredCount::default();
     let mut warnings = Vec::new();
 
@@ -143,7 +149,7 @@ fn store_medications(
                 name: med.generic_name.clone(),
                 existing_id: med_id,
             });
-            tracing::warn!("Failed to insert medication {}: {e}", med.generic_name);
+            tracing::warn!(medication_id = %med_id, "Failed to insert medication: {e}");
             continue;
         }
 
@@ -156,7 +162,14 @@ fn store_medications(
                 ingredient_dose: ingredient.dose.clone(),
                 maps_to_generic: None,
             };
-            let _ = repository::insert_compound_ingredient(conn, &ci);
+            if let Err(e) = repository::insert_compound_ingredient(conn, &ci) {
+                tracing::warn!(
+                    medication_id = %med_id,
+                    ingredient = %ci.ingredient_name,
+                    error = %e,
+                    "Failed to insert compound ingredient"
+                );
+            }
         }
 
         // Store tapering steps
@@ -166,11 +179,18 @@ fn store_medications(
                 medication_id: med_id,
                 step_number: step.step_number as i32,
                 dose: step.dose.clone(),
-                duration_days: step.duration_days as i32,
+                duration_days: step.duration_days.unwrap_or(0) as i32,
                 start_date: None,
                 document_id: Some(*document_id),
             };
-            let _ = repository::insert_tapering_step(conn, &ts);
+            if let Err(e) = repository::insert_tapering_step(conn, &ts) {
+                tracing::warn!(
+                    medication_id = %med_id,
+                    step = ts.step_number,
+                    error = %e,
+                    "Failed to insert tapering step"
+                );
+            }
         }
 
         // Store instructions
@@ -182,7 +202,13 @@ fn store_medications(
                 timing: None,
                 source_document_id: Some(*document_id),
             };
-            let _ = repository::insert_medication_instruction(conn, &instr);
+            if let Err(e) = repository::insert_medication_instruction(conn, &instr) {
+                tracing::warn!(
+                    medication_id = %med_id,
+                    error = %e,
+                    "Failed to insert medication instruction"
+                );
+            }
         }
 
         count += 1;
@@ -422,6 +448,7 @@ mod tests {
                 source_deleted: false,
                 perceptual_hash: None,
                 notes: None,
+                pipeline_status: PipelineStatus::Imported,
             },
         )
         .unwrap();
@@ -442,6 +469,8 @@ mod tests {
             extracted_entities: ExtractedEntities::default(),
             structuring_confidence: 0.85,
             markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
         }
     }
 
@@ -502,6 +531,7 @@ mod tests {
             unit: Some("%".into()),
             reference_range_low: Some(4.0),
             reference_range_high: Some(5.6),
+            reference_range_text: None,
             abnormal_flag: Some("high".into()),
             collection_date: Some("2024-01-15".into()),
             confidence: 0.95,

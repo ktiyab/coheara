@@ -58,9 +58,9 @@ fn build_snapshot(conn: &rusqlite::Connection) -> Result<RepositorySnapshot, Str
 ///
 /// Tries to load reference data from the bundled resources directory.
 /// Falls back to test data if files are not found (development/CI).
-fn build_engine(conn: &rusqlite::Connection, db_path: &std::path::Path) -> Result<DefaultCoherenceEngine, String> {
+fn build_engine(conn: &rusqlite::Connection, db_path: &std::path::Path, db_key: Option<[u8; 32]>) -> Result<DefaultCoherenceEngine, String> {
     let reference = load_reference_data();
-    DefaultCoherenceEngine::with_db(reference, conn, db_path).map_err(|e| e.to_string())
+    DefaultCoherenceEngine::with_db(reference, conn, db_path, db_key).map_err(|e| e.to_string())
 }
 
 /// Load reference data, falling back to test data if files unavailable.
@@ -103,9 +103,10 @@ pub fn run_coherence_scan(
 ) -> Result<CoherenceResult, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
     let snapshot = build_snapshot(&conn)?;
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
 
     let result = engine.analyze_full(&snapshot).map_err(|e| e.to_string())?;
 
@@ -134,9 +135,10 @@ pub fn run_coherence_scan_document(
 
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
     let snapshot = build_snapshot(&conn)?;
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
 
     let result = engine
         .analyze_new_document(&doc_id, &snapshot)
@@ -164,8 +166,9 @@ pub fn get_coherence_alerts(
 ) -> Result<Vec<CoherenceAlert>, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
 
     let filter = alert_type
         .as_deref()
@@ -195,8 +198,9 @@ pub fn dismiss_coherence_alert(
 
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
     engine
         .dismiss_alert(&id, &reason, DismissedBy::Patient)
         .map_err(|e| e.to_string())?;
@@ -221,8 +225,9 @@ pub fn dismiss_critical_coherence_alert(
 
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
     engine
         .dismiss_critical_alert(&id, &reason, two_step_confirmed)
         .map_err(|e| e.to_string())?;
@@ -242,8 +247,9 @@ pub fn get_coherence_emergency_actions(
 ) -> Result<Vec<EmergencyAction>, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let db_path = state.db_path().map_err(|e| e.to_string())?;
+    let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path)?;
+    let engine = build_engine(&conn, &db_path, db_key)?;
     let critical_alerts = engine.get_critical_alerts().map_err(|e| e.to_string())?;
 
     let actions = EmergencyProtocol::process_critical_alerts(&critical_alerts);
@@ -305,6 +311,7 @@ mod tests {
                 source_deleted: false,
                 perceptual_hash: None,
                 notes: None,
+                pipeline_status: PipelineStatus::Imported,
             },
         )
         .unwrap();
@@ -374,6 +381,7 @@ mod tests {
             CoherenceReferenceData::load_test(),
             &conn,
             std::path::Path::new(":memory:"),
+            None,
         );
         assert!(result.is_ok());
     }
@@ -385,6 +393,7 @@ mod tests {
             CoherenceReferenceData::load_test(),
             &conn,
             std::path::Path::new(":memory:"),
+            None,
         )
         .unwrap();
 

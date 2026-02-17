@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { invoke } from '@tauri-apps/api/core';
   import { isProfileActive, listProfiles } from '$lib/api/profile';
   import type { ProfileInfo, AppScreen } from '$lib/types/profile';
@@ -54,7 +55,7 @@
 
 {#if screen === 'loading'}
   <div class="flex items-center justify-center min-h-screen">
-    <p class="text-stone-400">Loading...</p>
+    <p class="text-stone-400">{$t('common.loading')}</p>
   </div>
 {:else if screen === 'trust'}
   <TrustScreen onContinue={() => screen = 'create'} />

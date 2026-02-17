@@ -17,6 +17,11 @@ pub struct StructuringResult {
     pub extracted_entities: ExtractedEntities,
     pub structuring_confidence: f32,
     pub markdown_file_path: Option<String>,
+    #[serde(default)]
+    pub validation_warnings: Vec<String>,
+    /// P.8: Raw LLM response archived for debugging/audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_llm_response: Option<String>,
 }
 
 /// All entities extracted from a single document
@@ -35,9 +40,13 @@ pub struct ExtractedEntities {
 pub struct ExtractedMedication {
     pub generic_name: Option<String>,
     pub brand_name: Option<String>,
+    #[serde(default)]
     pub dose: String,
+    #[serde(default)]
     pub frequency: String,
+    #[serde(default)]
     pub frequency_type: String,
+    #[serde(default)]
     pub route: String,
     pub reason: Option<String>,
     pub instructions: Vec<String>,
@@ -46,6 +55,8 @@ pub struct ExtractedMedication {
     pub tapering_steps: Vec<ExtractedTaperingStep>,
     pub max_daily_dose: Option<String>,
     pub condition: Option<String>,
+    /// Pipeline-assigned confidence (not LLM self-reported). Defaults to 0.0.
+    #[serde(default)]
     pub confidence: f32,
 }
 
@@ -59,7 +70,8 @@ pub struct ExtractedCompoundIngredient {
 pub struct ExtractedTaperingStep {
     pub step_number: u32,
     pub dose: String,
-    pub duration_days: u32,
+    #[serde(default)]
+    pub duration_days: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,8 +83,12 @@ pub struct ExtractedLabResult {
     pub unit: Option<String>,
     pub reference_range_low: Option<f64>,
     pub reference_range_high: Option<f64>,
+    /// Text reference range for non-numeric ranges (e.g., "< 5.0", "négatif")
+    #[serde(default)]
+    pub reference_range_text: Option<String>,
     pub abnormal_flag: Option<String>,
     pub collection_date: Option<String>,
+    #[serde(default)]
     pub confidence: f32,
 }
 
@@ -81,7 +97,9 @@ pub struct ExtractedDiagnosis {
     pub name: String,
     pub icd_code: Option<String>,
     pub date: Option<String>,
+    #[serde(default)]
     pub status: String,
+    #[serde(default)]
     pub confidence: f32,
 }
 
@@ -90,6 +108,7 @@ pub struct ExtractedAllergy {
     pub allergen: String,
     pub reaction: Option<String>,
     pub severity: Option<String>,
+    #[serde(default)]
     pub confidence: f32,
 }
 
@@ -98,8 +117,10 @@ pub struct ExtractedProcedure {
     pub name: String,
     pub date: Option<String>,
     pub outcome: Option<String>,
+    #[serde(default)]
     pub follow_up_required: bool,
     pub follow_up_date: Option<String>,
+    #[serde(default)]
     pub confidence: f32,
 }
 
@@ -108,12 +129,14 @@ pub struct ExtractedReferral {
     pub referred_to: String,
     pub specialty: Option<String>,
     pub reason: Option<String>,
+    #[serde(default)]
     pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedInstruction {
     pub text: String,
+    #[serde(default)]
     pub category: String,
 }
 

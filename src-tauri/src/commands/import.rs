@@ -58,7 +58,7 @@ pub async fn import_document(
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
 
-    let conn = open_database(&db_path)
+    let conn = open_database(&db_path, Some(session.key_bytes()))
         .map_err(|e| format!("Database error: {e}"))?;
 
     let result = import_file(path, session, &conn)
@@ -130,7 +130,7 @@ pub async fn import_documents_batch(
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
 
-    let conn = open_database(&db_path)
+    let conn = open_database(&db_path, Some(session.key_bytes()))
         .map_err(|e| format!("Database error: {e}"))?;
 
     let total = file_paths.len();
@@ -214,24 +214,12 @@ pub async fn process_document(
         .unwrap_or("unknown")
         .to_string();
 
-    // Emit: processing started
-    let _ = app.emit(
-        "processing-progress",
-        ProcessingProgressEvent {
-            stage: "importing".into(),
-            file_name: file_name.clone(),
-            document_id: None,
-            progress_pct: Some(10),
-            error: None,
-        },
-    );
-
     // Acquire session + DB
     let guard = state.read_session().map_err(|e| e.to_string())?;
     let session = guard
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
-    let conn = open_database(session.db_path()).map_err(|e| format!("Database error: {e}"))?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| format!("Database error: {e}"))?;
 
     // Resolve active model via preferences (L6-04)
     let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
@@ -244,76 +232,124 @@ pub async fn process_document(
     let processor = crate::pipeline::processor::build_processor(&resolved.name)
         .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-    // Emit: extraction starting
+    // O.4: Emit progress BEFORE the pipeline starts (import+extract+structure)
     let _ = app.emit(
         "processing-progress",
         ProcessingProgressEvent {
-            stage: "extracting".into(),
+            stage: "processing".into(),
             file_name: file_name.clone(),
-            document_id: None,
-            progress_pct: Some(30),
-            error: None,
+            progress_pct: Some(10),
+            ..Default::default()
         },
     );
 
+    // Q.1: Start heartbeat thread to emit periodic progress during LLM call
+    let heartbeat_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let heartbeat_flag = heartbeat_active.clone();
+    let heartbeat_app = app.clone();
+    let heartbeat_file = file_name.clone();
+    let heartbeat_handle = std::thread::spawn(move || {
+        let mut pct: u8 = 15;
+        while heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            if !heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let _ = heartbeat_app.emit(
+                "processing-progress",
+                ProcessingProgressEvent {
+                    stage: "processing".into(),
+                    file_name: heartbeat_file.clone(),
+                    progress_pct: Some(pct),
+                    ..Default::default()
+                },
+            );
+            // Slowly increment between 15-65%, never reaching 70
+            if pct < 65 {
+                pct += 5;
+            }
+        }
+    });
+
     // Run the full pipeline (import → extract → structure)
     let output = match processor.process_file(path, session, &conn) {
-        Ok(output) => output,
+        Ok(output) => {
+            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = heartbeat_handle.join();
+            output
+        }
         Err(e) => {
-            // E2E-B05: Emit failure event before returning error
+            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = heartbeat_handle.join();
+            // R.1+R.4: Emit failure event with patient-friendly error
+            let patient_err = e.to_patient_error();
             let _ = app.emit(
                 "processing-progress",
                 ProcessingProgressEvent {
                     stage: "failed".into(),
                     file_name: file_name.clone(),
-                    document_id: None,
-                    progress_pct: None,
-                    error: Some(e.to_string()),
+                    error: Some(e.sanitized_message()),
+                    error_category: Some(patient_err.category.clone()),
+                    is_retryable: Some(patient_err.retry_possible),
+                    ..Default::default()
                 },
             );
-            return Err(format!("Processing failed: {e}"));
+            return Err(format!("{}: {}", patient_err.title, patient_err.message));
         }
     };
 
-    // E2E-B05: Emit structuring stage (extraction complete, structuring done)
+    // O.4: Emit accurate post-processing event with document_id
+    let doc_id_str = output.outcome.document_id.to_string();
     let _ = app.emit(
         "processing-progress",
         ProcessingProgressEvent {
-            stage: "structuring".into(),
+            stage: "processed".into(),
             file_name: file_name.clone(),
-            document_id: Some(output.outcome.document_id.to_string()),
-            progress_pct: Some(60),
-            error: None,
+            document_id: Some(doc_id_str.clone()),
+            progress_pct: Some(70),
+            ..Default::default()
         },
     );
 
     // Save pending review if structuring succeeded
     if let Some(ref structuring) = output.structuring_result {
-        // Emit: saving for review
         let _ = app.emit(
             "processing-progress",
             ProcessingProgressEvent {
                 stage: "saving_review".into(),
                 file_name: file_name.clone(),
-                document_id: Some(output.outcome.document_id.to_string()),
+                document_id: Some(doc_id_str.clone()),
                 progress_pct: Some(90),
-                error: None,
+                ..Default::default()
             },
         );
 
         crate::commands::review::save_pending_structuring(session, structuring)
             .map_err(|e| format!("Failed to save for review: {e}"))?;
+
+        // O.5: Update pipeline status → PendingReview
+        if let Err(e) = crate::db::repository::update_pipeline_status(
+            &conn,
+            &output.outcome.document_id,
+            &crate::models::enums::PipelineStatus::PendingReview,
+        ) {
+            tracing::warn!(
+                document_id = %output.outcome.document_id,
+                error = %e,
+                "Failed to set pipeline status to PendingReview"
+            );
+        }
     }
 
-    // Emit: complete
+    // Emit: complete (only AFTER all post-processing is done)
     let _ = app.emit(
         "processing-progress",
         ProcessingProgressEvent {
             stage: "complete".into(),
             file_name: file_name.clone(),
-            document_id: Some(output.outcome.document_id.to_string()),
+            document_id: Some(doc_id_str),
             progress_pct: Some(100),
-            error: None,
+            ..Default::default()
         },
     );
 
@@ -356,7 +392,7 @@ pub async fn process_documents_batch(
     let session = guard
         .as_ref()
         .ok_or("No active profile. Unlock a profile first.")?;
-    let conn = open_database(session.db_path()).map_err(|e| format!("Database error: {e}"))?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| format!("Database error: {e}"))?;
 
     // Resolve active model via preferences (L6-04)
     let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
@@ -408,6 +444,19 @@ pub async fn process_documents_batch(
                             error = %e,
                             "Failed to save pending review"
                         );
+                    } else {
+                        // O.5: Update pipeline status → PendingReview
+                        if let Err(e) = crate::db::repository::update_pipeline_status(
+                            &conn,
+                            &output.outcome.document_id,
+                            &crate::models::enums::PipelineStatus::PendingReview,
+                        ) {
+                            tracing::warn!(
+                                document_id = %output.outcome.document_id,
+                                error = %e,
+                                "Failed to set pipeline status to PendingReview"
+                            );
+                        }
                     }
                 }
 
@@ -439,6 +488,236 @@ pub async fn process_documents_batch(
 }
 
 // ---------------------------------------------------------------------------
+// P.4: Delete Document IPC
+// ---------------------------------------------------------------------------
+
+/// Delete a document and all its child entities, vector chunks, and pending review files.
+///
+/// Uses the cascade delete from O.2 to ensure complete cleanup.
+/// Also removes any pending review file for this document.
+#[tauri::command]
+pub async fn delete_document(
+    document_id: String,
+    state: State<'_, Arc<CoreState>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let doc_id = uuid::Uuid::parse_str(&document_id)
+        .map_err(|e| format!("Invalid document ID: {e}"))?;
+
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard
+        .as_ref()
+        .ok_or("No active profile. Unlock a profile first.")?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes()))
+        .map_err(|e| format!("Database error: {e}"))?;
+
+    // Delete from database (entities, chunks, document)
+    crate::db::repository::delete_document_cascade(&conn, &doc_id)
+        .map_err(|e| format!("Delete failed: {e}"))?;
+
+    // Clean up pending review file if it exists
+    let _ = crate::commands::review::remove_pending_structuring_pub(session, &doc_id);
+
+    let _ = app.emit("document-deleted", doc_id.to_string());
+
+    state.log_access(
+        crate::core_state::AccessSource::DesktopUi,
+        "delete_document",
+        &format!("document:{doc_id}"),
+    );
+    state.update_activity();
+
+    tracing::info!(document_id = %doc_id, "Document deleted via IPC");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// P.1: Reprocess Document IPC
+// ---------------------------------------------------------------------------
+
+/// Reprocess an existing document: re-run extraction + structuring.
+///
+/// P.7: Skips duplicate detection since the document is already in the DB.
+/// P.3: Entity store is idempotent (clears before insert).
+///
+/// The document must exist and be in a reprocessable state
+/// (Imported, Failed, or PendingReview).
+#[tauri::command]
+pub async fn reprocess_document(
+    document_id: String,
+    state: State<'_, Arc<CoreState>>,
+    app: AppHandle,
+) -> Result<crate::pipeline::processor::ProcessingOutcome, String> {
+    let doc_id = uuid::Uuid::parse_str(&document_id)
+        .map_err(|e| format!("Invalid document ID: {e}"))?;
+
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard
+        .as_ref()
+        .ok_or("No active profile. Unlock a profile first.")?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes()))
+        .map_err(|e| format!("Database error: {e}"))?;
+
+    // Fetch the existing document
+    let doc = crate::db::repository::get_document(&conn, &doc_id)
+        .map_err(|e| format!("Database error: {e}"))?
+        .ok_or_else(|| format!("Document not found: {doc_id}"))?;
+
+    // Validate the document is in a reprocessable state
+    let reprocessable = matches!(
+        doc.pipeline_status,
+        crate::models::enums::PipelineStatus::Imported
+        | crate::models::enums::PipelineStatus::Failed
+        | crate::models::enums::PipelineStatus::PendingReview
+    );
+    if !reprocessable {
+        return Err(format!(
+            "Document cannot be reprocessed in '{}' state",
+            doc.pipeline_status.as_str()
+        ));
+    }
+
+    // P.7: Build ImportResult from existing document (skips duplicate detection).
+    // Use a default format since the staged file is already encrypted;
+    // the extractor will re-detect format from the decrypted content.
+    let import_result = ImportResult {
+        document_id: doc.id,
+        original_filename: doc.title.clone(),
+        staged_path: doc.source_file.clone(),
+        format: crate::pipeline::import::format::FormatDetection {
+            mime_type: "application/octet-stream".into(),
+            category: crate::pipeline::import::format::FileCategory::PlainText,
+            is_digital_pdf: None,
+            file_size_bytes: 0,
+        },
+        duplicate_of: None,
+        status: ImportStatus::Staged,
+    };
+
+    // Resolve model + build processor
+    let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let resolved = state
+        .resolver()
+        .resolve(&conn, &ollama)
+        .map_err(|e| format!("No AI model available: {e}"))?;
+
+    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+        .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+
+    // Reset pipeline status to Imported before reprocessing
+    if let Err(e) = crate::db::repository::update_pipeline_status(
+        &conn,
+        &doc_id,
+        &crate::models::enums::PipelineStatus::Imported,
+    ) {
+        tracing::warn!(document_id = %doc_id, error = %e, "Failed to reset pipeline status");
+    }
+
+    let _ = app.emit(
+        "processing-progress",
+        ProcessingProgressEvent {
+            stage: "reprocessing".into(),
+            file_name: doc.title.clone(),
+            document_id: Some(doc_id.to_string()),
+            progress_pct: Some(10),
+            ..Default::default()
+        },
+    );
+
+    // Q.1: Start heartbeat thread for reprocessing
+    let heartbeat_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let heartbeat_flag = heartbeat_active.clone();
+    let heartbeat_app = app.clone();
+    let heartbeat_file = doc.title.clone();
+    let heartbeat_doc_id = doc_id.to_string();
+    let heartbeat_handle = std::thread::spawn(move || {
+        let mut pct: u8 = 15;
+        while heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            if !heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let _ = heartbeat_app.emit(
+                "processing-progress",
+                ProcessingProgressEvent {
+                    stage: "reprocessing".into(),
+                    file_name: heartbeat_file.clone(),
+                    document_id: Some(heartbeat_doc_id.clone()),
+                    progress_pct: Some(pct),
+                    ..Default::default()
+                },
+            );
+            if pct < 65 {
+                pct += 5;
+            }
+        }
+    });
+
+    // Process using the imported document path
+    let output = match processor.process_imported(&import_result, session, &conn) {
+        Ok(output) => {
+            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = heartbeat_handle.join();
+            output
+        }
+        Err(e) => {
+            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = heartbeat_handle.join();
+            // R.1+R.4: Emit failure with patient-friendly error
+            let patient_err = e.to_patient_error();
+            let _ = app.emit(
+                "processing-progress",
+                ProcessingProgressEvent {
+                    stage: "failed".into(),
+                    file_name: doc.title.clone(),
+                    document_id: Some(doc_id.to_string()),
+                    error: Some(e.sanitized_message()),
+                    error_category: Some(patient_err.category.clone()),
+                    is_retryable: Some(patient_err.retry_possible),
+                    ..Default::default()
+                },
+            );
+            return Err(format!("{}: {}", patient_err.title, patient_err.message));
+        }
+    };
+
+    // Save pending review if structuring succeeded
+    if let Some(ref structuring) = output.structuring_result {
+        crate::commands::review::save_pending_structuring(session, structuring)
+            .map_err(|e| format!("Failed to save for review: {e}"))?;
+
+        if let Err(e) = crate::db::repository::update_pipeline_status(
+            &conn,
+            &doc_id,
+            &crate::models::enums::PipelineStatus::PendingReview,
+        ) {
+            tracing::warn!(document_id = %doc_id, error = %e, "Failed to set PendingReview status");
+        }
+    }
+
+    let _ = app.emit(
+        "processing-progress",
+        ProcessingProgressEvent {
+            stage: "complete".into(),
+            file_name: doc.title.clone(),
+            document_id: Some(doc_id.to_string()),
+            progress_pct: Some(100),
+            ..Default::default()
+        },
+    );
+
+    state.log_access(
+        crate::core_state::AccessSource::DesktopUi,
+        "reprocess_document",
+        &format!("document:{doc_id}"),
+    );
+    state.update_activity();
+
+    tracing::info!(document_id = %doc_id, "Document reprocessed via IPC");
+    Ok(output.outcome)
+}
+
+// ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
 
@@ -460,13 +739,22 @@ struct ImportBatchProgressEvent {
 }
 
 /// Progress event emitted during document processing (E2E-B02).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 struct ProcessingProgressEvent {
     stage: String,
     file_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     progress_pct: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// P.5: Patient-friendly error category (only set when stage is "failed").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_category: Option<crate::pipeline::processor::ErrorCategory>,
+    /// P.5: Whether the error is retryable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_retryable: Option<bool>,
 }
 
 /// Batch progress event emitted during multi-file processing (E2E-B02).
@@ -514,7 +802,7 @@ mod tests {
             file_name: "report.pdf".into(),
             document_id: Some("abc-123".into()),
             progress_pct: Some(30),
-            error: None,
+            ..Default::default()
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("extracting"));
@@ -534,5 +822,21 @@ mod tests {
         assert!(json.contains("\"current\":2"));
         assert!(json.contains("\"total\":5"));
         assert!(json.contains("processing"));
+    }
+
+    #[test]
+    fn processing_progress_with_error_category_serializes() {
+        let event = ProcessingProgressEvent {
+            stage: "failed".into(),
+            file_name: "broken.pdf".into(),
+            error: Some("AI model not found".into()),
+            error_category: Some(crate::pipeline::processor::ErrorCategory::AiUnavailable),
+            is_retryable: Some(true),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"error_category\":\"ai_unavailable\""));
+        assert!(json.contains("\"is_retryable\":true"));
+        assert!(!json.contains("progress_pct")); // skip_serializing_if works
     }
 }

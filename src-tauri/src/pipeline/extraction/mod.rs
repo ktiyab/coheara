@@ -4,6 +4,10 @@ pub mod sanitize;
 pub mod preprocess;
 pub mod pdf;
 pub mod ocr;
+pub mod language_detect;
+pub mod medical_correction;
+pub mod column_detect;
+pub mod table_detect;
 pub mod orchestrator;
 
 pub use types::*;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { createProfile } from '$lib/api/profile';
   import type { ProfileCreateResult } from '$lib/types/profile';
 
@@ -18,11 +19,11 @@
 
   function validatePassword(): boolean {
     if (password.length < 6) {
-      passwordError = 'Password must be at least 6 characters';
+      passwordError = $t('profile.password_too_short');
       return false;
     }
     if (password !== confirmPassword) {
-      passwordError = 'Passwords do not match';
+      passwordError = $t('profile.password_mismatch');
       return false;
     }
     passwordError = '';
@@ -50,15 +51,15 @@
 </script>
 
 <div class="flex flex-col items-center justify-center min-h-screen px-8 gap-6 max-w-md mx-auto">
-  <h2 class="text-2xl font-bold text-stone-800">Create your profile</h2>
+  <h2 class="text-2xl font-bold text-stone-800">{$t('profile.create_heading')}</h2>
 
   <div class="w-full flex flex-col gap-4">
     <label class="flex flex-col gap-1">
-      <span class="text-stone-600 text-sm font-medium">What's your name?</span>
+      <span class="text-stone-600 text-sm font-medium">{$t('profile.name_label')}</span>
       <input
         type="text"
         bind:value={name}
-        placeholder="Marie"
+        placeholder={$t('profile.name_placeholder')}
         class="px-4 py-3 rounded-lg border border-stone-300 text-lg min-h-[44px]
                focus:border-[var(--color-primary)] focus:outline-none"
         autocomplete="off"
@@ -69,17 +70,17 @@
       <input type="checkbox" id="caregiver" bind:checked={caregiverMode}
              class="min-h-[44px] min-w-[44px]" />
       <label for="caregiver" class="text-stone-600 text-sm">
-        I'm setting this up for someone I care for
+        {$t('profile.caregiver_mode')}
       </label>
     </div>
 
     {#if caregiverMode}
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">Your name (caregiver)</span>
+        <span class="text-stone-600 text-sm font-medium">{$t('profile.caregiver_name_label')}</span>
         <input
           type="text"
           bind:value={caregiverName}
-          placeholder="Sophie"
+          placeholder={$t('profile.caregiver_placeholder')}
           class="px-4 py-3 rounded-lg border border-stone-300 text-lg min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
         />
@@ -87,11 +88,11 @@
     {/if}
 
     <label class="flex flex-col gap-1">
-      <span class="text-stone-600 text-sm font-medium">Create a password</span>
+      <span class="text-stone-600 text-sm font-medium">{$t('profile.password_label')}</span>
       <input
         type="password"
         bind:value={password}
-        placeholder="At least 6 characters"
+        placeholder={$t('profile.password_placeholder')}
         class="px-4 py-3 rounded-lg border border-stone-300 text-lg min-h-[44px]
                focus:border-[var(--color-primary)] focus:outline-none"
         autocomplete="new-password"
@@ -99,11 +100,11 @@
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="text-stone-600 text-sm font-medium">Confirm password</span>
+      <span class="text-stone-600 text-sm font-medium">{$t('profile.confirm_password_label')}</span>
       <input
         type="password"
         bind:value={confirmPassword}
-        placeholder="Type it again"
+        placeholder={$t('profile.confirm_password_placeholder')}
         class="px-4 py-3 rounded-lg border border-stone-300 text-lg min-h-[44px]
                focus:border-[var(--color-primary)] focus:outline-none"
         autocomplete="new-password"
@@ -120,7 +121,7 @@
       onclick={handleCreate}
       disabled={loading || !name.trim() || !password}
     >
-      {loading ? 'Creating...' : 'Create profile'}
+      {loading ? $t('common.creating') : $t('profile.create_button')}
     </button>
   </div>
 </div>

@@ -132,10 +132,14 @@ const ALLOWED_PREFERENCE_KEYS: &[&str] = &[
 /// Classify a model name as Medical or General based on curated prefix list.
 ///
 /// DOM-L6-13: Classification is informational only — does NOT gate features.
+///
+/// R-MOD-02 F1: Uses `extract_model_component()` to strip namespace prefix
+/// before matching. `MedAIBase/MedGemma1.5:4b` → extracts `medgemma1.5` →
+/// matches `medgemma` prefix → `Medical`.
 pub fn classify_model(model_name: &str) -> ModelQuality {
-    let lower = model_name.to_lowercase();
+    let component = super::ollama_types::extract_model_component(model_name);
     for prefix in MEDICAL_MODEL_PREFIXES {
-        if lower.starts_with(prefix) {
+        if component.starts_with(prefix) {
             return ModelQuality::Medical;
         }
     }
@@ -410,6 +414,49 @@ mod tests {
         fn empty_string_is_general() {
             assert_eq!(classify_model(""), ModelQuality::General);
         }
+
+        // ── Namespaced model classification (R-MOD-02 L.3) ──
+
+        #[test]
+        fn namespaced_medgemma_is_medical() {
+            assert_eq!(classify_model("MedAIBase/MedGemma1.5:4b"), ModelQuality::Medical);
+        }
+
+        #[test]
+        fn namespaced_medgemma_alt_is_medical() {
+            assert_eq!(classify_model("alibayram/medgemma:4b"), ModelQuality::Medical);
+        }
+
+        #[test]
+        fn namespaced_biomistral_is_medical() {
+            assert_eq!(classify_model("SomeOrg/biomistral:7b"), ModelQuality::Medical);
+        }
+
+        #[test]
+        fn namespaced_med_prefix_is_medical() {
+            assert_eq!(classify_model("org/med-palm:latest"), ModelQuality::Medical);
+        }
+
+        #[test]
+        fn namespaced_clinical_is_medical() {
+            assert_eq!(classify_model("user/clinical-bert:large"), ModelQuality::Medical);
+        }
+
+        #[test]
+        fn namespaced_general_is_general() {
+            assert_eq!(classify_model("random-org/general-model:latest"), ModelQuality::General);
+        }
+
+        #[test]
+        fn medical_org_general_model_is_general() {
+            // Org name contains "medical" but model itself doesn't — classify by model, not org
+            assert_eq!(classify_model("medicalorg/llama:7b"), ModelQuality::General);
+        }
+
+        #[test]
+        fn namespaced_llama_is_general() {
+            assert_eq!(classify_model("meta/llama3:8b"), ModelQuality::General);
+        }
     }
 
     // ── validate_preference_key tests ───────────────────────
@@ -622,6 +669,22 @@ mod tests {
 
             let result = resolver.resolve(&conn, &client).unwrap();
             assert_eq!(result.source, PreferenceSource::Wizard);
+        }
+
+        #[test]
+        fn resolver_selects_namespaced_medical_model() {
+            // R-MOD-02: Resolver Step 2 must find namespaced medical model
+            let conn = setup_db_with_preference(None, "unknown", "user");
+            let client = MockLlmForResolver::with_models(vec![
+                "llama3:8b",
+                "MedAIBase/MedGemma1.5:4b",
+            ]);
+            let resolver = ActiveModelResolver::new();
+
+            let result = resolver.resolve(&conn, &client).unwrap();
+            assert_eq!(result.name, "MedAIBase/MedGemma1.5:4b");
+            assert_eq!(result.quality, ModelQuality::Medical);
+            assert_eq!(result.source, PreferenceSource::Fallback);
         }
 
         #[test]

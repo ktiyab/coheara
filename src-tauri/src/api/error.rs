@@ -7,6 +7,43 @@ use serde::Serialize;
 
 use crate::core_state::CoreError;
 
+/// Maximum length for error details in logs (SEC-02-G02).
+/// Longer strings may contain LLM output fragments with PHI.
+const MAX_LOG_DETAIL_LEN: usize = 200;
+
+/// Redact potential PHI from error detail strings before logging (SEC-02-G02).
+///
+/// Strips SQL constraint value echoes, file paths containing profile IDs,
+/// and truncates long strings that may contain LLM output fragments.
+fn redact_phi(detail: &str) -> String {
+    let mut result = detail.to_string();
+
+    // 1. Truncate long strings (may contain LLM output with medical data)
+    if result.len() > MAX_LOG_DETAIL_LEN {
+        result.truncate(MAX_LOG_DETAIL_LEN);
+        result.push_str("...[REDACTED]");
+    }
+
+    // 2. Redact SQL constraint violations that echo field values
+    let lower = result.to_lowercase();
+    if let Some(pos) = lower.find("constraint failed:") {
+        let end = pos + "constraint failed:".len();
+        result.truncate(end);
+        result.push_str(" [REDACTED]");
+    }
+
+    // 3. Redact file paths (may contain profile UUIDs or timestamps)
+    if result.contains("profiles/") || result.contains("profiles\\") {
+        // Replace path segments after "profiles/" with [PATH]
+        let segments: Vec<&str> = result.split("profiles").collect();
+        if segments.len() > 1 {
+            result = format!("{}profiles/[PATH]", segments[0]);
+        }
+    }
+
+    result
+}
+
 /// Structured error response body for mobile clients.
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
@@ -71,7 +108,8 @@ impl IntoResponse for ApiError {
                 detail.clone(),
             ),
             ApiError::Internal(detail) => {
-                tracing::error!(detail, "API internal error");
+                let safe_detail = redact_phi(detail);
+                tracing::error!(detail = %safe_detail, "API internal error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "INTERNAL",
@@ -202,5 +240,45 @@ mod tests {
         let api_err: ApiError = CoreError::NoActiveSession.into();
         let response = api_err.into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    // ── PHI redaction tests (SEC-02-G02) ─────────────────────────
+
+    #[test]
+    fn redact_short_clean_error_unchanged() {
+        let result = redact_phi("lock poisoned");
+        assert_eq!(result, "lock poisoned");
+    }
+
+    #[test]
+    fn redact_truncates_long_strings() {
+        let long = "a".repeat(300);
+        let result = redact_phi(&long);
+        assert!(result.len() < 250);
+        assert!(result.ends_with("...[REDACTED]"));
+    }
+
+    #[test]
+    fn redact_sql_constraint_violations() {
+        let error = "UNIQUE constraint failed: medications.generic_name = 'Metformin'";
+        let result = redact_phi(error);
+        assert!(result.contains("[REDACTED]"));
+        assert!(!result.contains("Metformin"));
+    }
+
+    #[test]
+    fn redact_file_paths_with_profile_ids() {
+        let error = "I/O error: profiles/abc-123-uuid/staging/mobile/doc.jpg: not found";
+        let result = redact_phi(error);
+        assert!(result.contains("[PATH]"));
+        assert!(!result.contains("abc-123-uuid"));
+    }
+
+    #[test]
+    fn redact_combined_threats() {
+        let error = "Database error at profiles/uuid-here/db.sqlite: constraint failed: allergies.allergen = 'Penicillin'";
+        let result = redact_phi(error);
+        assert!(!result.contains("Penicillin"));
+        assert!(!result.contains("uuid-here"));
     }
 }

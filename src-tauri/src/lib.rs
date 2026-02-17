@@ -37,6 +37,9 @@ pub fn run() {
 
     tracing::info!("Coheara starting v{}", config::APP_VERSION);
 
+    // SEC-02-G08: Clean orphaned staging files from previous crashes
+    crypto::cleanup_orphaned_staging(&config::profiles_dir());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -45,6 +48,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::health_check,
             commands::check_ai_status,
+            commands::verify_ai_status,
             commands::profile::list_profiles,
             commands::profile::create_profile,
             commands::profile::unlock_profile,
@@ -102,6 +106,8 @@ pub fn run() {
             commands::trust::erase_profile_data,
             commands::trust::get_privacy_info_cmd,
             commands::trust::open_data_folder,
+            commands::trust::check_data_consistency,
+            commands::trust::repair_data_consistency,
             commands::devices::list_paired_devices,
             commands::devices::unpair_device,
             commands::devices::get_device_count,
@@ -119,6 +125,8 @@ pub fn run() {
             commands::import::import_documents_batch,
             commands::import::process_document,
             commands::import::process_documents_batch,
+            commands::import::delete_document,
+            commands::import::reprocess_document,
             commands::coherence::run_coherence_scan,
             commands::coherence::run_coherence_scan_document,
             commands::coherence::get_coherence_alerts,

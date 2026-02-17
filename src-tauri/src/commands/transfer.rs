@@ -12,6 +12,7 @@ use tauri::State;
 use crate::core_state::CoreState;
 use crate::db::sqlite::open_database;
 use crate::pipeline::import::importer::import_file;
+use crate::pipeline::import::staging::decrypt_staging_to_temp;
 use crate::wifi_transfer::{
     generate_qr_code, start_transfer_server, QrCodeData, TransferConfig,
     TransferStatusResponse,
@@ -33,13 +34,13 @@ fn staging_dir_from_db_path(db_path: &Path) -> Result<std::path::PathBuf, String
 pub async fn start_wifi_transfer(
     state: State<'_, Arc<CoreState>>,
 ) -> Result<QrCodeData, String> {
-    // Verify active session
-    let staging_dir = {
+    // Verify active session and get encryption key
+    let (staging_dir, encryption_key) = {
         let guard = state.read_session().map_err(|e| e.to_string())?;
         let session = guard
             .as_ref()
             .ok_or("No active profile session")?;
-        staging_dir_from_db_path(session.db_path())?
+        (staging_dir_from_db_path(session.db_path())?, *session.key_bytes())
     };
 
     // Check if server already running
@@ -51,7 +52,8 @@ pub async fn start_wifi_transfer(
     }
 
     let config = TransferConfig::default();
-    let server = start_transfer_server(staging_dir, config).await?;
+    // SEC-02-G04: Pass encryption key so staging files are encrypted at rest
+    let server = start_transfer_server(staging_dir, config, encryption_key).await?;
 
     // Generate QR code
     let qr_svg = generate_qr_code(&server.session.url)?;
@@ -129,8 +131,9 @@ pub async fn process_staged_files(
         .as_ref()
         .ok_or("No active profile session")?;
 
-    let conn = open_database(&db_path).map_err(|e| format!("Database error: {e}"))?;
+    let conn = open_database(&db_path, Some(session.key_bytes())).map_err(|e| format!("Database error: {e}"))?;
 
+    let key = session.key_bytes();
     let mut count = 0u32;
     for entry in entries {
         let path = entry.path();
@@ -138,7 +141,19 @@ pub async fn process_staged_files(
             continue;
         }
 
-        match import_file(&path, session, &conn) {
+        // SEC-02-G04: Decrypt encrypted staging file to temp for import
+        let temp_file = match decrypt_staging_to_temp(&path, key) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "WiFi transfer: staging decryption failed"
+                );
+                continue;
+            }
+        };
+
+        match import_file(temp_file.path(), session, &conn) {
             Ok(result) => {
                 tracing::info!(
                     document_id = %result.document_id,
@@ -146,19 +161,19 @@ pub async fn process_staged_files(
                     status = ?result.status,
                     "WiFi transfer file imported"
                 );
-                // Remove staged file after successful import
-                std::fs::remove_file(&path).ok();
+                // Remove encrypted staged file after successful import (SEC-02-G05)
+                crate::crypto::secure_delete_file(&path).ok();
                 count += 1;
             }
             Err(e) => {
                 tracing::warn!(
-                    path = %path.display(),
                     error = %e,
                     "Failed to import WiFi transfer file"
                 );
                 // Leave failed files for retry
             }
         }
+        // temp_file dropped here → auto-deleted
     }
 
     state.update_activity();

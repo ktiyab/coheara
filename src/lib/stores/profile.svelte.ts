@@ -1,14 +1,16 @@
 /**
- * E2E-F06: Global profile store.
+ * E2E-F06 + S.5: Global profile store.
  *
- * Replaces prop-drilled `profileName` and `aiStatus` with a singleton
- * reactive store. Loaded once on app mount, accessible everywhere.
+ * S.5: aiStatus is kept for backward compatibility but is now synced
+ * from the ai store (single source of truth). Use `ai.isAiAvailable`
+ * for the canonical check.
  */
 
 import type { AiStatus } from '$lib/api/profile';
 
 class ProfileStore {
 	name = $state('');
+	/** @deprecated S.5: Use ai store directly. Kept for backward compat in +page.svelte. */
 	aiStatus = $state<AiStatus | null>(null);
 
 	get isAiAvailable(): boolean {

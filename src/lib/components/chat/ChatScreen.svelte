@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { listen } from '@tauri-apps/api/event';
   import {
     startConversation,
@@ -21,6 +22,7 @@
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ConversationList from './ConversationList.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 
   interface Props {
     initialConversationId?: string;
@@ -51,7 +53,7 @@
   // Derived
   let hasMessages = $derived(messages.length > 0);
   let conversationTitle = $derived(
-    conversations.find(c => c.id === currentConversationId)?.title ?? 'New conversation'
+    conversations.find(c => c.id === currentConversationId)?.title ?? $t('chat.new_conversation_title')
   );
   let canSend = $derived(inputText.trim().length > 0 && !isSending && !isStreaming);
 
@@ -118,7 +120,7 @@
         const id = await startConversation();
         currentConversationId = id;
       } catch (e) {
-        streamError = 'Could not start a conversation. Please try again.';
+        streamError = $t('chat.conversation_start_error');
         return;
       }
     }
@@ -223,7 +225,7 @@
       class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
              hover:text-stone-600"
       onclick={() => showConversationList = !showConversationList}
-      aria-label="Toggle conversation list"
+      aria-label={$t('chat.toggle_conversations')}
     >
       <span class="text-xl">&equiv;</span>
     </button>
@@ -236,7 +238,7 @@
       class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
              hover:text-teal-600"
       onclick={handleNewConversation}
-      aria-label="Start new conversation"
+      aria-label={$t('chat.new_conversation')}
     >
       <span class="text-xl">+</span>
     </button>
@@ -248,7 +250,7 @@
       <button
         class="absolute inset-0 bg-black/20"
         onclick={() => showConversationList = false}
-        aria-label="Close conversation list"
+        aria-label={$t('chat.close_conversations')}
       ></button>
       <div class="relative z-50 w-[280px] bg-white h-full shadow-xl overflow-y-auto">
         <ConversationList
@@ -274,7 +276,7 @@
     class="flex-1 overflow-y-auto px-4 py-4"
     bind:this={messageContainer}
     role="log"
-    aria-label="Conversation messages"
+    aria-label={$t('chat.messages_aria')}
     aria-live="polite"
   >
     {#if !hasMessages && !isStreaming}
@@ -308,21 +310,13 @@
         {/if}
 
         {#if streamError}
-          <div class="flex items-start gap-2">
-            <div class="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center
-                        text-stone-500 text-sm font-bold flex-shrink-0 mt-1">
-              C
-            </div>
-            <div class="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl rounded-bl-md
-                        px-4 py-3">
-              <p class="text-amber-800 text-sm">{streamError}</p>
-              <button
-                class="text-amber-700 text-sm font-medium mt-2 underline min-h-[44px]"
-                onclick={() => { streamError = null; }}
-              >
-                Dismiss
-              </button>
-            </div>
+          <div class="max-w-[85%] ml-10">
+            <ErrorBanner
+              message={streamError}
+              severity="warning"
+              guidance={$t('chat.stream_error_guidance')}
+              onDismiss={() => { streamError = null; }}
+            />
           </div>
         {/if}
       </div>
@@ -337,12 +331,12 @@
                resize-none min-h-[44px] max-h-[120px]
                focus:border-teal-600 focus:outline-none
                placeholder:text-stone-400"
-        placeholder="Ask about your documents..."
+        placeholder={$t('chat.input_placeholder')}
         bind:value={inputText}
         onkeydown={handleKeydown}
         rows={1}
         disabled={isStreaming}
-        aria-label="Type your question"
+        aria-label={$t('chat.input_aria')}
       ></textarea>
       <button
         class="min-h-[44px] min-w-[44px] px-4 py-3 rounded-xl font-medium text-base
@@ -352,9 +346,9 @@
                  : 'bg-stone-100 text-stone-400 cursor-not-allowed'}"
         onclick={handleSend}
         disabled={!canSend}
-        aria-label="Send message"
+        aria-label={$t('chat.send_aria')}
       >
-        Send
+        {$t('common.send')}
       </button>
     </div>
   </div>

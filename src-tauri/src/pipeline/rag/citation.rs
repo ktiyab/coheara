@@ -272,7 +272,7 @@ mod tests {
         use crate::db::repository::insert_document;
         use crate::db::sqlite::open_memory_database;
         use crate::models::document::Document;
-        use crate::models::enums::DocumentType;
+        use crate::models::enums::{DocumentType, PipelineStatus};
         use chrono::NaiveDateTime;
 
         let conn = open_memory_database().unwrap();
@@ -295,6 +295,7 @@ mod tests {
             source_deleted: false,
             perceptual_hash: None,
             notes: None,
+            pipeline_status: PipelineStatus::Imported,
         };
         insert_document(&conn, &doc).unwrap();
 

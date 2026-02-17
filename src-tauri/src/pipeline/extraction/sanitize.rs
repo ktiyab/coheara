@@ -34,6 +34,16 @@ pub fn sanitize_extracted_text(raw: &str) -> String {
                         | '²'
                         | '³'
                         | 'µ'
+                        // EXT-04-G04/G05/G10: French punctuation and symbols
+                        | '«'
+                        | '»'
+                        | '\u{2013}' // En-dash –
+                        | '\u{2014}' // Em-dash —
+                        | '€'
+                        | '\u{2019}' // Right single quotation mark '
+                        | '\u{2018}' // Left single quotation mark '
+                        | '\u{201C}' // Left double quotation mark "
+                        | '\u{201D}' // Right double quotation mark "
                 )
         })
         .collect::<String>()
@@ -113,5 +123,50 @@ mod tests {
         let raw = "Potassium: 4.2 mmol/L (3.5-5.0)";
         let clean = sanitize_extracted_text(raw);
         assert_eq!(clean, "Potassium: 4.2 mmol/L (3.5-5.0)");
+    }
+
+    // EXT-04: French punctuation preservation tests
+
+    #[test]
+    fn preserves_guillemets() {
+        let raw = "Le médecin a dit «prenez ce médicament»";
+        let clean = sanitize_extracted_text(raw);
+        assert!(clean.contains('«'), "Left guillemet should be preserved");
+        assert!(clean.contains('»'), "Right guillemet should be preserved");
+        assert!(clean.contains("«prenez ce médicament»"));
+    }
+
+    #[test]
+    fn preserves_en_dash_and_em_dash() {
+        let raw = "Dose: 500\u{2013}1000 mg/jour \u{2014} à jeun";
+        let clean = sanitize_extracted_text(raw);
+        assert!(clean.contains('\u{2013}'), "En-dash should be preserved");
+        assert!(clean.contains('\u{2014}'), "Em-dash should be preserved");
+    }
+
+    #[test]
+    fn preserves_euro_sign() {
+        let raw = "Coût: 15,50€ par boîte";
+        let clean = sanitize_extracted_text(raw);
+        assert!(clean.contains('€'), "Euro sign should be preserved");
+    }
+
+    #[test]
+    fn preserves_typographic_quotes() {
+        let raw = "L\u{2019}ordonnance du Dr Martin";
+        let clean = sanitize_extracted_text(raw);
+        assert!(clean.contains('\u{2019}'), "Right single quote should be preserved");
+    }
+
+    #[test]
+    fn preserves_french_accented_chars() {
+        let raw = "à â ç é è ê ë î ï ô ù û ü ÿ æ œ";
+        let clean = sanitize_extracted_text(raw);
+        assert!(clean.contains('à'));
+        assert!(clean.contains('ç'));
+        assert!(clean.contains('é'));
+        assert!(clean.contains('è'));
+        assert!(clean.contains('ê'));
+        assert!(clean.contains('ô'));
     }
 }

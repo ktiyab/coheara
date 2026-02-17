@@ -7,6 +7,7 @@ import type {
   PostAppointmentNotes,
   StoredAppointment,
   ProfessionalInfo,
+  PdfExportResult,
 } from '$lib/types/appointment';
 
 export async function listProfessionals(): Promise<ProfessionalInfo[]> {
@@ -22,8 +23,8 @@ export async function prepareAppointment(
 export async function exportPrepPdf(
   prep: AppointmentPrep,
   copyType: 'patient' | 'professional' | 'both'
-): Promise<string[]> {
-  return invoke<string[]>('export_prep_pdf', { prep, copyType });
+): Promise<PdfExportResult> {
+  return invoke<PdfExportResult>('export_prep_pdf', { prep, copyType });
 }
 
 export async function saveAppointmentNotes(

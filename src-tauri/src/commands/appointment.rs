@@ -87,13 +87,25 @@ pub fn prepare_appointment(
     Ok(prep)
 }
 
-/// Exports prep as PDF. Returns list of created file paths.
+/// SEC-02-G06: PHI warning included with every PDF export result.
+const PDF_PHI_WARNING: &str = "This PDF file is NOT encrypted. \
+Anyone with access to this file can read your medical information. \
+Store it securely and delete it when no longer needed.";
+
+/// Result from PDF export including PHI safety warning.
+#[derive(serde::Serialize)]
+pub struct PdfExportResult {
+    pub paths: Vec<String>,
+    pub phi_warning: &'static str,
+}
+
+/// Exports prep as PDF. Returns file paths with PHI safety warning.
 #[tauri::command]
 pub fn export_prep_pdf(
     prep: AppointmentPrep,
     copy_type: String,
     state: State<'_, Arc<CoreState>>,
-) -> Result<Vec<String>, String> {
+) -> Result<PdfExportResult, String> {
     if !["patient", "professional", "both"].contains(&copy_type.as_str()) {
         return Err("copy_type must be 'patient', 'professional', or 'both'".into());
     }
@@ -126,7 +138,16 @@ pub fn export_prep_pdf(
         paths.push(path.to_string_lossy().into_owned());
     }
 
-    Ok(paths)
+    tracing::info!(
+        file_count = paths.len(),
+        copy_type = %copy_type,
+        "PDF exported — PHI warning attached"
+    );
+
+    Ok(PdfExportResult {
+        paths,
+        phi_warning: PDF_PHI_WARNING,
+    })
 }
 
 /// Saves post-appointment notes. Marks appointment as completed.

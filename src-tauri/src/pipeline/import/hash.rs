@@ -12,7 +12,7 @@ pub fn compute_hash(path: &Path, category: &FileCategory) -> Result<String, Impo
         FileCategory::Image => compute_image_hash(path),
         FileCategory::DigitalPdf | FileCategory::ScannedPdf => compute_content_hash(path),
         FileCategory::PlainText => compute_content_hash(path),
-        FileCategory::Unsupported => Err(ImportError::UnsupportedFormat),
+        FileCategory::Unsupported => Err(ImportError::UnsupportedFormat("cannot hash unsupported format".into())),
     }
 }
 

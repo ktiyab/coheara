@@ -55,7 +55,16 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
         }
 
         // Step 2: Generate embeddings for each chunk
-        let texts: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+        // M.3: Prepend section title to chunk content for better semantic embedding.
+        // The title provides topic context that improves retrieval relevance.
+        let embed_texts: Vec<String> = chunks
+            .iter()
+            .map(|c| match &c.section_title {
+                Some(title) => format!("{title}: {}", c.content),
+                None => c.content.clone(),
+            })
+            .collect();
+        let texts: Vec<&str> = embed_texts.iter().map(|s| s.as_str()).collect();
         let embeddings = match self.embedder.embed_batch(&texts) {
             Ok(embs) => embs,
             Err(e) => {
@@ -94,13 +103,11 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
             Some(session),
         )?;
 
-        // Step 4: Open database connection and store entities
+        // Step 4: Open database connection and run entity + document + trust
+        // inside a single transaction (O.1: shared transaction for atomicity)
         let conn = open_profile_db(session)?;
-        let (entity_counts, entity_warnings) =
-            entity_store::store_entities(&conn, structuring_result)?;
-        warnings.extend(entity_warnings);
 
-        // Step 5: Save encrypted markdown
+        // Save encrypted markdown BEFORE the transaction (file I/O, not DB)
         let markdown_path = markdown_store::save_encrypted_markdown(
             session,
             &self.profiles_dir,
@@ -108,26 +115,83 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
             &structuring_result.structured_markdown,
         )?;
 
-        // Step 6: Update document record with results
+        // O.1: Wrap all DB writes in a single transaction
+        let tx = conn.unchecked_transaction()
+            .map_err(|e| StorageError::Database(crate::db::DatabaseError::Sqlite(e)))?;
+
+        // Step 5: Store entities (inside transaction)
+        let (entity_counts, entity_warnings) =
+            entity_store::store_entities(&tx, structuring_result)?;
+        warnings.extend(entity_warnings);
+
+        // Step 6: Resolve professional + update document record (inside transaction)
         let professional_id = structuring_result
             .professional
             .as_ref()
             .and_then(|p| {
-                repository::find_or_create_professional(&conn, &p.name, p.specialty.as_deref())
-                    .ok()
-                    .map(|prof| prof.id)
+                match repository::find_or_create_professional(&tx, &p.name, p.specialty.as_deref()) {
+                    Ok(prof) => Some(prof.id),
+                    Err(e) => {
+                        tracing::warn!(
+                            document_id = %document_id,
+                            professional = %p.name,
+                            error = %e,
+                            "Failed to resolve professional for document update"
+                        );
+                        None
+                    }
+                }
             });
 
-        if let Ok(Some(mut doc)) = repository::get_document(&conn, &document_id) {
-            doc.doc_type = structuring_result.document_type.clone();
-            doc.document_date = structuring_result.document_date;
-            doc.professional_id = professional_id;
-            doc.markdown_file = Some(markdown_path);
-            let _ = repository::update_document(&conn, &doc);
+        match repository::get_document(&tx, &document_id) {
+            Ok(Some(mut doc)) => {
+                doc.doc_type = structuring_result.document_type.clone();
+                doc.document_date = structuring_result.document_date;
+                doc.professional_id = professional_id;
+                doc.markdown_file = Some(markdown_path);
+                if let Err(e) = repository::update_document(&tx, &doc) {
+                    tracing::warn!(
+                        document_id = %document_id,
+                        error = %e,
+                        "Failed to update document record after storage"
+                    );
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    document_id = %document_id,
+                    "Document record not found for post-storage update"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    document_id = %document_id,
+                    error = %e,
+                    "Failed to fetch document for post-storage update"
+                );
+            }
         }
 
-        // Step 7: Update profile trust
-        let _ = repository::update_profile_trust_verified(&conn);
+        // Step 7: Update profile trust (inside transaction)
+        if let Err(e) = repository::update_profile_trust_verified(&tx) {
+            tracing::warn!(
+                document_id = %document_id,
+                error = %e,
+                "Failed to update profile trust metrics"
+            );
+        }
+
+        // Commit all DB changes atomically
+        tx.commit()
+            .map_err(|e| StorageError::Database(crate::db::DatabaseError::Sqlite(e)))?;
+
+        tracing::info!(
+            document_id = %document_id,
+            entities = entity_counts.medications + entity_counts.lab_results +
+                entity_counts.diagnoses + entity_counts.allergies +
+                entity_counts.procedures + entity_counts.referrals,
+            "Storage transaction committed"
+        );
 
         Ok(StorageResult {
             document_id,
@@ -141,7 +205,7 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
 }
 
 fn open_profile_db(session: &ProfileSession) -> Result<Connection, StorageError> {
-    sqlite::open_database(session.db_path()).map_err(StorageError::Database)
+    sqlite::open_database(session.db_path(), Some(session.key_bytes())).map_err(StorageError::Database)
 }
 
 /// Build a storage pipeline with production implementations.
@@ -160,7 +224,7 @@ pub fn build_storage_pipeline(
     DocumentStoragePipeline::new(
         super::chunker::MedicalChunker::new(),
         super::embedder::build_embedder(),
-        super::vectordb::SqliteVectorStore::new(session.db_path().to_path_buf()),
+        super::vectordb::SqliteVectorStore::new(session.db_path().to_path_buf(), Some(*session.key_bytes())),
         profiles_dir,
     )
 }
@@ -232,6 +296,7 @@ mod tests {
                     unit: Some("%".into()),
                     reference_range_low: Some(4.0),
                     reference_range_high: Some(5.6),
+                    reference_range_text: None,
                     abnormal_flag: Some("high".into()),
                     collection_date: Some("2024-01-15".into()),
                     confidence: 0.95,
@@ -253,6 +318,8 @@ mod tests {
             },
             structuring_confidence: 0.87,
             markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
         }
     }
 
@@ -273,6 +340,7 @@ mod tests {
                 source_deleted: false,
                 perceptual_hash: Some("testhash".into()),
                 notes: None,
+                pipeline_status: crate::models::enums::PipelineStatus::Imported,
             },
         )
         .unwrap();
@@ -285,7 +353,7 @@ mod tests {
         let doc_id = Uuid::new_v4();
 
         // Pre-create the document record in DB
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         drop(conn);
 
@@ -308,7 +376,7 @@ mod tests {
         let pipeline = make_pipeline(dir.path());
         let doc_id = Uuid::new_v4();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         drop(conn);
 
@@ -316,7 +384,7 @@ mod tests {
         pipeline.store(&structuring, &session).unwrap();
 
         // Verify document was updated
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let doc = repository::get_document(&conn, &doc_id).unwrap().unwrap();
         assert_eq!(doc.doc_type, DocumentType::Prescription);
         assert!(doc.markdown_file.is_some());
@@ -330,7 +398,7 @@ mod tests {
         let pipeline = make_pipeline(dir.path());
         let doc_id = Uuid::new_v4();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         drop(conn);
 
@@ -338,7 +406,7 @@ mod tests {
         pipeline.store(&structuring, &session).unwrap();
 
         // Verify markdown was saved
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let doc = repository::get_document(&conn, &doc_id).unwrap().unwrap();
         let md_path = doc.markdown_file.unwrap();
 
@@ -354,7 +422,7 @@ mod tests {
         let pipeline = make_pipeline(dir.path());
         let doc_id = Uuid::new_v4();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         let trust_before = repository::get_profile_trust(&conn).unwrap();
         drop(conn);
@@ -362,7 +430,7 @@ mod tests {
         let structuring = make_structuring_result(doc_id);
         pipeline.store(&structuring, &session).unwrap();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let trust_after = repository::get_profile_trust(&conn).unwrap();
         assert_eq!(
             trust_after.total_documents,
@@ -385,6 +453,8 @@ mod tests {
             extracted_entities: ExtractedEntities::default(),
             structuring_confidence: 0.5,
             markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
         };
 
         let result = pipeline.store(&structuring, &session);
@@ -397,7 +467,7 @@ mod tests {
         let pipeline = make_pipeline(dir.path());
         let doc_id = Uuid::new_v4();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         drop(conn);
 
@@ -410,6 +480,8 @@ mod tests {
             extracted_entities: ExtractedEntities::default(),
             structuring_confidence: 0.7,
             markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
         };
 
         let result = pipeline.store(&structuring, &session).unwrap();
@@ -423,7 +495,7 @@ mod tests {
         let pipeline = make_pipeline(dir.path());
         let doc_id = Uuid::new_v4();
 
-        let conn = sqlite::open_database(session.db_path()).unwrap();
+        let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         setup_document(&conn, &doc_id);
         drop(conn);
 

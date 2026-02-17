@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { t } from 'svelte-i18n';
   import {
     ollamaHealthCheck,
     listOllamaModels,
@@ -178,17 +179,17 @@
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-stone-100"
       onclick={() => navigation.goBack()}
-      aria-label="Go back"
+      aria-label={$t('nav.go_back')}
     >
       <span class="text-xl text-stone-600">&larr;</span>
     </button>
-    <h1 class="text-2xl font-bold text-stone-800">AI Engine</h1>
+    <h1 class="text-2xl font-bold text-stone-800">{$t('ai.settings_heading')}</h1>
   </header>
 
   {#if ai.loading}
     <!-- Loading state -->
     <div class="flex-1 flex items-center justify-center">
-      <div class="animate-pulse text-stone-400">Loading AI settings...</div>
+      <div class="animate-pulse text-stone-400">{$t('ai.loading_settings')}</div>
     </div>
 
   {:else if ai.error}
@@ -200,7 +201,7 @@
           class="mt-3 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm text-red-700 hover:bg-red-50 min-h-[44px]"
           onclick={handleRetry}
         >
-          Retry
+          {$t('common.retry')}
         </button>
       </div>
     </div>
@@ -209,20 +210,19 @@
     <!-- Ollama not running -->
     <div class="px-6 space-y-4">
       <div class="bg-amber-50 rounded-xl p-5 border border-amber-200">
-        <h2 class="text-base font-medium text-amber-800 mb-2">Ollama is not running</h2>
+        <h2 class="text-base font-medium text-amber-800 mb-2">{$t('ai.ollama_not_running')}</h2>
         <p class="text-sm text-amber-700 mb-4">
-          Coheara needs Ollama to run AI models locally on your computer.
-          Install Ollama and start it, then come back here.
+          {$t('ai.ollama_needed')}
         </p>
         <div class="space-y-2 text-sm text-stone-600">
-          <p><strong>Install:</strong> Visit <span class="font-mono text-stone-800">ollama.com/download</span></p>
-          <p><strong>Start:</strong> Open Ollama from your applications</p>
+          <p><strong>{$t('ai.install_label')}</strong> {$t('ai.install_visit', { values: { url: 'ollama.com/download' } })}</p>
+          <p><strong>{$t('ai.start_label')}</strong> {$t('ai.start_ollama')}</p>
         </div>
         <button
           class="mt-4 px-4 py-2 bg-amber-100 border border-amber-300 rounded-lg text-sm text-amber-800 hover:bg-amber-200 min-h-[44px]"
           onclick={handleRetry}
         >
-          Check again
+          {$t('ai.check_again')}
         </button>
       </div>
     </div>
@@ -233,18 +233,18 @@
       <!-- Active model section -->
       {#if ai.activeModel}
         <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">ACTIVE MODEL</h2>
+          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.active_model_heading')}</h2>
           <div class="flex items-center gap-3">
             <span
               class="text-lg"
-              aria-label={ai.activeModel.quality === 'Medical' ? 'Medical model' : 'General model'}
+              aria-label={ai.activeModel.quality === 'Medical' ? $t('ai.medical_model') : $t('ai.general_model')}
             >
               {ai.activeModel.quality === 'Medical' ? '\u2605' : '\u25CB'}
             </span>
             <div class="flex-1">
               <p class="text-base font-medium text-stone-800">{ai.activeModel.name}</p>
               <p class="text-xs text-stone-500">
-                {ai.activeModel.quality === 'Medical' ? 'Medical-trained' : 'General-purpose'}
+                {ai.activeModel.quality === 'Medical' ? $t('ai.medical_trained') : $t('ai.general_purpose')}
                 &middot; {sourceDisplayText(ai.activeModel.source)}
               </p>
             </div>
@@ -252,23 +252,23 @@
         </section>
       {:else}
         <section class="bg-amber-50 rounded-xl p-5 border border-amber-200">
-          <h2 class="text-sm font-medium text-amber-800 mb-2">No AI model selected</h2>
-          <p class="text-sm text-amber-700">Pull a model below to enable AI features.</p>
+          <h2 class="text-sm font-medium text-amber-800 mb-2">{$t('ai.no_model_heading')}</h2>
+          <p class="text-sm text-amber-700">{$t('ai.no_model_description')}</p>
         </section>
       {/if}
 
       <!-- Installed models list -->
       <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
         <h2 class="text-sm font-medium text-stone-500 mb-3">
-          INSTALLED MODELS ({ai.models.length})
+          {$t('ai.installed_models', { values: { count: ai.models.length } })}
         </h2>
 
         {#if ai.models.length === 0}
           <p class="text-sm text-stone-400 py-4 text-center">
-            No models installed. Pull one from the recommendations below.
+            {$t('ai.no_models_empty')}
           </p>
         {:else}
-          <div class="space-y-3" role="list" aria-label="Installed AI models">
+          <div class="space-y-3" role="list" aria-label={$t('ai.installed_models_aria')}>
             {#each ai.models as model (model.name)}
               {@const isActive = ai.activeModel?.name === model.name}
               {@const medical = isMedicalModel(model.name)}
@@ -279,14 +279,14 @@
               >
                 <span
                   class="text-base"
-                  aria-label={medical ? 'Medical model' : 'General model'}
+                  aria-label={medical ? $t('ai.medical_model') : $t('ai.general_model')}
                 >
                   {medical ? '\u2605' : '\u25CB'}
                 </span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-stone-800 truncate">{model.name}</p>
                   <p class="text-xs text-stone-500">
-                    {medical ? 'Medical' : 'General'}
+                    {medical ? $t('ai.medical_label') : $t('ai.general_label')}
                     &middot; {formatModelSize(model.size)}
                     {#if model.details.family}
                       &middot; {model.details.family}
@@ -295,19 +295,19 @@
                 </div>
                 <div class="flex items-center gap-2">
                   {#if isActive}
-                    <span class="text-xs font-medium text-teal-700 bg-teal-100 px-2 py-1 rounded">ACTIVE</span>
+                    <span class="text-xs font-medium text-teal-700 bg-teal-100 px-2 py-1 rounded">{$t('ai.active_badge')}</span>
                   {:else}
                     <button
                       class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
                       onclick={() => handleSelectModel(model.name)}
                     >
-                      Select
+                      {$t('ai.select_button')}
                     </button>
                   {/if}
                   <button
                     class="text-stone-400 hover:text-red-500 min-h-[44px] min-w-[44px] flex items-center justify-center"
                     onclick={() => { deleteConfirm = model.name; }}
-                    aria-label={`Delete ${model.name}`}
+                    aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
                   >
                     &times;
                   </button>
@@ -321,7 +321,7 @@
       <!-- Pull progress -->
       {#if ai.isPulling && ai.pullProgress}
         <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">DOWNLOADING</h2>
+          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.downloading_heading')}</h2>
           <p class="text-sm text-stone-800 mb-2">{ai.pullProgress.model_name}</p>
           <div
             class="w-full bg-stone-200 rounded-full h-2.5 mb-2"
@@ -329,7 +329,7 @@
             aria-valuenow={Math.round(ai.pullProgress.progress_percent)}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Downloading ${ai.pullProgress.model_name}: ${Math.round(ai.pullProgress.progress_percent)}%`}
+            aria-label={$t('ai.downloading_aria', { values: { name: ai.pullProgress.model_name, percent: Math.round(ai.pullProgress.progress_percent) } })}
           >
             <div
               class="bg-teal-500 h-2.5 rounded-full transition-all"
@@ -346,7 +346,7 @@
               class="text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 min-h-[44px]"
               onclick={handleCancelPull}
             >
-              Cancel
+              {$t('common.cancel')}
             </button>
           </div>
         </section>
@@ -356,7 +356,7 @@
       {#if ai.pullProgress?.status === 'error'}
         <div class="bg-red-50 rounded-xl p-4 border border-red-200">
           <p class="text-sm text-red-700">
-            Failed to pull {ai.pullProgress.model_name}: {ai.pullProgress.error_message ?? 'Unknown error'}
+            {$t('ai.pull_failed', { values: { name: ai.pullProgress.model_name, error: ai.pullProgress.error_message ?? $t('common.unknown') } })}
           </p>
         </div>
       {/if}
@@ -364,14 +364,14 @@
       <!-- Pull section (when not actively pulling) -->
       {#if !ai.isPulling}
         <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">PULL A MODEL</h2>
+          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.pull_heading')}</h2>
 
           <!-- Custom model input -->
           <div class="flex gap-2 mb-4">
             <input
               type="text"
               bind:value={pullInput}
-              placeholder="Model name (e.g., medgemma:4b)"
+              placeholder={$t('ai.model_name_placeholder')}
               class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-400 min-h-[44px]"
             />
             <button
@@ -379,32 +379,32 @@
               onclick={() => handlePull(pullInput)}
               disabled={!pullInput.trim()}
             >
-              Pull
+              {$t('ai.pull')}
             </button>
           </div>
 
           <!-- Recommended models -->
           {#if recommended.length > 0}
-            <h3 class="text-xs font-medium text-stone-400 mb-2">RECOMMENDED</h3>
+            <h3 class="text-xs font-medium text-stone-400 mb-2">{$t('ai.recommended_section')}</h3>
             <div class="space-y-2">
               {#each recommended as rec (rec.name)}
                 {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
                 <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100">
-                  <span class="text-base" aria-label="Medical model">{'\u2605'}</span>
+                  <span class="text-base" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-stone-800">{rec.name}</p>
                     <p class="text-xs text-stone-500">
-                      {rec.description} &middot; {rec.min_ram_gb}GB+ RAM
+                      {rec.description} &middot; {$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}
                     </p>
                   </div>
                   {#if alreadyInstalled}
-                    <span class="text-xs text-stone-400">Installed</span>
+                    <span class="text-xs text-stone-400">{$t('ai.installed_tag')}</span>
                   {:else}
                     <button
                       class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
                       onclick={() => handlePull(rec.name)}
                     >
-                      Pull
+                      {$t('ai.pull')}
                     </button>
                   {/if}
                 </div>
@@ -417,22 +417,22 @@
       <!-- Ollama status -->
       {#if ai.health}
         <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">OLLAMA STATUS</h2>
+          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.ollama_status_heading')}</h2>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <span class="text-stone-600">Status</span>
+              <span class="text-stone-600">{$t('ai.status_label')}</span>
               <span class="text-stone-800">
-                {ai.health.reachable ? 'Running' : 'Not running'}
+                {ai.health.reachable ? $t('ai.status_running') : $t('ai.status_not_running')}
               </span>
             </div>
             {#if ai.health.version}
               <div class="flex justify-between">
-                <span class="text-stone-600">Version</span>
+                <span class="text-stone-600">{$t('ai.version_label')}</span>
                 <span class="text-stone-800">{ai.health.version}</span>
               </div>
             {/if}
             <div class="flex justify-between">
-              <span class="text-stone-600">Models installed</span>
+              <span class="text-stone-600">{$t('ai.models_count_label')}</span>
               <span class="text-stone-800">{ai.health.models_count}</span>
             </div>
           </div>
@@ -453,16 +453,16 @@
     aria-describedby="delete-desc"
   >
     <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-      <h3 class="text-lg font-semibold text-stone-800 mb-2">Delete model?</h3>
+      <h3 class="text-lg font-semibold text-stone-800 mb-2">{$t('ai.delete_heading')}</h3>
       <p id="delete-desc" class="text-sm text-stone-600 mb-1">
-        Delete <strong>{deleteConfirm}</strong>?
+        {$t('ai.delete_confirm', { values: { name: deleteConfirm } })}
         {#if modelInfo}
-          This frees {formatModelSize(modelInfo.size)}.
+          {$t('ai.delete_frees', { values: { size: formatModelSize(modelInfo.size) } })}
         {/if}
       </p>
       {#if isActiveDelete}
         <p class="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-2 mb-4">
-          This is your active AI model. Coheara will switch to the next available model.
+          {$t('ai.delete_active_warning')}
         </p>
       {/if}
       <div class="flex gap-3 mt-4">
@@ -470,13 +470,13 @@
           class="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
           onclick={() => { deleteConfirm = null; }}
         >
-          Cancel
+          {$t('common.cancel')}
         </button>
         <button
           class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 min-h-[44px]"
           onclick={() => handleDelete(deleteConfirm!)}
         >
-          Delete
+          {$t('common.delete')}
         </button>
       </div>
     </div>
@@ -492,24 +492,23 @@
     aria-describedby="nonmed-desc"
   >
     <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-      <h3 class="text-lg font-semibold text-amber-800 mb-2">Non-medical model</h3>
+      <h3 class="text-lg font-semibold text-amber-800 mb-2">{$t('ai.nonmedical_heading')}</h3>
       <p id="nonmed-desc" class="text-sm text-stone-600">
-        <strong>{nonMedicalWarning}</strong> is a general-purpose model. It may be less
-        accurate for medical document analysis than a medical-trained model.
+        {$t('ai.nonmedical_description', { values: { name: nonMedicalWarning } })}
       </p>
-      <p class="text-sm text-stone-500 mt-2">Your data remains private and secure regardless.</p>
+      <p class="text-sm text-stone-500 mt-2">{$t('ai.nonmedical_privacy')}</p>
       <div class="flex gap-3 mt-4">
         <button
           class="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
           onclick={() => { nonMedicalWarning = null; }}
         >
-          Choose medical model
+          {$t('ai.choose_medical')}
         </button>
         <button
           class="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 min-h-[44px]"
           onclick={() => doSetModel(nonMedicalWarning!)}
         >
-          Use anyway
+          {$t('ai.use_anyway')}
         </button>
       </div>
     </div>

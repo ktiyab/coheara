@@ -61,6 +61,16 @@ pub enum ExtractionWarning {
     PoorContrast,
     HandwritingDetected,
     PartialExtraction { reason: String },
+    /// Table appears to continue on the next page
+    TableContinuation,
+}
+
+/// Per-word OCR result with optional spatial data.
+#[derive(Debug, Clone)]
+pub struct OcrWordResult {
+    pub text: String,
+    pub confidence: f32,
+    pub bounding_box: Option<BoundingBox>,
 }
 
 /// Raw OCR result from the engine
@@ -68,7 +78,7 @@ pub enum ExtractionWarning {
 pub struct OcrPageResult {
     pub text: String,
     pub confidence: f32,
-    pub word_confidences: Vec<(String, f32)>,
+    pub word_confidences: Vec<OcrWordResult>,
 }
 
 /// Image quality assessment result
@@ -95,6 +105,20 @@ pub trait PdfExtractor {
     fn extract_text(&self, pdf_bytes: &[u8]) -> Result<Vec<PageExtraction>, ExtractionError>;
 
     fn page_count(&self, pdf_bytes: &[u8]) -> Result<usize, ExtractionError>;
+}
+
+/// PDF page-to-image renderer abstraction.
+/// Renders individual PDF pages to image bytes for OCR processing.
+pub trait PdfPageRenderer {
+    /// Render a single PDF page to image bytes (PNG format).
+    /// `page_number` is 0-indexed.
+    /// `dpi` controls resolution (300 recommended for OCR).
+    fn render_page(
+        &self,
+        pdf_bytes: &[u8],
+        page_number: usize,
+        dpi: u32,
+    ) -> Result<Vec<u8>, ExtractionError>;
 }
 
 /// Main extraction orchestrator trait

@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
+  import { t } from 'svelte-i18n';
   import {
     ollamaHealthCheck,
     listOllamaModels,
@@ -45,6 +46,10 @@
   let unlistenPull: (() => void) | null = null;
   let stepContentEl: HTMLDivElement | undefined = $state();
 
+  // Link HTML constant for install instructions
+  const ollamaLink = '<a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a>';
+  const ollamaServeCmd = '<code class="font-mono">ollama serve</code>';
+
   // ACC-L6-15: Move focus to step content when step changes
   $effect(() => {
     // Subscribe to step (reactive read)
@@ -61,6 +66,14 @@
   const STEPS: WizardStep[] = ['detect', 'install', 'pull', 'verify'];
   let stepIndex = $derived(STEPS.indexOf(step));
   let stepCount = $derived(STEPS.length);
+
+  // Derived step name for aria
+  let currentStepName = $derived(
+    step === 'detect' ? $t('ai.setup_step_detect') :
+    step === 'install' ? $t('ai.setup_step_install') :
+    step === 'pull' ? $t('ai.setup_step_pull') :
+    $t('ai.setup_step_verify')
+  );
 
   // ── Lifecycle ────────────────────────────────────────────
 
@@ -178,7 +191,7 @@
         step = 'pull';
       }
     } catch {
-      error = 'Ollama is still not detected. Make sure it is installed and running.';
+      error = $t('ai.ollama_not_detected');
     }
   }
 
@@ -253,7 +266,7 @@
     try {
       const modelName = ai.activeModel?.name;
       if (!modelName) {
-        error = 'No model selected.';
+        error = $t('ai.no_model_selected');
         verifyRunning = false;
         return;
       }
@@ -262,7 +275,7 @@
       if (ok) {
         step = 'done';
       } else {
-        error = 'Model responded but verification failed. Try pulling the model again.';
+        error = $t('ai.verify_failed');
       }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -283,13 +296,16 @@
   }
 
   function handleDone() {
-    // Update profile AI status with full ResolvedModel (L6-04 §11)
-    profile.aiStatus = {
+    // S.5: Update both stores via unified applyStatus
+    const status = {
       ollama_available: true,
       active_model: ai.activeModel ?? null,
-      embedder_type: 'onnx',
-      summary: 'AI engine ready',
+      embedder_type: ai.embedderType || 'onnx',
+      summary: $t('ai.engine_ready'),
+      level: 'configured' as const,
     };
+    ai.applyStatus(status);
+    profile.aiStatus = status;
     navigation.navigate('home');
   }
 </script>
@@ -297,13 +313,13 @@
 <div class="flex flex-col min-h-screen bg-stone-50">
   <!-- Header with step indicator -->
   <header class="px-6 pt-6 pb-2">
-    <h1 class="text-2xl font-bold text-stone-800 mb-4">Set Up AI Engine</h1>
+    <h1 class="text-2xl font-bold text-stone-800 mb-4">{$t('ai.setup_heading')}</h1>
 
     {#if step !== 'done'}
       <!-- Step progress indicator -->
       <div
         class="flex items-center gap-2 mb-2"
-        aria-label="Step {stepIndex + 1} of {stepCount}: {step === 'detect' ? 'Checking AI Engine' : step === 'install' ? 'Install AI Engine' : step === 'pull' ? 'Download AI Model' : 'Verifying AI Engine'}"
+        aria-label={$t('ai.step_progress', { values: { current: stepIndex + 1, total: stepCount, name: currentStepName } })}
         role="group"
       >
         {#each STEPS as s, i (s)}
@@ -336,9 +352,9 @@
     {#if step === 'detect'}
       <!-- ═══ DETECT ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label="Checking if Ollama is running"></div>
-        <p class="text-lg text-stone-700 mb-2">Checking AI Engine...</p>
-        <p class="text-sm text-stone-500">Looking for Ollama on your computer</p>
+        <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.checking_ollama')}></div>
+        <p class="text-lg text-stone-700 mb-2">{$t('ai.checking_engine')}</p>
+        <p class="text-sm text-stone-500">{$t('ai.looking_for_ollama')}</p>
       </div>
 
     {:else if step === 'install'}
@@ -346,33 +362,32 @@
       <div class="space-y-4">
         <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
           <p class="text-base text-stone-700 mb-4">
-            Coheara uses <strong>Ollama</strong> to run AI models locally on your computer.
-            Your data never leaves your machine.
+            {@html $t('ai.ollama_local_description')}
           </p>
 
           {#if detectedPlatform === 'windows'}
             <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">Windows</h3>
+              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_windows')}</h3>
               <p class="text-sm text-blue-700 mb-3">
-                Download Ollama from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a> and run the installer.
+                {@html $t('ai.install_download', { values: { link: ollamaLink } })}
               </p>
-              <p class="text-xs text-blue-600">After installing, start Ollama from your Start Menu.</p>
+              <p class="text-xs text-blue-600">{$t('ai.install_windows_note')}</p>
             </div>
           {:else if detectedPlatform === 'macos'}
             <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">macOS</h3>
+              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_macos')}</h3>
               <p class="text-sm text-blue-700 mb-3">
-                Download from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a> or install with Homebrew:
+                {@html $t('ai.install_macos_download', { values: { link: ollamaLink } })}
               </p>
               <code class="block bg-blue-100 rounded-lg px-3 py-2 text-sm text-blue-900 select-all">brew install ollama</code>
-              <p class="text-xs text-blue-600 mt-2">After installing, open Ollama from Applications.</p>
+              <p class="text-xs text-blue-600 mt-2">{$t('ai.install_macos_note')}</p>
             </div>
           {:else}
             <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">Linux</h3>
-              <p class="text-sm text-blue-700 mb-3">Run this command in your terminal:</p>
+              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_linux')}</h3>
+              <p class="text-sm text-blue-700 mb-3">{$t('ai.install_linux')}</p>
               <code class="block bg-blue-100 rounded-lg px-3 py-2 text-sm text-blue-900 select-all">curl -fsSL https://ollama.com/install.sh | sh</code>
-              <p class="text-xs text-blue-600 mt-2">After installing, start Ollama with: <code class="font-mono">ollama serve</code></p>
+              <p class="text-xs text-blue-600 mt-2">{@html $t('ai.install_linux_note', { values: { command: ollamaServeCmd } })}</p>
             </div>
           {/if}
         </div>
@@ -384,7 +399,7 @@
         {/if}
 
         <p class="text-sm text-stone-500 text-center">
-          Waiting for Ollama... checking every 10 seconds.
+          {$t('ai.waiting_for_ollama')}
         </p>
 
         <div class="flex gap-3">
@@ -392,13 +407,13 @@
             class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 min-h-[44px]"
             onclick={retryDetection}
           >
-            Retry detection
+            {$t('ai.retry_detection')}
           </button>
           <button
             class="px-4 py-3 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
             onclick={handleSkip}
           >
-            Skip for now
+            {$t('ai.skip_for_now')}
           </button>
         </div>
       </div>
@@ -407,7 +422,7 @@
       <!-- ═══ PULL MODEL ═══ -->
       <div class="space-y-4">
         <p class="text-base text-stone-700">
-          Choose a model for medical document analysis:
+          {$t('ai.choose_model')}
         </p>
 
         {#if error}
@@ -419,14 +434,14 @@
         <!-- Pull progress (if active) -->
         {#if ai.isPulling && ai.pullProgress}
           <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-            <p class="text-sm font-medium text-stone-800 mb-2">Downloading {ai.pullProgress.model_name}...</p>
+            <p class="text-sm font-medium text-stone-800 mb-2">{$t('ai.downloading_model', { values: { name: ai.pullProgress.model_name } })}</p>
             <div
               class="w-full bg-stone-200 rounded-full h-2.5 mb-2"
               role="progressbar"
               aria-valuenow={Math.round(ai.pullProgress.progress_percent)}
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-label="Downloading {ai.pullProgress.model_name}: {Math.round(ai.pullProgress.progress_percent)}%"
+              aria-label={$t('ai.downloading_aria', { values: { name: ai.pullProgress.model_name, percent: Math.round(ai.pullProgress.progress_percent) } })}
             >
               <div
                 class="bg-teal-500 h-2.5 rounded-full transition-all"
@@ -442,10 +457,10 @@
                 class="text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 min-h-[44px]"
                 onclick={handleCancelPull}
               >
-                Cancel
+                {$t('common.cancel')}
               </button>
             </div>
-            <p class="text-xs text-stone-400 mt-2">First download may take several minutes depending on your connection.</p>
+            <p class="text-xs text-stone-400 mt-2">{$t('ai.download_note')}</p>
           </div>
         {/if}
 
@@ -453,7 +468,7 @@
         {#if ai.pullProgress?.status === 'error'}
           <div class="bg-red-50 rounded-xl p-4 border border-red-200">
             <p class="text-sm text-red-700">
-              Failed: {ai.pullProgress.error_message ?? 'Unknown error'}
+              {ai.pullProgress.error_message ?? $t('common.unknown')}
             </p>
           </div>
         {/if}
@@ -463,11 +478,11 @@
           <!-- Installed models (if user already had some) -->
           {#if ai.models.length > 0}
             <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h3 class="text-sm font-medium text-stone-500 mb-3">ALREADY INSTALLED</h3>
+              <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.already_installed')}</h3>
               <div class="space-y-2">
                 {#each ai.models as model (model.name)}
                   <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100">
-                    <span aria-label={isMedicalModel(model.name) ? 'Medical model' : 'General model'}>
+                    <span aria-label={isMedicalModel(model.name) ? $t('ai.medical_model') : $t('ai.general_model')}>
                       {isMedicalModel(model.name) ? '\u2605' : '\u25CB'}
                     </span>
                     <div class="flex-1 min-w-0">
@@ -478,7 +493,7 @@
                       class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
                       onclick={() => handleSelectExisting(model.name)}
                     >
-                      Use this
+                      {$t('ai.use_this')}
                     </button>
                   </div>
                 {/each}
@@ -489,31 +504,31 @@
           <!-- Recommended models to download -->
           {#if recommended.length > 0}
             <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h3 class="text-sm font-medium text-stone-500 mb-3">RECOMMENDED MODELS</h3>
+              <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.recommended_models')}</h3>
               <div class="space-y-3">
                 {#each recommended as rec, i (rec.name)}
                   {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
                   <div class="p-4 rounded-xl border {i === 0 ? 'border-teal-300 bg-teal-50' : 'border-stone-100'}">
                     <div class="flex items-start gap-3">
-                      <span class="text-lg" aria-label="Medical model">{'\u2605'}</span>
+                      <span class="text-lg" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
                       <div class="flex-1">
                         <div class="flex items-center gap-2">
                           <p class="text-sm font-medium text-stone-800">{rec.name}</p>
                           {#if i === 0}
-                            <span class="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Recommended</span>
+                            <span class="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{$t('ai.recommended_badge')}</span>
                           {/if}
                         </div>
                         <p class="text-xs text-stone-600 mt-1">{rec.description}</p>
-                        <p class="text-xs text-stone-500 mt-0.5">Requires {rec.min_ram_gb}GB+ RAM</p>
+                        <p class="text-xs text-stone-500 mt-0.5">{$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}</p>
                       </div>
                       {#if alreadyInstalled}
-                        <span class="text-xs text-stone-400 mt-1">Installed</span>
+                        <span class="text-xs text-stone-400 mt-1">{$t('ai.installed_tag')}</span>
                       {:else}
                         <button
                           class="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 min-h-[44px]"
                           onclick={() => handlePull(rec.name)}
                         >
-                          Download
+                          {$t('ai.download_button')}
                         </button>
                       {/if}
                     </div>
@@ -525,12 +540,12 @@
 
           <!-- Custom model input -->
           <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-            <h3 class="text-sm font-medium text-stone-500 mb-3">OR ENTER MODEL NAME</h3>
+            <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.custom_model_heading')}</h3>
             <div class="flex gap-2">
               <input
                 type="text"
                 bind:value={pullInput}
-                placeholder="e.g., medgemma:4b"
+                placeholder={$t('ai.model_placeholder')}
                 class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-400 min-h-[44px]"
               />
               <button
@@ -538,7 +553,7 @@
                 onclick={() => handlePull(pullInput)}
                 disabled={!pullInput.trim()}
               >
-                Pull
+                {$t('ai.pull')}
               </button>
             </div>
           </div>
@@ -549,7 +564,7 @@
             class="px-4 py-3 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
             onclick={handleSkip}
           >
-            Skip for now
+            {$t('ai.skip_for_now')}
           </button>
         </div>
       </div>
@@ -558,23 +573,23 @@
       <!-- ═══ VERIFY ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
         {#if verifyRunning}
-          <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label="Verifying AI model"></div>
-          <p class="text-lg text-stone-700 mb-2">Testing {ai.activeModel?.name ?? 'AI model'}...</p>
-          <p class="text-sm text-stone-500">First run may take longer as the model loads into memory.</p>
+          <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.verifying_model')}></div>
+          <p class="text-lg text-stone-700 mb-2">{$t('ai.testing_model', { values: { name: ai.activeModel?.name ?? 'AI' } })}</p>
+          <p class="text-sm text-stone-500">{$t('ai.first_run_note')}</p>
         {:else if error}
           <div class="text-4xl mb-4">&#9888;</div>
-          <p class="text-lg text-stone-700 mb-2">Verification failed</p>
+          <p class="text-lg text-stone-700 mb-2">{$t('ai.verification_failed')}</p>
           <p class="text-sm text-red-600 mb-6">{error}</p>
           <button
             class="px-6 py-3 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 min-h-[44px]"
             onclick={runVerify}
           >
-            Retry
+            {$t('common.retry')}
           </button>
         {:else}
           <div class="text-4xl mb-4">&#10003;</div>
-          <p class="text-lg text-stone-700 mb-2">AI model verified</p>
-          <p class="text-sm text-stone-500">Continuing...</p>
+          <p class="text-lg text-stone-700 mb-2">{$t('ai.model_verified')}</p>
+          <p class="text-sm text-stone-500">{$t('ai.continuing')}</p>
         {/if}
       </div>
 
@@ -584,31 +599,31 @@
         <div class="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center text-3xl text-teal-600 mb-6">
           &#10003;
         </div>
-        <h2 class="text-xl font-semibold text-stone-800 mb-2">AI Engine Ready</h2>
+        <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('ai.engine_ready_heading')}</h2>
         <p class="text-base text-stone-600 mb-2">
-          {ai.activeModel?.name ?? 'Your AI model'} is set up and working.
+          {$t('ai.model_setup_complete', { values: { name: ai.activeModel?.name ?? 'AI' } })}
         </p>
         <p class="text-sm text-stone-500 mb-8">
-          You can change models anytime in Settings &rarr; AI Engine.
+          {$t('ai.change_model_hint')}
         </p>
 
         <div class="space-y-3 w-full max-w-xs text-left bg-white rounded-xl p-5 border border-stone-100 shadow-sm mb-8">
           <div class="flex items-center gap-2">
             <span class="text-teal-500">&#10003;</span>
-            <span class="text-sm text-stone-700">Ollama running</span>
+            <span class="text-sm text-stone-700">{$t('ai.ollama_running')}</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-teal-500">&#10003;</span>
             <span class="text-sm text-stone-700">
               {ai.activeModel?.name}
               {#if ai.activeModel?.quality === 'Medical'}
-                <span class="text-xs text-teal-600 ml-1">(Medical)</span>
+                <span class="text-xs text-teal-600 ml-1">{$t('ai.medical_quality')}</span>
               {/if}
             </span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-teal-500">&#10003;</span>
-            <span class="text-sm text-stone-700">AI responding correctly</span>
+            <span class="text-sm text-stone-700">{$t('ai.ai_responding')}</span>
           </div>
         </div>
 
@@ -616,7 +631,7 @@
           class="px-8 py-3 bg-teal-600 text-white rounded-xl text-base font-medium hover:bg-teal-700 min-h-[44px]"
           onclick={handleDone}
         >
-          Go to Coheara
+          {$t('ai.go_to_app')}
         </button>
       </div>
     {/if}
@@ -627,8 +642,7 @@
     <div class="px-6 pb-6">
       <div class="bg-stone-100 rounded-xl p-4">
         <p class="text-xs text-stone-500">
-          <strong>Without AI:</strong> You can still import documents, track medications,
-          and use the journal. AI features like document analysis and chat require Ollama.
+          {@html $t('ai.without_ai')}
         </p>
       </div>
     </div>

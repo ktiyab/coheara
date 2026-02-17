@@ -24,7 +24,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 dirs = "6"
-rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl", "chrono", "uuid"] }
 aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 sha2 = "0.10"

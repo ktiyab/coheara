@@ -93,6 +93,36 @@ pub struct ModelPreference {
     pub fallback_any: bool,
 }
 
+/// Generation parameters for Ollama `/api/generate`.
+///
+/// Controls LLM output determinism and quality.
+/// R-MOD-04 D3: Medical prompts need low temperature for deterministic output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationOptions {
+    /// Sampling temperature (0.0-1.0). Lower = more deterministic.
+    /// Medical default: 0.1 for reproducible extractions.
+    pub temperature: f32,
+    /// Top-p (nucleus) sampling threshold.
+    pub top_p: f32,
+    /// Top-k sampling: number of top tokens to consider.
+    pub top_k: u32,
+    /// Maximum tokens in the generated response.
+    /// None = model default (typically 2048).
+    pub num_predict: Option<i32>,
+}
+
+impl Default for GenerationOptions {
+    /// Medical-grade defaults: low temperature for deterministic extraction.
+    fn default() -> Self {
+        Self {
+            temperature: 0.1,
+            top_p: 0.9,
+            top_k: 40,
+            num_predict: None,
+        }
+    }
+}
+
 /// A curated recommended model entry.
 ///
 /// Advisory, not restrictive — users can pull any model.
@@ -108,18 +138,24 @@ pub struct RecommendedModel {
 ///
 /// Maintained in code (not fetched from registry).
 /// DOM-L6-01: includes minimum RAM requirements.
+///
+/// R-MOD-01 F4: Updated with real community model names that exist on Ollama.
+/// Previous names (`medgemma:4b`, `medgemma:27b`) do not exist in Ollama registry.
+/// MedGemma is only available as community uploads with namespace prefixes.
 pub fn recommended_models() -> Vec<RecommendedModel> {
     vec![
         RecommendedModel {
-            name: "medgemma:4b".to_string(),
-            description: "Medical-trained, 4B parameters, recommended for most systems".to_string(),
-            min_ram_gb: 8,
+            name: "MedAIBase/MedGemma1.5:4b".to_string(),
+            description: "MedGemma 1.5, 4B parameters, F16 precision, recommended for most systems"
+                .to_string(),
+            min_ram_gb: 16,
             medical: true,
         },
         RecommendedModel {
-            name: "medgemma:27b".to_string(),
-            description: "Medical-trained, 27B parameters, higher accuracy, needs 32GB+ RAM".to_string(),
-            min_ram_gb: 32,
+            name: "alibayram/medgemma:4b".to_string(),
+            description: "MedGemma 1.0, 4B parameters, Q4 quantized, lower RAM requirement"
+                .to_string(),
+            min_ram_gb: 8,
             medical: true,
         },
     ]
@@ -237,17 +273,28 @@ pub fn validate_base_url(url: &str) -> Result<(), OllamaError> {
 /// SEC-L6-02: Prevents path traversal, shell injection, and other
 /// malicious characters in model names before any HTTP call.
 ///
-/// Valid: `medgemma:4b`, `llama3.1:8b`, `my-model:latest`
-/// Invalid: `../etc/passwd`, `; rm -rf /`, empty string
+/// Supports community namespace format: `namespace/model:tag`
+/// Valid: `medgemma:4b`, `MedAIBase/MedGemma1.5:4b`, `alibayram/medgemma`
+/// Invalid: `../etc/passwd`, `; rm -rf /`, `a/b/c` (double namespace)
+///
+/// R-MOD-01: Updated to accept exactly one optional namespace `/` segment.
+/// Each segment must start with alphanumeric. Blocks `../`, `./`, `//`,
+/// leading/trailing `/`. Model names are used in JSON bodies only (not URL
+/// paths), so path traversal risk from `/` is minimal.
 pub fn validate_model_name(name: &str) -> Result<(), OllamaError> {
     if name.is_empty() {
         return Err(OllamaError::InvalidModelName(name.to_string()));
     }
 
-    // Ollama model names: alphanumeric start, then alphanumeric/._-
-    // Optional tag after colon: alphanumeric/._-
-    let valid = regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*(:[a-zA-Z0-9._-]+)?$")
-        .expect("static regex");
+    // Format: [namespace/]model[:tag]
+    // - namespace: alphanumeric start, then alphanumeric/._-
+    // - model: alphanumeric start, then alphanumeric/._-
+    // - tag: alphanumeric/._- (after colon)
+    // At most ONE `/` allowed (no nested namespaces).
+    let valid = regex::Regex::new(
+        r"^[a-zA-Z0-9][a-zA-Z0-9._-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)?(:[a-zA-Z0-9._-]+)?$",
+    )
+    .expect("static regex");
 
     if !valid.is_match(name) {
         return Err(OllamaError::InvalidModelName(name.to_string()));
@@ -256,13 +303,35 @@ pub fn validate_model_name(name: &str) -> Result<(), OllamaError> {
     Ok(())
 }
 
+/// Extract the model name component from a potentially namespaced Ollama model name.
+///
+/// Strips the namespace prefix (before `/`) and tag suffix (after `:`) to return
+/// just the model identity in lowercase. Used by `classify_model()` to match
+/// medical prefixes regardless of namespace.
+///
+/// R-MOD-01 F2: Enables classification of community models like `MedAIBase/MedGemma1.5:4b`.
+///
+/// # Examples
+/// - `"MedAIBase/MedGemma1.5:4b"` → `"medgemma1.5"`
+/// - `"medgemma:4b"` → `"medgemma"`
+/// - `"llama3.1:8b"` → `"llama3.1"`
+/// - `"llama3"` → `"llama3"`
+pub fn extract_model_component(full_name: &str) -> String {
+    let without_tag = full_name.split(':').next().unwrap_or(full_name);
+    let model_part = without_tag.rsplit('/').next().unwrap_or(without_tag);
+    model_part.to_lowercase()
+}
+
 /// Build a list of recommended model names for preference resolution.
+///
+/// R-MOD-01 F5: Updated with real model names from Ollama community registry.
+/// Used by `ActiveModelResolver` to prefer recommended models during fallback.
 pub fn recommended_model_names() -> Vec<String> {
     vec![
-        "medgemma".to_string(),
-        "medgemma:4b".to_string(),
-        "medgemma:27b".to_string(),
-        "medgemma:latest".to_string(),
+        "MedAIBase/MedGemma1.5:4b".to_string(),
+        "MedAIBase/MedGemma1.5".to_string(),
+        "alibayram/medgemma:4b".to_string(),
+        "alibayram/medgemma".to_string(),
     ]
 }
 
@@ -443,6 +512,91 @@ mod tests {
         assert!(validate_model_name("-flag").is_err());
     }
 
+    // ── Namespace Model Validation Tests (R-MOD-01 L.1) ──
+
+    #[test]
+    fn validate_name_accepts_namespaced_model() {
+        assert!(validate_model_name("MedAIBase/MedGemma1.5:4b").is_ok());
+    }
+
+    #[test]
+    fn validate_name_accepts_namespaced_no_tag() {
+        assert!(validate_model_name("alibayram/medgemma").is_ok());
+    }
+
+    #[test]
+    fn validate_name_accepts_namespaced_with_dots() {
+        assert!(validate_model_name("AntAngelMed/MedGemma1.5:4b").is_ok());
+    }
+
+    #[test]
+    fn validate_name_rejects_double_slash() {
+        assert!(validate_model_name("a//b").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_leading_slash() {
+        assert!(validate_model_name("/model").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_trailing_slash() {
+        assert!(validate_model_name("model/").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_path_traversal_with_slash() {
+        assert!(validate_model_name("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_dot_namespace() {
+        assert!(validate_model_name("./model").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_double_namespace() {
+        // Only one namespace level allowed
+        assert!(validate_model_name("a/b/c").is_err());
+    }
+
+    // ── extract_model_component Tests (R-MOD-01 L.3) ──
+
+    #[test]
+    fn extract_component_from_namespaced_with_tag() {
+        assert_eq!(extract_model_component("MedAIBase/MedGemma1.5:4b"), "medgemma1.5");
+    }
+
+    #[test]
+    fn extract_component_from_namespaced_no_tag() {
+        assert_eq!(extract_model_component("alibayram/medgemma"), "medgemma");
+    }
+
+    #[test]
+    fn extract_component_from_simple_with_tag() {
+        assert_eq!(extract_model_component("medgemma:4b"), "medgemma");
+    }
+
+    #[test]
+    fn extract_component_from_bare_name() {
+        assert_eq!(extract_model_component("llama3"), "llama3");
+    }
+
+    #[test]
+    fn extract_component_preserves_dots() {
+        assert_eq!(extract_model_component("llama3.1:8b"), "llama3.1");
+    }
+
+    #[test]
+    fn extract_component_lowercases() {
+        assert_eq!(extract_model_component("BioMistral:7B"), "biomistral");
+    }
+
+    #[test]
+    fn extract_component_empty_string() {
+        assert_eq!(extract_model_component(""), "");
+    }
+
     // ── Type Deserialization Tests ──
 
     #[test]
@@ -551,12 +705,66 @@ mod tests {
         assert!(matches!(err, super::super::StructuringError::NoModelAvailable));
     }
 
+    // ── Generation Options ──
+
+    #[test]
+    fn generation_options_default_medical_grade() {
+        let opts = GenerationOptions::default();
+        assert!((opts.temperature - 0.1).abs() < f32::EPSILON, "Medical default temperature should be 0.1");
+        assert!((opts.top_p - 0.9).abs() < f32::EPSILON);
+        assert_eq!(opts.top_k, 40);
+        assert!(opts.num_predict.is_none());
+    }
+
+    #[test]
+    fn generation_options_serializes_correctly() {
+        let opts = GenerationOptions {
+            temperature: 0.5,
+            top_p: 0.9,
+            top_k: 50,
+            num_predict: Some(2048),
+        };
+        let json = serde_json::to_value(&opts).unwrap();
+        // f32 precision: compare as f64 with tolerance
+        let temp = json["temperature"].as_f64().unwrap();
+        assert!((temp - 0.5).abs() < 0.001, "temperature should be ~0.5");
+        let top_p = json["top_p"].as_f64().unwrap();
+        assert!((top_p - 0.9).abs() < 0.001, "top_p should be ~0.9");
+        assert_eq!(json["top_k"], 50);
+        assert_eq!(json["num_predict"], 2048);
+    }
+
+    #[test]
+    fn generation_options_num_predict_none_serializes() {
+        let opts = GenerationOptions::default();
+        let json = serde_json::to_value(&opts).unwrap();
+        // num_predict should be present as null when using serde default
+        assert!(json.get("num_predict").is_some());
+    }
+
     // ── Recommended Models ──
 
     #[test]
     fn recommended_model_names_not_empty() {
         let names = recommended_model_names();
         assert!(names.len() >= 3);
-        assert!(names.contains(&"medgemma:4b".to_string()));
+        // R-MOD-01: Real model names, not fake medgemma:4b
+        assert!(names.contains(&"MedAIBase/MedGemma1.5:4b".to_string()));
+        assert!(names.contains(&"alibayram/medgemma:4b".to_string()));
+    }
+
+    #[test]
+    fn recommended_models_have_real_names() {
+        let models = recommended_models();
+        assert!(!models.is_empty());
+        // All recommended models must have namespace (community models)
+        for model in &models {
+            assert!(
+                model.name.contains('/'),
+                "Recommended model '{}' should be a real community model with namespace",
+                model.name
+            );
+            assert!(model.medical, "Recommended model '{}' should be medical", model.name);
+        }
     }
 }

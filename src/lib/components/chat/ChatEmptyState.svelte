@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { PromptSuggestion } from '$lib/types/chat';
   import { profile } from '$lib/stores/profile.svelte';
 
@@ -16,16 +17,18 @@
   </div>
 
   <h2 class="text-xl font-bold text-stone-800 mb-2">
-    Hello {profile.name}!
+    {$t('chat.greeting', { values: { name: profile.name } })}
   </h2>
+  <p class="text-sm text-stone-500 mb-2 leading-relaxed">
+    {$t('chat.description_1')}
+  </p>
   <p class="text-sm text-stone-500 mb-8 leading-relaxed">
-    I can help you understand your medical documents. Ask me anything about your prescriptions,
-    lab results, or health records.
+    {$t('chat.description_2')}
   </p>
 
   {#if suggestions.length > 0}
     <div class="w-full">
-      <p class="text-xs text-stone-400 uppercase font-medium mb-3">Try asking</p>
+      <p class="text-xs text-stone-400 uppercase font-medium mb-3">{$t('chat.suggestions_header')}</p>
       <div class="grid grid-cols-1 gap-2">
         {#each suggestions as suggestion}
           <button

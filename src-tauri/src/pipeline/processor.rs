@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::crypto::ProfileSession;
 use crate::db::repository;
+use crate::models::enums::PipelineStatus;
 use crate::pipeline::extraction::orchestrator::DocumentExtractor;
 use crate::pipeline::extraction::types::TextExtractor;
 use crate::pipeline::extraction::ExtractionError;
@@ -26,6 +27,24 @@ use crate::pipeline::structuring::StructuringError;
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
+
+/// P.5: Patient-friendly error category for frontend display.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// File format not supported or corrupted
+    UnsupportedFile,
+    /// OCR engine not available or failed to initialize
+    OcrUnavailable,
+    /// AI model not reachable (Ollama down or model not pulled)
+    AiUnavailable,
+    /// AI produced unusable output (malformed response)
+    AiOutputError,
+    /// Internal database error
+    DatabaseError,
+    /// File could not be saved
+    StorageError,
+}
 
 /// Errors that can occur during document processing.
 #[derive(Debug, thiserror::Error)]
@@ -47,6 +66,171 @@ pub enum ProcessingError {
 
     #[error("OCR engine initialization failed: {0}")]
     OcrInit(String),
+}
+
+/// R.1: Patient-friendly error with category, guidance, and sanitized message.
+/// This is the single error type surfaced to the frontend for all processing errors.
+#[derive(Debug, Clone, Serialize)]
+pub struct PatientError {
+    /// Short title for the error dialog
+    pub title: String,
+    /// Patient-friendly explanation (no technical details, no file paths, no PHI)
+    pub message: String,
+    /// Actionable suggestion for the patient
+    pub suggestion: String,
+    /// Error category for frontend styling/routing
+    pub category: ErrorCategory,
+    /// Whether retrying the operation might succeed
+    pub retry_possible: bool,
+}
+
+/// R.4: Strip file paths, UUIDs, and technical details from error messages.
+fn sanitize_error_message(raw: &str) -> String {
+    let mut s = raw.to_string();
+
+    // Strip absolute file paths (Unix + Windows)
+    let path_re = regex::Regex::new(r"(/[^\s:]+|[A-Z]:\\[^\s:]+)").unwrap();
+    s = path_re.replace_all(&s, "[file]").to_string();
+
+    // Strip UUIDs
+    let uuid_re =
+        regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+            .unwrap();
+    s = uuid_re.replace_all(&s, "[id]").to_string();
+
+    // Strip IP:port patterns
+    let ip_re = regex::Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?").unwrap();
+    s = ip_re.replace_all(&s, "[server]").to_string();
+
+    // Truncate if too long
+    if s.len() > 200 {
+        s.truncate(200);
+        s.push_str("...");
+    }
+
+    s
+}
+
+impl ProcessingError {
+    /// R.1: Convert to a patient-friendly error with full context.
+    pub fn to_patient_error(&self) -> PatientError {
+        // Delegate to StructuringError's existing patient_message if available
+        if let ProcessingError::Structuring(e) = self {
+            let pm = e.patient_message();
+            return PatientError {
+                title: pm.title,
+                message: pm.message,
+                suggestion: pm.suggestion,
+                category: self.category(),
+                retry_possible: pm.retry_possible,
+            };
+        }
+
+        match self {
+            ProcessingError::Import(e) => match e {
+                ImportError::UnsupportedFormat(_) => PatientError {
+                    title: "Unsupported File".into(),
+                    message: "This file type is not supported for medical document import.".into(),
+                    suggestion: "Please use PDF, JPG, PNG, or plain text files.".into(),
+                    category: ErrorCategory::UnsupportedFile,
+                    retry_possible: false,
+                },
+                ImportError::FileTooLarge { size_mb, max_mb } => PatientError {
+                    title: "File Too Large".into(),
+                    message: format!("This file ({size_mb:.1} MB) exceeds the {max_mb} MB limit."),
+                    suggestion: "Try scanning at a lower resolution or splitting the document."
+                        .into(),
+                    category: ErrorCategory::UnsupportedFile,
+                    retry_possible: false,
+                },
+                ImportError::EncryptedPdf => PatientError {
+                    title: "Protected PDF".into(),
+                    message: "This PDF is password-protected and cannot be read.".into(),
+                    suggestion:
+                        "Please remove the PDF password protection first, then try again.".into(),
+                    category: ErrorCategory::UnsupportedFile,
+                    retry_possible: false,
+                },
+                _ => PatientError {
+                    title: "Import Error".into(),
+                    message: "The file could not be imported.".into(),
+                    suggestion: "Please check the file is not corrupted and try again.".into(),
+                    category: ErrorCategory::UnsupportedFile,
+                    retry_possible: true,
+                },
+            },
+            ProcessingError::Extraction(_) => PatientError {
+                title: "Text Extraction Failed".into(),
+                message: "Could not read text from this document.".into(),
+                suggestion:
+                    "Ensure the document is clear and readable. Scanned images need good contrast."
+                        .into(),
+                category: ErrorCategory::OcrUnavailable,
+                retry_possible: true,
+            },
+            ProcessingError::Database(_) => PatientError {
+                title: "Storage Error".into(),
+                message: "A database error occurred while saving your document.".into(),
+                suggestion: "Please try again. If the problem persists, check available disk space."
+                    .into(),
+                category: ErrorCategory::DatabaseError,
+                retry_possible: false,
+            },
+            ProcessingError::PersistFailed(_) => PatientError {
+                title: "Save Failed".into(),
+                message: "Could not save the analysis results.".into(),
+                suggestion: "Please check available disk space and try again.".into(),
+                category: ErrorCategory::StorageError,
+                retry_possible: true,
+            },
+            ProcessingError::OcrInit(_) => PatientError {
+                title: "OCR Not Available".into(),
+                message: "The text recognition engine could not start.".into(),
+                suggestion: "Image-based documents cannot be processed. Try using a digital PDF instead.".into(),
+                category: ErrorCategory::OcrUnavailable,
+                retry_possible: false,
+            },
+            // Structuring is handled above via early return
+            ProcessingError::Structuring(_) => unreachable!(),
+        }
+    }
+
+    /// R.4: Get a sanitized error string safe for frontend display.
+    /// Strips file paths, UUIDs, and truncates.
+    pub fn sanitized_message(&self) -> String {
+        sanitize_error_message(&self.to_string())
+    }
+
+    /// P.5: Classify this error into a patient-friendly category.
+    pub fn category(&self) -> ErrorCategory {
+        match self {
+            ProcessingError::Import(_) => ErrorCategory::UnsupportedFile,
+            ProcessingError::Extraction(_) => ErrorCategory::OcrUnavailable,
+            ProcessingError::Structuring(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("connection") || msg.contains("ollama") || msg.contains("model") {
+                    ErrorCategory::AiUnavailable
+                } else {
+                    ErrorCategory::AiOutputError
+                }
+            }
+            ProcessingError::Database(_) => ErrorCategory::DatabaseError,
+            ProcessingError::PersistFailed(_) => ErrorCategory::StorageError,
+            ProcessingError::OcrInit(_) => ErrorCategory::OcrUnavailable,
+        }
+    }
+
+    /// P.5: Whether this error is retryable (transient vs permanent).
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            ProcessingError::Import(_) => false,
+            ProcessingError::Extraction(_) => true,
+            ProcessingError::Structuring(_) => true,
+            ProcessingError::Database(_) => false,
+            ProcessingError::PersistFailed(_) => true,
+            ProcessingError::OcrInit(_) => false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +334,24 @@ impl DocumentProcessor {
 
         // Steps 2-4: extraction + structuring
         let (extraction_summary, structuring_summary, structuring_result) =
-            self.extract_and_structure(&import, session, conn)?;
+            match self.extract_and_structure(&import, session, conn) {
+                Ok(result) => result,
+                Err(e) => {
+                    // O.5: Mark document as Failed on processing error
+                    if let Err(status_err) = repository::update_pipeline_status(
+                        conn,
+                        &import.document_id,
+                        &PipelineStatus::Failed,
+                    ) {
+                        tracing::warn!(
+                            document_id = %import.document_id,
+                            error = %status_err,
+                            "Failed to set pipeline status to Failed"
+                        );
+                    }
+                    return Err(e);
+                }
+            };
 
         Ok(ProcessingOutput {
             outcome: ProcessingOutcome {
@@ -188,7 +389,24 @@ impl DocumentProcessor {
         }
 
         let (extraction_summary, structuring_summary, structuring_result) =
-            self.extract_and_structure(import, session, conn)?;
+            match self.extract_and_structure(import, session, conn) {
+                Ok(result) => result,
+                Err(e) => {
+                    // O.5: Mark document as Failed on processing error
+                    if let Err(status_err) = repository::update_pipeline_status(
+                        conn,
+                        &import.document_id,
+                        &PipelineStatus::Failed,
+                    ) {
+                        tracing::warn!(
+                            document_id = %import.document_id,
+                            error = %status_err,
+                            "Failed to set pipeline status to Failed"
+                        );
+                    }
+                    return Err(e);
+                }
+            };
 
         Ok(ProcessingOutput {
             outcome: ProcessingOutcome {
@@ -210,6 +428,19 @@ impl DocumentProcessor {
         conn: &Connection,
     ) -> Result<(ExtractionSummary, StructuringSummary, StructuringResult), ProcessingError> {
         let staged_path = Path::new(&import.staged_path);
+
+        // O.5: Update pipeline status → Extracting
+        if let Err(e) = repository::update_pipeline_status(
+            conn,
+            &import.document_id,
+            &PipelineStatus::Extracting,
+        ) {
+            tracing::warn!(
+                document_id = %import.document_id,
+                error = %e,
+                "Failed to set pipeline status to Extracting"
+            );
+        }
 
         // Step 2: Extract text
         tracing::info!(
@@ -235,6 +466,19 @@ impl DocumentProcessor {
                 document_id = %import.document_id,
                 error = %e,
                 "Failed to update OCR confidence — continuing"
+            );
+        }
+
+        // O.5: Update pipeline status → Structuring
+        if let Err(e) = repository::update_pipeline_status(
+            conn,
+            &import.document_id,
+            &PipelineStatus::Structuring,
+        ) {
+            tracing::warn!(
+                document_id = %import.document_id,
+                error = %e,
+                "Failed to set pipeline status to Structuring"
             );
         }
 
@@ -333,8 +577,15 @@ fn build_ocr_engine(
     #[cfg(feature = "ocr")]
     {
         if let Ok(tessdata) = find_tessdata_dir() {
-            let engine = crate::pipeline::extraction::ocr::BundledTesseract::new(&tessdata)
+            let mut engine = crate::pipeline::extraction::ocr::BundledTesseract::new(&tessdata)
                 .map_err(|e| ProcessingError::OcrInit(e.to_string()))?;
+
+            // EXT-02-G04: Load medical wordlist for improved OCR accuracy
+            let wordlist_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("medical_wordlist.txt");
+            engine = engine.with_medical_wordlist(&wordlist_path);
+
             tracing::info!(tessdata = %tessdata.display(), "Tesseract OCR initialized");
             return Ok(Box::new(engine));
         }
@@ -492,7 +743,7 @@ mod tests {
     #[test]
     fn process_text_file_full_pipeline() {
         let (_dir, session) = test_session();
-        let conn = open_database(session.db_path()).unwrap();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let processor = build_test_processor();
 
         let tmp = tempfile::tempdir().unwrap();
@@ -524,7 +775,7 @@ mod tests {
     #[test]
     fn process_unsupported_file_skips_extraction() {
         let (_dir, session) = test_session();
-        let conn = open_database(session.db_path()).unwrap();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let processor = build_test_processor();
 
         let tmp = tempfile::tempdir().unwrap();
@@ -542,7 +793,7 @@ mod tests {
     #[test]
     fn process_duplicate_file_skips_extraction() {
         let (_dir, session) = test_session();
-        let conn = open_database(session.db_path()).unwrap();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let processor = build_test_processor();
 
         let tmp = tempfile::tempdir().unwrap();
@@ -564,7 +815,7 @@ mod tests {
     #[test]
     fn process_file_updates_ocr_confidence() {
         let (_dir, session) = test_session();
-        let conn = open_database(session.db_path()).unwrap();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
         let processor = build_test_processor();
 
         let tmp = tempfile::tempdir().unwrap();
@@ -586,7 +837,7 @@ mod tests {
     #[test]
     fn process_imported_document() {
         let (_dir, session) = test_session();
-        let conn = open_database(session.db_path()).unwrap();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
         // First: import only
         let tmp = tempfile::tempdir().unwrap();
@@ -616,6 +867,71 @@ mod tests {
     }
 
     #[test]
+    fn process_file_updates_pipeline_status() {
+        let (_dir, session) = test_session();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
+        let processor = build_test_processor();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file = create_test_file(
+            tmp.path(),
+            "status_test.txt",
+            "Metformin 500mg twice daily for type 2 diabetes management.",
+        );
+
+        let output = processor.process_file(&file, &session, &conn).unwrap();
+        let doc_id = output.outcome.document_id;
+
+        // After successful processing, status should be Structuring (last stage set by processor)
+        // The command layer would then set PendingReview, but the processor stops at Structuring.
+        let doc = repository::get_document(&conn, &doc_id).unwrap().unwrap();
+        assert_eq!(
+            doc.pipeline_status,
+            PipelineStatus::Structuring,
+            "After processing, status should be Structuring (command layer sets PendingReview)"
+        );
+    }
+
+    #[test]
+    fn process_file_sets_failed_on_structuring_error() {
+        use crate::pipeline::structuring::types::MedicalStructurer;
+
+        // LLM that returns invalid JSON → structuring will fail
+        struct FailingStructurer;
+        impl MedicalStructurer for FailingStructurer {
+            fn structure_document(
+                &self,
+                _document_id: &Uuid,
+                _text: &str,
+                _ocr_confidence: f32,
+                _session: &crate::crypto::ProfileSession,
+            ) -> Result<StructuringResult, StructuringError> {
+                Err(StructuringError::MalformedResponse("Mock LLM failure".into()))
+            }
+        }
+
+        let (_dir, session) = test_session();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
+
+        let ocr = Box::new(MockOcrEngine::new("Some medical text here", 0.85));
+        let pdf = Box::new(TestPdfExtractor);
+        let extractor = Box::new(DocumentExtractor::new(ocr, pdf));
+        let processor = DocumentProcessor::new(extractor, Box::new(FailingStructurer));
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file = create_test_file(tmp.path(), "fail_test.txt", "Some medical content for test.");
+
+        let result = processor.process_file(&file, &session, &conn);
+        assert!(result.is_err(), "Processing should fail with bad structurer");
+
+        // The document should have been created (import succeeded) with Failed status
+        // Find the document by checking recent documents
+        let docs = repository::get_documents_by_pipeline_status(&conn, &PipelineStatus::Failed)
+            .unwrap();
+        assert_eq!(docs.len(), 1, "Exactly one document should be in Failed status");
+    }
+
+    #[test]
     fn processing_outcome_serializes() {
         let outcome = ProcessingOutcome {
             document_id: Uuid::nil(),
@@ -639,5 +955,135 @@ mod tests {
         let json = serde_json::to_string(&outcome).unwrap();
         assert!(json.contains("prescription"));
         assert!(json.contains("PlainTextRead"));
+    }
+
+    #[test]
+    fn error_category_import_is_unsupported_file() {
+        let err = ProcessingError::Import(ImportError::UnsupportedFormat("bad".into()));
+        assert_eq!(err.category(), ErrorCategory::UnsupportedFile);
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn error_category_structuring_connection() {
+        let err = ProcessingError::Structuring(StructuringError::OllamaConnection(
+            "connection refused".into(),
+        ));
+        assert_eq!(err.category(), ErrorCategory::AiUnavailable);
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn error_category_structuring_malformed() {
+        let err = ProcessingError::Structuring(StructuringError::MalformedResponse(
+            "bad json".into(),
+        ));
+        assert_eq!(err.category(), ErrorCategory::AiOutputError);
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn error_category_serializes_snake_case() {
+        let json = serde_json::to_string(&ErrorCategory::AiUnavailable).unwrap();
+        assert_eq!(json, "\"ai_unavailable\"");
+        let json = serde_json::to_string(&ErrorCategory::OcrUnavailable).unwrap();
+        assert_eq!(json, "\"ocr_unavailable\"");
+    }
+
+    // -- R.1: PatientError tests --
+
+    #[test]
+    fn patient_error_from_unsupported_format() {
+        let err = ProcessingError::Import(ImportError::UnsupportedFormat("docx".into()));
+        let pe = err.to_patient_error();
+        assert_eq!(pe.title, "Unsupported File");
+        assert!(!pe.retry_possible);
+        assert_eq!(pe.category, ErrorCategory::UnsupportedFile);
+    }
+
+    #[test]
+    fn patient_error_from_file_too_large() {
+        let err = ProcessingError::Import(ImportError::FileTooLarge { size_mb: 25.5, max_mb: 20 });
+        let pe = err.to_patient_error();
+        assert!(pe.message.contains("25.5"));
+        assert!(pe.message.contains("20"));
+        assert!(!pe.retry_possible);
+    }
+
+    #[test]
+    fn patient_error_from_encrypted_pdf() {
+        let err = ProcessingError::Import(ImportError::EncryptedPdf);
+        let pe = err.to_patient_error();
+        assert_eq!(pe.title, "Protected PDF");
+        assert!(!pe.retry_possible);
+    }
+
+    #[test]
+    fn patient_error_from_structuring_delegates() {
+        let err = ProcessingError::Structuring(StructuringError::OllamaConnection("localhost".into()));
+        let pe = err.to_patient_error();
+        // Should delegate to StructuringError::patient_message()
+        assert_eq!(pe.title, "AI Service Unavailable");
+        assert!(pe.retry_possible);
+        assert_eq!(pe.category, ErrorCategory::AiUnavailable);
+    }
+
+    #[test]
+    fn patient_error_from_extraction() {
+        let err = ProcessingError::Extraction(ExtractionError::OcrProcessing("failed".into()));
+        let pe = err.to_patient_error();
+        assert_eq!(pe.title, "Text Extraction Failed");
+        assert!(pe.retry_possible);
+    }
+
+    #[test]
+    fn patient_error_from_ocr_init() {
+        let err = ProcessingError::OcrInit("tessdata not found".into());
+        let pe = err.to_patient_error();
+        assert_eq!(pe.title, "OCR Not Available");
+        assert!(!pe.retry_possible);
+    }
+
+    #[test]
+    fn patient_error_serializes() {
+        let err = ProcessingError::Import(ImportError::EncryptedPdf);
+        let pe = err.to_patient_error();
+        let json = serde_json::to_string(&pe).unwrap();
+        assert!(json.contains("\"title\":\"Protected PDF\""));
+        assert!(json.contains("\"category\":\"unsupported_file\""));
+    }
+
+    // -- R.4: Sanitization tests --
+
+    #[test]
+    fn sanitize_strips_unix_paths() {
+        let msg = "Failed to read /home/user/profile/data/documents/abc.pdf";
+        let clean = sanitize_error_message(msg);
+        assert!(!clean.contains("/home/user"));
+        assert!(clean.contains("[file]"));
+    }
+
+    #[test]
+    fn sanitize_strips_uuids() {
+        let msg = "Document not found: 550e8400-e29b-41d4-a716-446655440000";
+        let clean = sanitize_error_message(msg);
+        assert!(!clean.contains("550e8400"));
+        assert!(clean.contains("[id]"));
+    }
+
+    #[test]
+    fn sanitize_strips_ip_addresses() {
+        let msg = "Connection refused at 127.0.0.1:11434";
+        let clean = sanitize_error_message(msg);
+        assert!(!clean.contains("127.0.0.1"));
+        assert!(clean.contains("[server]"));
+    }
+
+    #[test]
+    fn sanitize_truncates_long_messages() {
+        let msg = "A".repeat(300);
+        let clean = sanitize_error_message(&msg);
+        assert!(clean.len() <= 210); // 200 + "..."
+        assert!(clean.ends_with("..."));
     }
 }

@@ -29,6 +29,7 @@ pub struct DefaultCoherenceEngine {
     pub(crate) store: AlertStore,
     pub(crate) reference: CoherenceReferenceData,
     db_path: Option<PathBuf>,
+    db_key: Option<[u8; 32]>,
 }
 
 impl DefaultCoherenceEngine {
@@ -38,6 +39,7 @@ impl DefaultCoherenceEngine {
             store: AlertStore::new(),
             reference,
             db_path: None,
+            db_key: None,
         }
     }
 
@@ -49,19 +51,21 @@ impl DefaultCoherenceEngine {
         reference: CoherenceReferenceData,
         conn: &Connection,
         db_path: &Path,
+        db_key: Option<[u8; 32]>,
     ) -> Result<Self, CoherenceError> {
         let store = AlertStore::load_from_db(conn)?;
         Ok(Self {
             store,
             reference,
             db_path: Some(db_path.to_path_buf()),
+            db_key,
         })
     }
 
     /// Open a DB connection if db_path is configured.
     fn open_conn(&self) -> Option<Connection> {
         self.db_path.as_ref().and_then(|path| {
-            sqlite::open_database(path)
+            sqlite::open_database(path, self.db_key.as_ref())
                 .map_err(|e| {
                     tracing::warn!(error = %e, "Failed to open DB for alert persistence");
                     e
@@ -545,9 +549,9 @@ mod tests {
     fn make_db_engine(
         db_path: &std::path::Path,
     ) -> (DefaultCoherenceEngine, rusqlite::Connection) {
-        let conn = crate::db::sqlite::open_database(db_path).unwrap();
+        let conn = crate::db::sqlite::open_database(db_path, None).unwrap();
         let ref_data = CoherenceReferenceData::load_test();
-        let engine = DefaultCoherenceEngine::with_db(ref_data, &conn, db_path).unwrap();
+        let engine = DefaultCoherenceEngine::with_db(ref_data, &conn, db_path, None).unwrap();
         (engine, conn)
     }
 
@@ -595,8 +599,8 @@ mod tests {
         // Drop engine and reload from DB — alerts should survive
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
-        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+        let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
 
         let active = engine2.get_active_alerts(None).unwrap();
         assert_eq!(
@@ -624,8 +628,8 @@ mod tests {
         // Reload — dismissed alert should not appear
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
-        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+        let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
 
         let active = engine2.get_active_alerts(None).unwrap();
         assert!(
@@ -675,8 +679,8 @@ mod tests {
         // Reload — dismissed critical should not appear
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
-        let conn2 = crate::db::sqlite::open_database(&db_path).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path).unwrap();
+        let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
 
         let critical = engine2.get_critical_alerts().unwrap();
         assert!(critical.is_empty(), "Dismissed critical should not survive reload");

@@ -2,11 +2,15 @@ pub mod keys;
 pub mod encryption;
 pub mod recovery;
 pub mod profile;
+pub mod secure_delete;
+#[cfg(test)]
+mod phi_audit;
 
 pub use keys::*;
 pub use encryption::*;
 pub use recovery::*;
 pub use profile::*;
+pub use secure_delete::*;
 
 use thiserror::Error;
 use uuid::Uuid;

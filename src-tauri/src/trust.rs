@@ -494,9 +494,10 @@ pub fn create_backup_with_key(
     profile_name: &str,
     encrypt_fn: &dyn Fn(&[u8]) -> Result<EncryptedData, crate::crypto::CryptoError>,
     output_path: &Path,
+    db_key: Option<&[u8; 32]>,
 ) -> Result<BackupResult, TrustError> {
     let db_path = profile_dir.join("database/coheara.db");
-    let conn = rusqlite::Connection::open(&db_path)?;
+    let conn = crate::db::sqlite::open_database(&db_path, db_key)?;
 
     let doc_count: u32 = conn.query_row(
         "SELECT COUNT(*) FROM documents",
@@ -591,6 +592,7 @@ pub fn create_backup(
         &session.profile_name,
         &|plaintext| session.encrypt(plaintext),
         output_path,
+        Some(session.key_bytes()),
     )
 }
 
@@ -708,7 +710,7 @@ pub fn restore_backup(
     let db_path = target_dir.join("database/coheara.db");
     let mut warnings = Vec::new();
     let doc_count = if db_path.exists() {
-        let conn = rusqlite::Connection::open(&db_path)?;
+        let conn = crate::db::sqlite::open_database(&db_path, Some(key.as_bytes()))?;
         conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?
     } else {
         warnings.push("Database file not found in backup".into());
@@ -1210,7 +1212,7 @@ mod tests {
 
         // Create a test database
         let db_path = profile_dir.join("database/coheara.db");
-        let conn = crate::db::sqlite::open_database(&db_path).unwrap();
+        let conn = crate::db::sqlite::open_database(&db_path, None).unwrap();
         conn.execute(
             "INSERT INTO documents (id, type, title, ingestion_date, source_file)
              VALUES ('doc-1', 'lab_result', 'Test Report', '2026-01-15', 'test.pdf')",
@@ -1229,7 +1231,7 @@ mod tests {
         // Create backup
         let backup_path = tmp.path().join("test.coheara-backup");
         let result = create_backup_with_key(
-            &profile_dir, "Test Profile", &|p| key.encrypt(p), &backup_path,
+            &profile_dir, "Test Profile", &|p| key.encrypt(p), &backup_path, None,
         ).unwrap();
 
         assert!(backup_path.exists());
@@ -1251,10 +1253,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let profile_dir = tmp.path().join("source-profile");
 
-        // Set up profile
+        // Create directories first
         std::fs::create_dir_all(profile_dir.join("database")).unwrap();
+
+        // Derive key so we can create an encrypted DB (matching production flow)
+        let salt = crate::crypto::keys::generate_salt();
+        std::fs::write(profile_dir.join("salt.bin"), salt).unwrap();
+        let key = ProfileKey::derive("mypassword", &salt);
         let db_path = profile_dir.join("database/coheara.db");
-        let conn = crate::db::sqlite::open_database(&db_path).unwrap();
+        let conn = crate::db::sqlite::open_database(&db_path, Some(key.as_bytes())).unwrap();
         conn.execute(
             "INSERT INTO documents (id, type, title, ingestion_date, source_file)
              VALUES ('doc-1', 'prescription', 'Report 1', '2026-01-15', 'report.pdf')",
@@ -1269,14 +1276,10 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let salt = crate::crypto::keys::generate_salt();
-        std::fs::write(profile_dir.join("salt.bin"), salt).unwrap();
-        let key = ProfileKey::derive("mypassword", &salt);
-
         // Backup
         let backup_path = tmp.path().join("roundtrip.coheara-backup");
         create_backup_with_key(
-            &profile_dir, "Round Trip Test", &|p| key.encrypt(p), &backup_path,
+            &profile_dir, "Round Trip Test", &|p| key.encrypt(p), &backup_path, Some(key.as_bytes()),
         ).unwrap();
 
         // Restore to new directory
@@ -1295,7 +1298,7 @@ mod tests {
 
         std::fs::create_dir_all(profile_dir.join("database")).unwrap();
         let db_path = profile_dir.join("database/coheara.db");
-        let conn = crate::db::sqlite::open_database(&db_path).unwrap();
+        let conn = crate::db::sqlite::open_database(&db_path, None).unwrap();
         conn.execute(
             "INSERT INTO documents (id, type, title, ingestion_date, source_file)
              VALUES ('doc-1', 'lab_result', 'Test Report', '2026-01-15', 'test.pdf')",
@@ -1310,7 +1313,7 @@ mod tests {
 
         let backup_path = tmp.path().join("wp.coheara-backup");
         create_backup_with_key(
-            &profile_dir, "WP Test", &|p| key.encrypt(p), &backup_path,
+            &profile_dir, "WP Test", &|p| key.encrypt(p), &backup_path, None,
         ).unwrap();
 
         // Try restoring with wrong password
@@ -1392,7 +1395,7 @@ mod tests {
         std::fs::create_dir_all(profile_dir.join("database")).unwrap();
 
         let db_path = profile_dir.join("database/coheara.db");
-        let conn = crate::db::sqlite::open_database(&db_path).unwrap();
+        let conn = crate::db::sqlite::open_database(&db_path, None).unwrap();
         conn.execute(
             "INSERT INTO documents (id, type, title, ingestion_date, source_file)
              VALUES ('doc-1', 'prescription', 'Test Doc', '2026-01-15', 'test.pdf')",

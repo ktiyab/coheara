@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { getHomeData, getMoreDocuments } from '$lib/api/home';
   import { listen } from '@tauri-apps/api/event';
   import type { HomeData, DocumentCard } from '$lib/types/home';
@@ -55,10 +56,8 @@
     return () => { unlisten.then(fn => fn()); };
   });
 
-  let greeting = $derived(`Welcome back, ${profile.name}`);
-
   function relativeTime(dateStr: string | null): string {
-    if (!dateStr) return 'No documents yet';
+    if (!dateStr) return '';
     const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -76,25 +75,29 @@
 <div class="flex flex-col min-h-screen pb-20 bg-stone-50">
   <!-- Header -->
   <header class="px-6 pt-6 pb-4">
-    <h1 class="text-2xl font-bold text-stone-800">{greeting}</h1>
+    <h1 class="text-2xl font-bold text-stone-800">
+      {$t('home.greeting', { values: { name: profile.name } })}
+    </h1>
     {#if homeData}
       <p class="text-sm text-stone-500 mt-1">
-        {homeData.stats.total_documents} document{homeData.stats.total_documents === 1 ? '' : 's'}
-        · Last updated {relativeTime(homeData.stats.last_document_date)}
+        {$t('home.document_count', { values: { count: homeData.stats.total_documents } })}
+        {#if homeData.stats.last_document_date}
+          · {$t('home.last_updated', { values: { time: relativeTime(homeData.stats.last_document_date) } })}
+        {/if}
       </p>
     {/if}
   </header>
 
   {#if loading}
     <div class="flex items-center justify-center flex-1">
-      <div class="animate-pulse text-stone-400">Loading...</div>
+      <div class="animate-pulse text-stone-400">{$t('common.loading')}</div>
     </div>
   {:else if error}
     <div class="px-6 py-8 text-center">
-      <p class="text-red-600 mb-4">Something went wrong: {error}</p>
+      <p class="text-red-600 mb-4">{$t('home.error')}: {error}</p>
       <button class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
               onclick={refresh}>
-        Try again
+        {$t('common.retry')}
       </button>
     </div>
   {:else if homeData}
@@ -126,7 +129,7 @@
             onclick={loadMore}
             disabled={loadingMore}
           >
-            {loadingMore ? 'Loading...' : 'Load more documents'}
+            {loadingMore ? $t('common.loading') : $t('home.load_more')}
           </button>
         {/if}
       </div>

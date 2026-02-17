@@ -138,6 +138,16 @@ str_enum!(AliasSource {
     UserAdded => "user_added",
 });
 
+str_enum!(PipelineStatus {
+    Imported => "imported",
+    Extracting => "extracting",
+    Structuring => "structuring",
+    PendingReview => "pending_review",
+    Confirmed => "confirmed",
+    Failed => "failed",
+    Rejected => "rejected",
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;

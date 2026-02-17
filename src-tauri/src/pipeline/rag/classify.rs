@@ -81,6 +81,7 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
 
 fn has_timeline_pattern(text: &str) -> bool {
     let patterns = [
+        // English
         "what changed",
         "what's changed",
         "since my last",
@@ -94,12 +95,23 @@ fn has_timeline_pattern(text: &str) -> bool {
         "what happened",
         "evolution",
         "progression",
+        // French (M.5)
+        "qu'est-ce qui a chang",
+        "depuis ma derni",
+        "depuis la derni",
+        "au cours des",
+        "historique",
+        "quand est-ce",
+        "depuis combien",
+        "chronologie",
+        "que s'est-il pass",
     ];
     patterns.iter().any(|p| text.contains(p))
 }
 
 fn has_symptom_pattern(text: &str) -> bool {
     let patterns = [
+        // English
         "feeling",
         "symptom",
         "pain",
@@ -115,12 +127,34 @@ fn has_symptom_pattern(text: &str) -> bool {
         "uncomfortable",
         "worse",
         "better",
+        // French (M.5)
+        "je me sens",
+        "je ressens",
+        "symptome",
+        "symptôme",
+        "douleur",
+        "vertige",
+        "nausee",
+        "nausée",
+        "mal de tete",
+        "mal de tête",
+        "fatigue",
+        "effet secondaire",
+        "effet indesirable",
+        "effet indésirable",
+        "depuis que je prends",
+        "j'ai mal",
+        "inconfortable",
+        "empire",
+        "ameliore",
+        "amélioré",
     ];
     patterns.iter().any(|p| text.contains(p))
 }
 
 fn has_exploratory_pattern(text: &str) -> bool {
     let patterns = [
+        // English
         "what should i ask",
         "what questions",
         "prepare for",
@@ -129,12 +163,28 @@ fn has_exploratory_pattern(text: &str) -> bool {
         "should i be concerned",
         "what does this mean",
         "help me understand",
+        // French (M.5)
+        "que devrais-je demander",
+        "quelles questions",
+        "preparer pour",
+        "préparer pour",
+        "avant mon rendez-vous",
+        "avant ma consultation",
+        "a quoi m'attendre",
+        "à quoi m'attendre",
+        "dois-je m'inquieter",
+        "dois-je m'inquiéter",
+        "qu'est-ce que cela signifie",
+        "qu'est-ce que ça veut dire",
+        "aidez-moi a comprendre",
+        "aidez-moi à comprendre",
     ];
     patterns.iter().any(|p| text.contains(p))
 }
 
 fn has_factual_pattern(text: &str) -> bool {
     let patterns = [
+        // English
         "what is my",
         "what's my",
         "what dose",
@@ -147,6 +197,25 @@ fn has_factual_pattern(text: &str) -> bool {
         "what are my",
         "lab result",
         "test result",
+        // French (M.5)
+        "quel est mon",
+        "quelle est ma",
+        "quels sont mes",
+        "quelles sont mes",
+        "quelle dose",
+        "combien de",
+        "a quelle frequence",
+        "à quelle fréquence",
+        "qui a prescrit",
+        "quel medecin",
+        "quel médecin",
+        "quel medicament",
+        "quel médicament",
+        "resultat de laboratoire",
+        "résultat de laboratoire",
+        "resultat d'analyse",
+        "résultat d'analyse",
+        "bilan sanguin",
     ];
     patterns.iter().any(|p| text.contains(p))
 }
@@ -271,5 +340,67 @@ mod tests {
         assert!(keywords.contains(&"metformin".to_string()));
         assert!(keywords.contains(&"aspirin".to_string()));
         assert!(keywords.contains(&"lisinopril".to_string()));
+    }
+
+    // ── M.5: French query classification ────────────────────────────
+
+    #[test]
+    fn classify_french_factual() {
+        assert_eq!(
+            classify_query("Quelle dose de metformine je prends ?"),
+            QueryType::Factual
+        );
+        assert_eq!(
+            classify_query("Quels sont mes résultats d'analyse ?"),
+            QueryType::Factual
+        );
+        assert_eq!(
+            classify_query("Quel médecin a prescrit ce traitement ?"),
+            QueryType::Factual
+        );
+    }
+
+    #[test]
+    fn classify_french_timeline() {
+        assert_eq!(
+            classify_query("Qu'est-ce qui a changé depuis ma dernière visite ?"),
+            QueryType::Timeline
+        );
+        assert_eq!(
+            classify_query("Depuis combien de temps je prends ce médicament ?"),
+            QueryType::Timeline
+        );
+    }
+
+    #[test]
+    fn classify_french_symptom() {
+        assert_eq!(
+            classify_query("Je me sens fatigué depuis une semaine"),
+            QueryType::Symptom
+        );
+        assert_eq!(
+            classify_query("J'ai mal à la tête depuis que je prends ce traitement"),
+            QueryType::Symptom
+        );
+        assert_eq!(
+            classify_query("Je ressens un effet secondaire"),
+            QueryType::Symptom
+        );
+    }
+
+    #[test]
+    fn classify_french_exploratory() {
+        assert_eq!(
+            classify_query("Que devrais-je demander au médecin ?"),
+            QueryType::Exploratory
+        );
+        assert_eq!(
+            classify_query("Aidez-moi à comprendre mes résultats"),
+            QueryType::Exploratory
+        );
+        assert_eq!(
+            classify_query("Qu'est-ce que cela signifie pour ma santé ?"),
+            QueryType::Exploratory
+        );
     }
 }

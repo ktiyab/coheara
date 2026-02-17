@@ -175,15 +175,16 @@ struct ChunkRow {
 /// medical document scale: ~1000s of chunks per profile).
 pub struct SqliteVectorStore {
     db_path: PathBuf,
+    db_key: Option<[u8; 32]>,
 }
 
 impl SqliteVectorStore {
-    pub fn new(db_path: PathBuf) -> Self {
-        Self { db_path }
+    pub fn new(db_path: PathBuf, db_key: Option<[u8; 32]>) -> Self {
+        Self { db_path, db_key }
     }
 
     fn open_conn(&self) -> Result<rusqlite::Connection, StorageError> {
-        crate::db::open_database(&self.db_path).map_err(|e| StorageError::VectorDb(e.to_string()))
+        crate::db::open_database(&self.db_path, self.db_key.as_ref()).map_err(|e| StorageError::VectorDb(e.to_string()))
     }
 }
 
@@ -593,7 +594,7 @@ mod tests {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         crate::db::sqlite::run_migrations(&conn).unwrap();
         drop(conn);
-        (dir, SqliteVectorStore::new(db_path))
+        (dir, SqliteVectorStore::new(db_path, None))
     }
 
     /// Insert a document row so FK constraints pass.

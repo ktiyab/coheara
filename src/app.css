@@ -27,3 +27,13 @@ button, a, input, select, textarea, [role="button"] {
   min-height: 44px;
   min-width: 44px;
 }
+
+/* Q.4: Indeterminate progress bar animation */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); width: 40%; }
+  50% { transform: translateX(100%); width: 60%; }
+  100% { transform: translateX(250%); width: 40%; }
+}
+.animate-indeterminate {
+  animation: indeterminate 1.8s ease-in-out infinite;
+}

@@ -204,7 +204,6 @@ pub fn add_otc_medication(
 
     tracing::info!(
         medication_id = %med_id,
-        name = %input.name.trim(),
         "OTC medication added by patient"
     );
 

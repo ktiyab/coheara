@@ -19,11 +19,14 @@ pub enum ImportError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Unsupported file format")]
-    UnsupportedFormat,
+    #[error("Unsupported file format: {0}")]
+    UnsupportedFormat(String),
 
-    #[error("File too large (max 100MB)")]
-    FileTooLarge,
+    #[error("File too large: {size_mb:.1}MB exceeds {max_mb}MB limit")]
+    FileTooLarge { size_mb: f64, max_mb: u64 },
+
+    #[error("PDF is password-protected — please decrypt it first")]
+    EncryptedPdf,
 
     #[error("Could not read file: {0}")]
     FileReadError(String),

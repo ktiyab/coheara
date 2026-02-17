@@ -46,15 +46,27 @@ export async function getActiveProfileName(): Promise<string> {
 
 import type { ResolvedModel } from '$lib/types/ai';
 
+/** S.1: Granular AI status level */
+export type StatusLevel = 'unknown' | 'reachable' | 'configured' | 'verified' | 'degraded' | 'error';
+
 export interface AiStatus {
   ollama_available: boolean;
   active_model: ResolvedModel | null;
   embedder_type: string;
   summary: string;
+  /** S.1: Granular status level for frontend routing */
+  level: StatusLevel;
 }
 
 export async function checkAiStatus(): Promise<AiStatus> {
   return invoke<AiStatus>('check_ai_status');
+}
+
+/** S.1+S.7: Verify AI generation and update cached status.
+ * Runs a lightweight test generation. Promotes level from 'configured' to 'verified' on success.
+ * Frontend should call this ~30s after startup and periodically (every 60s). */
+export async function verifyAiStatus(): Promise<AiStatus> {
+  return invoke<AiStatus>('verify_ai_status');
 }
 
 export async function deleteProfile(profileId: string): Promise<void> {

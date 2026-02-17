@@ -3,15 +3,63 @@ use crate::models::*;
 use super::types::{AssembledContext, QueryType, RetrievedContext, ScoredChunk};
 
 const MAX_CONTEXT_TOKENS: usize = 3000;
-const APPROX_CHARS_PER_TOKEN: usize = 4;
-const MAX_CONTEXT_CHARS: usize = MAX_CONTEXT_TOKENS * APPROX_CHARS_PER_TOKEN;
+
+/// English text averages ~4 chars/token for subword tokenizers.
+const CHARS_PER_TOKEN_EN: usize = 4;
+/// French text averages ~3.3 chars/token due to longer words and diacritics.
+/// M.7: Use a conservative estimate to avoid exceeding token budget.
+const CHARS_PER_TOKEN_FR: usize = 3;
+
+/// Detect if text is predominantly French using common French markers.
+fn detect_french_content(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let french_markers = [
+        " le ", " la ", " les ", " des ", " du ", " un ", " une ",
+        " de ", " est ", " sont ", " avec ", " pour ", " dans ",
+        " qui ", " que ", " ce ", " cette ", " ces ",
+        "é", "è", "ê", "à", "ù", "ç", "ô", "î",
+    ];
+    let hits: usize = french_markers.iter().filter(|m| lower.contains(*m)).count();
+    hits >= 5
+}
+
+/// Get max context chars based on content language.
+fn max_context_chars(text_sample: &str) -> usize {
+    let ratio = if detect_french_content(text_sample) {
+        CHARS_PER_TOKEN_FR
+    } else {
+        CHARS_PER_TOKEN_EN
+    };
+    MAX_CONTEXT_TOKENS * ratio
+}
+
+/// Estimate tokens for a given text based on language.
+fn estimate_tokens(text: &str) -> usize {
+    let ratio = if detect_french_content(text) {
+        CHARS_PER_TOKEN_FR
+    } else {
+        CHARS_PER_TOKEN_EN
+    };
+    text.len() / ratio
+}
 
 /// Assemble retrieved context into a structured prompt section.
 /// Prioritizes: allergies > semantic chunks > medications > diagnoses > labs > symptoms.
+/// M.7: Budget is language-aware — French text gets a tighter char limit to stay within token budget.
 pub fn assemble_context(
     retrieved: &RetrievedContext,
     query_type: &QueryType,
 ) -> AssembledContext {
+    // M.7: Sample content to detect language for token budget adjustment
+    let content_sample: String = retrieved
+        .semantic_chunks
+        .iter()
+        .take(3)
+        .map(|c| c.content.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let budget = max_context_chars(&content_sample);
+
     let mut sections = Vec::new();
     let mut total_chars = 0;
 
@@ -32,11 +80,11 @@ pub fn assemble_context(
 
     let mut chunks_included = Vec::new();
     for chunk in &chunks {
-        if total_chars >= MAX_CONTEXT_CHARS {
+        if total_chars >= budget {
             break;
         }
         let section = format_chunk(chunk);
-        if total_chars + section.len() <= MAX_CONTEXT_CHARS {
+        if total_chars + section.len() <= budget {
             total_chars += section.len();
             sections.push(("DOCUMENT EXCERPT", section));
             chunks_included.push(chunk.clone());
@@ -44,27 +92,27 @@ pub fn assemble_context(
     }
 
     // Priority 3: Active medications (if room)
-    if !retrieved.structured_data.medications.is_empty() && total_chars < MAX_CONTEXT_CHARS {
+    if !retrieved.structured_data.medications.is_empty() && total_chars < budget {
         let section = format_medications(&retrieved.structured_data.medications);
-        if total_chars + section.len() <= MAX_CONTEXT_CHARS {
+        if total_chars + section.len() <= budget {
             total_chars += section.len();
             sections.push(("CURRENT MEDICATIONS", section));
         }
     }
 
     // Priority 4: Active diagnoses (if room)
-    if !retrieved.structured_data.diagnoses.is_empty() && total_chars < MAX_CONTEXT_CHARS {
+    if !retrieved.structured_data.diagnoses.is_empty() && total_chars < budget {
         let section = format_diagnoses(&retrieved.structured_data.diagnoses);
-        if total_chars + section.len() <= MAX_CONTEXT_CHARS {
+        if total_chars + section.len() <= budget {
             total_chars += section.len();
             sections.push(("ACTIVE DIAGNOSES", section));
         }
     }
 
     // Priority 5: Lab results (if room)
-    if !retrieved.structured_data.lab_results.is_empty() && total_chars < MAX_CONTEXT_CHARS {
+    if !retrieved.structured_data.lab_results.is_empty() && total_chars < budget {
         let section = format_labs(&retrieved.structured_data.lab_results);
-        if total_chars + section.len() <= MAX_CONTEXT_CHARS {
+        if total_chars + section.len() <= budget {
             total_chars += section.len();
             sections.push(("RECENT LAB RESULTS", section));
         }
@@ -73,10 +121,10 @@ pub fn assemble_context(
     // Priority 6: Recent symptoms (for symptom queries)
     if *query_type == QueryType::Symptom
         && !retrieved.structured_data.symptoms.is_empty()
-        && total_chars < MAX_CONTEXT_CHARS
+        && total_chars < budget
     {
         let section = format_symptoms(&retrieved.structured_data.symptoms);
-        if total_chars + section.len() <= MAX_CONTEXT_CHARS {
+        if total_chars + section.len() <= budget {
             let _ = total_chars + section.len(); // last section, no further budget check
             sections.push(("RECENT SYMPTOMS", section));
         }
@@ -88,7 +136,7 @@ pub fn assemble_context(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let estimated_tokens = context_text.len() / APPROX_CHARS_PER_TOKEN;
+    let estimated_tokens = estimate_tokens(&context_text);
 
     AssembledContext {
         text: context_text,
@@ -240,9 +288,10 @@ mod tests {
         }
 
         let assembled = assemble_context(&ctx, &QueryType::Factual);
-        // Allow buffer for XML tags
+        // Allow buffer for XML tags; English content → 4 chars/token budget
+        let en_budget = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN_EN;
         assert!(
-            assembled.text.len() <= MAX_CONTEXT_CHARS + 500,
+            assembled.text.len() <= en_budget + 500,
             "Context too large: {} chars",
             assembled.text.len()
         );
@@ -309,5 +358,82 @@ mod tests {
         let assembled = assemble_context(&ctx, &QueryType::Factual);
         assert!(assembled.text.contains("CURRENT MEDICATIONS"));
         assert!(assembled.text.contains("Metformin"));
+    }
+
+    // ── M.7: French token ratio tests ─────────────────────────────
+
+    #[test]
+    fn detect_french_content_identifies_french() {
+        let french = "Le patient présente une douleur dans la poitrine depuis \
+            trois jours. Les résultats sont normaux. Il est sous traitement \
+            avec du Metformine pour le diabète de type 2.";
+        assert!(detect_french_content(french));
+    }
+
+    #[test]
+    fn detect_french_content_rejects_english() {
+        let english = "The patient presents with chest pain over the past three \
+            days. Lab results are normal. Currently on Metformin for type 2 diabetes.";
+        assert!(!detect_french_content(english));
+    }
+
+    #[test]
+    fn french_content_gets_tighter_budget() {
+        let french = "Le patient présente une douleur dans la poitrine depuis \
+            trois jours. Les résultats sont normaux.";
+        let english = "The patient presents with chest pain over three days.";
+
+        let fr_budget = max_context_chars(french);
+        let en_budget = max_context_chars(english);
+
+        assert!(fr_budget < en_budget, "French budget ({fr_budget}) should be < English ({en_budget})");
+        assert_eq!(fr_budget, MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN_FR);
+        assert_eq!(en_budget, MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN_EN);
+    }
+
+    #[test]
+    fn french_context_assembly_includes_fewer_chunks_than_english() {
+        // French content → tighter char budget → fewer chunks fit
+        let mut fr_ctx = empty_context();
+        for i in 0..100 {
+            fr_ctx.semantic_chunks.push(ScoredChunk {
+                chunk_id: format!("fr{i}"),
+                document_id: uuid::Uuid::new_v4(),
+                content: format!(
+                    "Le patient présente des résultats de laboratoire pour le test numéro {i}. \
+                    Les valeurs sont dans la plage normale avec une légère élévation."
+                ),
+                score: 0.8,
+                doc_type: "lab_result".into(),
+                doc_date: None,
+                professional_name: None,
+            });
+        }
+        let fr_assembled = assemble_context(&fr_ctx, &QueryType::Factual);
+
+        // Same chunk count but English content → looser budget
+        let mut en_ctx = empty_context();
+        for i in 0..100 {
+            en_ctx.semantic_chunks.push(ScoredChunk {
+                chunk_id: format!("en{i}"),
+                document_id: uuid::Uuid::new_v4(),
+                content: format!(
+                    "The patient shows lab results for test number {i}. \
+                    Values are within normal range with slight elevation noted."
+                ),
+                score: 0.8,
+                doc_type: "lab_result".into(),
+                doc_date: None,
+                professional_name: None,
+            });
+        }
+        let en_assembled = assemble_context(&en_ctx, &QueryType::Factual);
+
+        assert!(
+            fr_assembled.chunks_included.len() < en_assembled.chunks_included.len(),
+            "French ({}) should fit fewer chunks than English ({})",
+            fr_assembled.chunks_included.len(),
+            en_assembled.chunks_included.len(),
+        );
     }
 }

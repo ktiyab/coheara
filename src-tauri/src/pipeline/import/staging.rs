@@ -79,6 +79,66 @@ pub fn read_staged_file(
     Ok(plaintext)
 }
 
+// ---------------------------------------------------------------------------
+// SEC-02-G03/G04: Pre-import staging encryption
+// ---------------------------------------------------------------------------
+
+/// Encrypt bytes and write to a staging file. Used for mobile and WiFi staging
+/// so plaintext medical data never hits disk in the staging directory.
+pub fn write_encrypted_staging(
+    plaintext: &[u8],
+    path: &Path,
+    key: &[u8; 32],
+) -> Result<(), ImportError> {
+    let encrypted = crate::crypto::EncryptedData::encrypt(key, plaintext)?;
+    std::fs::write(path, encrypted.to_bytes())?;
+    Ok(())
+}
+
+/// Decrypt a pre-import encrypted staging file to a temp file for import.
+/// Returns a NamedTempFile that will be auto-deleted when dropped.
+pub fn decrypt_staging_to_temp(
+    encrypted_path: &Path,
+    key: &[u8; 32],
+) -> Result<tempfile::NamedTempFile, ImportError> {
+    let bytes = std::fs::read(encrypted_path)?;
+    let encrypted = crate::crypto::EncryptedData::from_bytes(&bytes)?;
+    let plaintext = encrypted.decrypt(key)?;
+
+    // Preserve original extension (minus any .enc suffix)
+    let stem = encrypted_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("staged");
+    let ext = encrypted_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+
+    let suffix = if ext == "enc" {
+        // File named like "uuid_photo.jpg.enc" → use the stem's extension
+        Path::new(stem)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{e}"))
+            .unwrap_or_else(|| ".bin".to_string())
+    } else {
+        format!(".{ext}")
+    };
+
+    let mut temp = tempfile::Builder::new()
+        .suffix(&suffix)
+        .tempfile()
+        .map_err(|e| ImportError::FileReadError(format!("Temp file creation failed: {e}")))?;
+
+    use std::io::Write;
+    temp.write_all(&plaintext)
+        .map_err(|e| ImportError::FileReadError(format!("Temp file write failed: {e}")))?;
+    temp.flush()?;
+
+    Ok(temp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +199,39 @@ mod tests {
 
         remove_staged(&doc_id, &session).unwrap();
         assert!(!staged_path.exists());
+    }
+
+    #[test]
+    fn encrypted_staging_roundtrip() {
+        let (_dir, session) = setup_profile();
+        let staging_dir = tempfile::tempdir().unwrap();
+        let path = staging_dir.path().join("photo.jpg");
+        let content = b"JPEG medical image data";
+        let key = session.key_bytes();
+
+        write_encrypted_staging(content, &path, key).unwrap();
+
+        // File on disk should NOT be plaintext
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_ne!(on_disk, content);
+
+        // Decrypt to temp and verify roundtrip
+        let temp = decrypt_staging_to_temp(&path, key).unwrap();
+        let recovered = std::fs::read(temp.path()).unwrap();
+        assert_eq!(recovered, content);
+    }
+
+    #[test]
+    fn encrypted_staging_wrong_key_fails() {
+        let (_dir, session) = setup_profile();
+        let staging_dir = tempfile::tempdir().unwrap();
+        let path = staging_dir.path().join("secret.pdf");
+        let key = session.key_bytes();
+
+        write_encrypted_staging(b"sensitive data", &path, key).unwrap();
+
+        let wrong_key = [0u8; 32];
+        let result = decrypt_staging_to_temp(&path, &wrong_key);
+        assert!(result.is_err());
     }
 }

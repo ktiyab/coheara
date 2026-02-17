@@ -410,7 +410,8 @@ async fn handle_chat_query(
             .resolve(&conn, &ollama_client)
             .ok()
             .map(|r| r.name);
-        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref());
+        let db_key = core.db_key().ok();
+        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref());
 
         match rag_response {
             Some(response) => {
@@ -540,6 +541,7 @@ fn try_ws_rag_query(
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
     resolved_model: Option<&str>,
+    db_key: Option<&[u8; 32]>,
 ) -> Option<crate::pipeline::rag::types::RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
@@ -549,7 +551,7 @@ fn try_ws_rag_query(
     // Use preference-resolved model if available (L6-04)
     let model_name = resolved_model?;
     let generator = OllamaRagGenerator::with_resolved_model(model_name.to_string())?;
-    let vector_store = SqliteVectorStore::new(db_path.to_path_buf());
+    let vector_store = SqliteVectorStore::new(db_path.to_path_buf(), db_key.copied());
     let embedder = crate::pipeline::storage::embedder::build_embedder();
 
     let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);

@@ -118,7 +118,7 @@ pub fn get_privacy_info_cmd(
     let session = guard
         .as_ref()
         .ok_or_else(|| "No active profile session".to_string())?;
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| e.to_string())?;
 
     let profile_dir = session
         .db_path()
@@ -128,6 +128,53 @@ pub fn get_privacy_info_cmd(
 
     state.update_activity();
     trust::get_privacy_info(&conn, profile_dir).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// O.7: Data Consistency Commands
+// ---------------------------------------------------------------------------
+
+/// Run a consistency check on the active profile's database.
+///
+/// Detects stuck pipeline states, missing vector chunks on confirmed documents,
+/// orphaned data, and trust count drift.
+#[tauri::command]
+pub fn check_data_consistency(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<crate::db::repository::ConsistencyReport, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    let report = crate::db::repository::check_consistency(&conn)
+        .map_err(|e| format!("Consistency check failed: {e}"))?;
+
+    tracing::info!(
+        issues = report.issues.len(),
+        documents = report.documents_checked,
+        trust_drift = report.trust_drift_detected,
+        "Data consistency check complete"
+    );
+
+    state.update_activity();
+    Ok(report)
+}
+
+/// Auto-repair consistency issues that can be safely fixed.
+///
+/// Repairs trust count drift and stuck pipeline states.
+/// Returns the number of issues repaired.
+#[tauri::command]
+pub fn repair_data_consistency(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<usize, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    let repaired = crate::db::repository::repair_consistency(&conn)
+        .map_err(|e| format!("Consistency repair failed: {e}"))?;
+
+    tracing::info!(repaired, "Data consistency repair complete");
+
+    state.update_activity();
+    Ok(repaired)
 }
 
 /// Open the profile data folder in the system file manager.

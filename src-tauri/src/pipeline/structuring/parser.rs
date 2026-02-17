@@ -21,8 +21,10 @@ pub struct RawDocumentMeta {
 }
 
 /// Extract the JSON block and Markdown from MedGemma's response.
+/// Case-insensitive fence detection (handles ```JSON, ```Json, ```json).
 fn extract_json_and_markdown(response: &str) -> Result<(String, String), StructuringError> {
-    let json_start = response
+    let lower = response.to_lowercase();
+    let json_start = lower
         .find("```json")
         .ok_or_else(|| StructuringError::MalformedResponse("No JSON block found".into()))?;
     let json_content_start = json_start + 7;
@@ -75,29 +77,64 @@ fn parse_entities_json(
         professional: professional.clone(),
     };
 
+    let (medications, d1) = parse_array_lenient(raw.medications.as_deref(), "medication");
+    let (lab_results, d2) = parse_array_lenient(raw.lab_results.as_deref(), "lab_result");
+    let (diagnoses, d3) = parse_array_lenient(raw.diagnoses.as_deref(), "diagnosis");
+    let (allergies, d4) = parse_array_lenient(raw.allergies.as_deref(), "allergy");
+    let (procedures, d5) = parse_array_lenient(raw.procedures.as_deref(), "procedure");
+    let (referrals, d6) = parse_array_lenient(raw.referrals.as_deref(), "referral");
+    let (instructions, d7) = parse_array_lenient(raw.instructions.as_deref(), "instruction");
+
+    let total_dropped = d1 + d2 + d3 + d4 + d5 + d6 + d7;
+    if total_dropped > 0 {
+        tracing::warn!(
+            total_dropped = total_dropped,
+            "Entities dropped during lenient parse"
+        );
+    }
+
     let entities = ExtractedEntities {
-        medications: parse_array_lenient(raw.medications.as_deref()),
-        lab_results: parse_array_lenient(raw.lab_results.as_deref()),
-        diagnoses: parse_array_lenient(raw.diagnoses.as_deref()),
-        allergies: parse_array_lenient(raw.allergies.as_deref()),
-        procedures: parse_array_lenient(raw.procedures.as_deref()),
-        referrals: parse_array_lenient(raw.referrals.as_deref()),
-        instructions: parse_array_lenient(raw.instructions.as_deref()),
+        medications,
+        lab_results,
+        diagnoses,
+        allergies,
+        procedures,
+        referrals,
+        instructions,
     };
 
     Ok((entities, meta))
 }
 
 /// Parse an array leniently — skip items that fail to deserialize.
+/// Logs a warning for each dropped entity (STR-02-G03).
 fn parse_array_lenient<T: for<'de> Deserialize<'de>>(
     items: Option<&[serde_json::Value]>,
-) -> Vec<T> {
+    entity_type: &str,
+) -> (Vec<T>, usize) {
     match items {
-        None => vec![],
-        Some(arr) => arr
-            .iter()
-            .filter_map(|v| serde_json::from_value(v.clone()).ok())
-            .collect(),
+        None => (vec![], 0),
+        Some(arr) => {
+            let mut results = Vec::with_capacity(arr.len());
+            let mut dropped = 0;
+
+            for (i, v) in arr.iter().enumerate() {
+                match serde_json::from_value(v.clone()) {
+                    Ok(item) => results.push(item),
+                    Err(e) => {
+                        dropped += 1;
+                        tracing::warn!(
+                            entity_type = entity_type,
+                            index = i,
+                            error = %e,
+                            "Dropped entity during lenient parse"
+                        );
+                    }
+                }
+            }
+
+            (results, dropped)
+        }
     }
 }
 
@@ -257,10 +294,27 @@ No structured content.
                 "confidence": 0.8
             }),
         ];
-        let parsed: Vec<ExtractedDiagnosis> = parse_array_lenient(Some(&items));
+        let (parsed, dropped): (Vec<ExtractedDiagnosis>, usize) =
+            parse_array_lenient(Some(&items), "diagnosis");
         assert_eq!(parsed.len(), 2);
+        assert_eq!(dropped, 1);
         assert_eq!(parsed[0].name, "Valid Diagnosis");
         assert_eq!(parsed[1].name, "Another Diagnosis");
+    }
+
+    #[test]
+    fn case_insensitive_json_fence() {
+        let response = "```JSON\n{\n  \"document_type\": \"other\",\n  \"document_date\": null,\n  \"professional\": null,\n  \"medications\": [],\n  \"lab_results\": [],\n  \"diagnoses\": [],\n  \"allergies\": [],\n  \"procedures\": [],\n  \"referrals\": [],\n  \"instructions\": []\n}\n```\n\nSome markdown.";
+        let (entities, markdown, _) = parse_structuring_response(response).unwrap();
+        assert!(entities.medications.is_empty());
+        assert!(markdown.contains("Some markdown"));
+    }
+
+    #[test]
+    fn mixed_case_json_fence() {
+        let response = "```Json\n{\n  \"document_type\": \"prescription\",\n  \"document_date\": null,\n  \"professional\": null,\n  \"medications\": [],\n  \"lab_results\": [],\n  \"diagnoses\": [],\n  \"allergies\": [],\n  \"procedures\": [],\n  \"referrals\": [],\n  \"instructions\": []\n}\n```\n\nMarkdown content.";
+        let (_, markdown, _) = parse_structuring_response(response).unwrap();
+        assert!(markdown.contains("Markdown content"));
     }
 
     #[test]
@@ -348,5 +402,67 @@ Markdown here
             entities.medications[0].compound_ingredients[0].name,
             "Amoxicillin"
         );
+    }
+
+    #[test]
+    fn missing_optional_fields_default_gracefully() {
+        // LLM omits dose, frequency, route — should default to empty string, not fail
+        let response = r#"```json
+{
+  "document_type": "prescription",
+  "document_date": null,
+  "professional": null,
+  "medications": [
+    {
+      "generic_name": "Aspirin",
+      "brand_name": null,
+      "instructions": [],
+      "is_compound": false,
+      "compound_ingredients": [],
+      "tapering_steps": [],
+      "max_daily_dose": null,
+      "condition": null
+    }
+  ],
+  "lab_results": [],
+  "diagnoses": [
+    {
+      "name": "Headache"
+    }
+  ],
+  "allergies": [],
+  "procedures": [],
+  "referrals": [],
+  "instructions": [
+    {
+      "text": "Rest well"
+    }
+  ]
+}
+```
+
+Markdown.
+"#;
+        let (entities, _, _) = parse_structuring_response(response).unwrap();
+        assert_eq!(entities.medications.len(), 1);
+        assert_eq!(
+            entities.medications[0].generic_name.as_deref(),
+            Some("Aspirin")
+        );
+        // Missing fields default to empty string
+        assert_eq!(entities.medications[0].dose, "");
+        assert_eq!(entities.medications[0].frequency, "");
+        assert_eq!(entities.medications[0].route, "");
+        assert_eq!(entities.medications[0].frequency_type, "");
+
+        // Diagnosis with missing status defaults to empty string
+        assert_eq!(entities.diagnoses.len(), 1);
+        assert_eq!(entities.diagnoses[0].name, "Headache");
+        assert_eq!(entities.diagnoses[0].status, "");
+
+        // Instruction with missing category defaults to empty string
+        assert_eq!(entities.instructions.len(), 1);
+        assert_eq!(entities.instructions[0].text, "Rest well");
+        assert_eq!(entities.instructions[0].category, "");
     }
 }

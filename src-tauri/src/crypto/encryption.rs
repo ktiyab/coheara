@@ -7,6 +7,13 @@ use super::CryptoError;
 use super::keys::KEY_LENGTH;
 
 const NONCE_LENGTH: usize = 12;
+/// Magic byte marking versioned EncryptedData format.
+/// Chosen as 0xCE ("Coheara Encrypted") to distinguish from legacy unversioned data.
+/// Legacy nonces are random bytes — P(byte[0]==0xCE AND byte[1]==known_version) ≈ 1/65536.
+const ENCRYPTED_MAGIC: u8 = 0xCE;
+/// Current encryption format version (AES-256-GCM with 12-byte nonce).
+/// Version history: 0x01 = initial versioned format.
+const CURRENT_VERSION: u8 = 0x01;
 
 /// Encrypted data container: nonce + ciphertext (includes AES-GCM auth tag)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,24 +53,50 @@ impl EncryptedData {
             .map_err(|_| CryptoError::DecryptionFailed)
     }
 
-    /// Serialize to bytes: [12-byte nonce][ciphertext...]
+    /// Serialize to bytes: `[0xCE][version][12-byte nonce][ciphertext...]`
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(NONCE_LENGTH + self.ciphertext.len());
+        let mut bytes = Vec::with_capacity(2 + NONCE_LENGTH + self.ciphertext.len());
+        bytes.push(ENCRYPTED_MAGIC);
+        bytes.push(CURRENT_VERSION);
         bytes.extend_from_slice(&self.nonce);
         bytes.extend_from_slice(&self.ciphertext);
         bytes
     }
 
-    /// Deserialize from bytes: [12-byte nonce][ciphertext...]
+    /// Deserialize from bytes. Supports both formats:
+    /// - **Versioned**: `[0xCE][version][12-byte nonce][ciphertext...]`
+    /// - **Legacy**: `[12-byte nonce][ciphertext...]` (no magic/version prefix)
+    ///
+    /// Detection: if first byte is `0xCE` (magic marker), parse as versioned.
+    /// Otherwise treat entire input as legacy format. Collision probability with
+    /// random legacy nonces: P(byte[0]==0xCE ∧ byte[1]==known_version) ≈ 1/65536.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
-        if bytes.len() < NONCE_LENGTH + 16 {
-            // AES-GCM auth tag is 16 bytes minimum
+        if bytes.is_empty() {
+            return Err(CryptoError::CorruptedProfile);
+        }
+
+        let nonce_start = if bytes[0] == ENCRYPTED_MAGIC {
+            // Versioned format — check version byte
+            if bytes.len() < 2 {
+                return Err(CryptoError::CorruptedProfile);
+            }
+            match bytes[1] {
+                CURRENT_VERSION => 2, // skip magic + version
+                _ => return Err(CryptoError::CorruptedProfile),
+            }
+        } else {
+            // Legacy unversioned format — nonce starts at byte 0
+            0
+        };
+
+        let min_len = nonce_start + NONCE_LENGTH + 16; // nonce + AES-GCM tag minimum
+        if bytes.len() < min_len {
             return Err(CryptoError::CorruptedProfile);
         }
 
         let mut nonce = [0u8; NONCE_LENGTH];
-        nonce.copy_from_slice(&bytes[..NONCE_LENGTH]);
-        let ciphertext = bytes[NONCE_LENGTH..].to_vec();
+        nonce.copy_from_slice(&bytes[nonce_start..nonce_start + NONCE_LENGTH]);
+        let ciphertext = bytes[nonce_start + NONCE_LENGTH..].to_vec();
 
         Ok(Self { nonce, ciphertext })
     }
@@ -178,5 +211,54 @@ mod tests {
 
         let decrypted = decrypt_file(&key, &enc_path).unwrap();
         assert_eq!(&decrypted, original);
+    }
+
+    // ── Version header tests (A.2) ─────────────────────────────────
+
+    #[test]
+    fn to_bytes_starts_with_magic_and_version() {
+        let key = test_key();
+        let encrypted = key.encrypt(b"version test").unwrap();
+        let bytes = encrypted.to_bytes();
+        assert_eq!(bytes[0], ENCRYPTED_MAGIC, "First byte must be magic marker 0xCE");
+        assert_eq!(bytes[1], CURRENT_VERSION, "Second byte must be version 0x01");
+        // Total: 2 (magic+version) + 12 (nonce) + ciphertext
+        assert_eq!(bytes.len(), 2 + NONCE_LENGTH + encrypted.ciphertext.len());
+    }
+
+    #[test]
+    fn from_bytes_parses_versioned_format() {
+        let key = test_key();
+        let encrypted = key.encrypt(b"versioned data").unwrap();
+        let bytes = encrypted.to_bytes();
+        assert_eq!(bytes[0], ENCRYPTED_MAGIC);
+        assert_eq!(bytes[1], CURRENT_VERSION);
+        let restored = EncryptedData::from_bytes(&bytes).unwrap();
+        let decrypted = key.decrypt(&restored).unwrap();
+        assert_eq!(&decrypted, b"versioned data");
+    }
+
+    #[test]
+    fn from_bytes_handles_legacy_unversioned_format() {
+        let key = test_key();
+        let encrypted = key.encrypt(b"legacy data").unwrap();
+        // Build legacy format: [nonce][ciphertext] (no magic/version prefix)
+        let mut legacy_bytes = Vec::with_capacity(NONCE_LENGTH + encrypted.ciphertext.len());
+        legacy_bytes.extend_from_slice(&encrypted.nonce);
+        legacy_bytes.extend_from_slice(&encrypted.ciphertext);
+        // Parse legacy format — must succeed
+        let restored = EncryptedData::from_bytes(&legacy_bytes).unwrap();
+        let decrypted = key.decrypt(&restored).unwrap();
+        assert_eq!(&decrypted, b"legacy data");
+    }
+
+    #[test]
+    fn from_bytes_rejects_unknown_version() {
+        // Build bytes with magic 0xCE but unknown version 0xFF
+        let mut bytes = vec![ENCRYPTED_MAGIC, 0xFF];
+        bytes.extend_from_slice(&[0u8; NONCE_LENGTH]);
+        bytes.extend_from_slice(&[0u8; 32]); // fake ciphertext
+        let result = EncryptedData::from_bytes(&bytes);
+        assert!(result.is_err(), "Unknown version should be rejected");
     }
 }

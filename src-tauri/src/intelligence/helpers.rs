@@ -24,18 +24,34 @@ pub fn resolve_generic_name(med: &Medication, reference: &CoherenceReferenceData
 }
 
 /// Normalize dose string for comparison (extract numeric mg value).
+/// Handles English and French unit names.
 pub fn normalize_dose(dose: &str) -> String {
     dose.to_lowercase()
         .replace(' ', "")
+        // French (longer strings FIRST to avoid partial matches)
+        .replace("milligrammes", "mg")
+        .replace("milligramme", "mg")
+        .replace("microgrammes", "mcg")
+        .replace("microgramme", "mcg")
+        .replace("grammes", "g")
+        .replace("gramme", "g")
+        // English (longest first)
         .replace("milligrams", "mg")
-        .replace("grams", "g")
+        .replace("milligram", "mg")
         .replace("micrograms", "mcg")
+        .replace("microgram", "mcg")
+        .replace("grams", "g")
+        .replace("gram", "g")
+        // Symbol aliases
+        .replace("µg", "mcg")
 }
 
 /// Normalize frequency string for comparison.
+/// Handles English and French frequency terms.
 pub fn normalize_frequency(freq: &str) -> String {
     let lower = freq.to_lowercase();
     lower
+        // English
         .replace("twice daily", "2x/day")
         .replace("two times a day", "2x/day")
         .replace("bid", "2x/day")
@@ -46,6 +62,16 @@ pub fn normalize_frequency(freq: &str) -> String {
         .replace("tid", "3x/day")
         .replace("four times daily", "4x/day")
         .replace("qid", "4x/day")
+        // French
+        .replace("deux fois par jour", "2x/day")
+        .replace("2 fois par jour", "2x/day")
+        .replace("une fois par jour", "1x/day")
+        .replace("1 fois par jour", "1x/day")
+        .replace("trois fois par jour", "3x/day")
+        .replace("3 fois par jour", "3x/day")
+        .replace("quatre fois par jour", "4x/day")
+        .replace("4 fois par jour", "4x/day")
+        .replace("par jour", "/day")
         .trim()
         .to_string()
 }
@@ -111,16 +137,16 @@ pub fn frequency_to_daily_multiplier(freq: &str) -> Option<f64> {
         Some(4.0)
     } else {
         let lower = freq.to_lowercase();
-        if lower.contains("every 6 hour") || lower.contains("q6h") {
+        if lower.contains("every 6 hour") || lower.contains("q6h") || lower.contains("toutes les 6 heure") {
             Some(4.0)
-        } else if lower.contains("every 8 hour") || lower.contains("q8h") {
+        } else if lower.contains("every 8 hour") || lower.contains("q8h") || lower.contains("toutes les 8 heure") {
             Some(3.0)
-        } else if lower.contains("every 12 hour") || lower.contains("q12h") {
+        } else if lower.contains("every 12 hour") || lower.contains("q12h") || lower.contains("toutes les 12 heure") {
             Some(2.0)
-        } else if lower.contains("every 24 hour") || lower.contains("q24h") {
+        } else if lower.contains("every 24 hour") || lower.contains("q24h") || lower.contains("toutes les 24 heure") {
             Some(1.0)
         } else {
-            None // "as needed", "prn", unknown — skip accumulation check
+            None // "as needed", "prn", "si nécessaire", unknown — skip accumulation check
         }
     }
 }
@@ -342,6 +368,41 @@ mod tests {
     fn normalize_dose_equivalents() {
         assert_eq!(normalize_dose("500 mg"), normalize_dose("500mg"));
         assert_eq!(normalize_dose("500 milligrams"), normalize_dose("500mg"));
+    }
+
+    #[test]
+    fn normalize_dose_french() {
+        assert_eq!(normalize_dose("500 milligrammes"), normalize_dose("500mg"));
+        assert_eq!(normalize_dose("1 gramme"), normalize_dose("1g"));
+        assert_eq!(normalize_dose("100 microgrammes"), normalize_dose("100mcg"));
+        assert_eq!(normalize_dose("100µg"), normalize_dose("100mcg"));
+    }
+
+    #[test]
+    fn normalize_frequency_french() {
+        assert_eq!(
+            normalize_frequency("deux fois par jour"),
+            normalize_frequency("twice daily")
+        );
+        assert_eq!(
+            normalize_frequency("une fois par jour"),
+            normalize_frequency("once daily")
+        );
+        assert_eq!(
+            normalize_frequency("trois fois par jour"),
+            normalize_frequency("three times daily")
+        );
+        assert_eq!(
+            normalize_frequency("2 fois par jour"),
+            normalize_frequency("BID")
+        );
+    }
+
+    #[test]
+    fn frequency_multiplier_french() {
+        assert_eq!(frequency_to_daily_multiplier("deux fois par jour"), Some(2.0));
+        assert_eq!(frequency_to_daily_multiplier("une fois par jour"), Some(1.0));
+        assert_eq!(frequency_to_daily_multiplier("toutes les 8 heures"), Some(3.0));
     }
 
     // --- Drug family matching (T-15, T-16) ---

@@ -61,7 +61,9 @@ pub fn send_chat_message(
         Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
     let manager = ConversationManager::new(&conn);
-    let safety = SafetyFilterImpl::new();
+    // I18N-06: Use profile language for safety fallback messages
+    let lang = state.get_profile_language();
+    let safety = SafetyFilterImpl::with_language(&lang);
 
     // 1. Sanitize patient input (L2-02: remove injection patterns, control chars)
     let sanitized = safety
@@ -98,13 +100,17 @@ pub fn send_chat_message(
         .resolve(&conn, &ollama_client)
         .ok()
         .map(|r| r.name);
-    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref()) {
+    let db_key = state.db_key().ok();
+    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref(), &lang) {
         Some(rag_response) => {
             // 5. Filter RAG response through safety layers
             emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
         }
         None => {
-            emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid)?;
+            // S.3: Emit degraded status event when AI pipeline fails
+            state.set_ai_verified(false);
+            let _ = app.emit("ai-status-changed", super::StatusLevel::Degraded);
+            emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid, &lang)?;
         }
     }
 
@@ -125,6 +131,8 @@ fn try_rag_query(
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
     resolved_model: Option<&str>,
+    db_key: Option<&[u8; 32]>,
+    lang: &str,
 ) -> Option<RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::storage::vectordb::SqliteVectorStore;
@@ -134,13 +142,13 @@ fn try_rag_query(
     let generator = OllamaRagGenerator::with_resolved_model(model_name.to_string())?;
 
     // Production vector store — persistent SQLite-backed chunk storage
-    let vector_store = SqliteVectorStore::new(db_path.to_path_buf());
+    let vector_store = SqliteVectorStore::new(db_path.to_path_buf(), db_key.copied());
 
     // Production embedder — ONNX when available, deterministic mock otherwise
     let embedder: Box<dyn crate::pipeline::storage::types::EmbeddingModel> =
         build_embedder();
 
-    let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
+    let pipeline = DocumentRagPipeline::with_language(&generator, &embedder, &vector_store, conn, lang);
     let query = PatientQuery {
         text: query_text.to_string(),
         conversation_id,
@@ -262,14 +270,22 @@ fn emit_filtered_response(
 }
 
 /// Emit a placeholder response when AI services are unavailable.
+/// I18N-19: Localized based on user's language preference.
 fn emit_placeholder_response(
     app: &AppHandle,
     conversation_id: &str,
     manager: &ConversationManager<'_>,
     conv_uuid: Uuid,
+    lang: &str,
 ) -> Result<(), String> {
-    let placeholder = "I'm not connected to the AI assistant yet. \
-        Please make sure Ollama is running with the MedGemma model to enable chat responses.";
+    let placeholder = match lang {
+        "fr" => "Je ne suis pas encore connecté à l'assistant IA. \
+            Veuillez vous assurer qu'Ollama fonctionne avec le modèle MedGemma pour activer les réponses.",
+        "de" => "Ich bin noch nicht mit dem KI-Assistenten verbunden. \
+            Bitte stellen Sie sicher, dass Ollama mit dem MedGemma-Modell läuft, um Chat-Antworten zu ermöglichen.",
+        _ => "I'm not connected to the AI assistant yet. \
+            Please make sure Ollama is running with the MedGemma model to enable chat responses.",
+    };
 
     let _ = app.emit(
         "chat-stream",

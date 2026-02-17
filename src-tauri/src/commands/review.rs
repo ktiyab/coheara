@@ -80,6 +80,14 @@ fn load_pending_structuring(
     Ok(result)
 }
 
+/// Remove a pending structuring result (public wrapper for cross-module use).
+pub fn remove_pending_structuring_pub(
+    session: &crate::crypto::ProfileSession,
+    document_id: &Uuid,
+) -> Result<(), String> {
+    remove_pending_structuring(session, document_id)
+}
+
 /// Remove a pending structuring result after successful confirm/reject.
 fn remove_pending_structuring(
     session: &crate::crypto::ProfileSession,
@@ -92,7 +100,7 @@ fn remove_pending_structuring(
         .ok_or("Invalid profile directory")?;
     let path = dir.join(format!("pending_review/{}.json.enc", document_id));
     if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| format!("Remove failed: {e}"))?;
+        crate::crypto::secure_delete_file(&path).map_err(|e| format!("Remove failed: {e}"))?;
     }
     Ok(())
 }
@@ -115,7 +123,7 @@ pub fn get_review_data(
     let doc_id =
         Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| e.to_string())?;
 
     // Fetch document record
     let doc = get_document(&conn, &doc_id)
@@ -173,7 +181,7 @@ pub fn get_original_file(
     let doc_id =
         Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| e.to_string())?;
     let doc = get_document(&conn, &doc_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Document not found: {doc_id}"))?;
@@ -247,7 +255,7 @@ pub fn confirm_review(
     let doc_id =
         Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| e.to_string())?;
 
     // Step 1: Load the structuring result
     let mut structuring = load_pending_structuring(session, &doc_id)?;
@@ -266,6 +274,14 @@ pub fn confirm_review(
     } else {
         ReviewOutcome::Confirmed
     };
+
+    // Q.2: Emit progress — applying corrections done, storage starting
+    let _ = app.emit("review-progress", ReviewProgressEvent {
+        document_id: document_id.clone(),
+        stage: "storing".into(),
+        progress_pct: 20,
+        detail: Some("Saving data to your medical records...".into()),
+    });
 
     // Step 4: Run the storage pipeline (chunk, embed, vector, entities, markdown, trust)
     // This handles: chunking, embedding, vector storage, entity storage,
@@ -286,8 +302,29 @@ pub fn confirm_review(
     )
     .map_err(|e| format!("Storage pipeline failed: {e}"))?;
 
+    // Q.2: Emit progress — storage complete, verifying
+    let _ = app.emit("review-progress", ReviewProgressEvent {
+        document_id: document_id.clone(),
+        stage: "verifying".into(),
+        progress_pct: 70,
+        detail: Some("Verifying and updating your records...".into()),
+    });
+
     // Step 5: Mark document as verified
     update_document_verified(&conn, &doc_id).map_err(|e| e.to_string())?;
+
+    // O.5: Update pipeline status → Confirmed
+    if let Err(e) = crate::db::repository::update_pipeline_status(
+        &conn,
+        &doc_id,
+        &crate::models::enums::PipelineStatus::Confirmed,
+    ) {
+        tracing::warn!(
+            document_id = %doc_id,
+            error = %e,
+            "Failed to set pipeline status to Confirmed"
+        );
+    }
 
     // Step 6: If corrections were applied, increment the corrected counter
     // (storage pipeline already handled verified + total in its trust update)
@@ -300,6 +337,14 @@ pub fn confirm_review(
 
     // Step 7: Clean up the pending structuring file
     let _ = remove_pending_structuring(session, &doc_id);
+
+    // Q.2: Emit progress — complete
+    let _ = app.emit("review-progress", ReviewProgressEvent {
+        document_id: document_id.clone(),
+        stage: "complete".into(),
+        progress_pct: 100,
+        detail: None,
+    });
 
     // Step 8: Emit event for home feed refresh
     let _ = app.emit("document-reviewed", doc_id.to_string());
@@ -349,21 +394,46 @@ pub fn reject_review(
     let doc_id =
         Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
 
-    let conn = open_database(session.db_path()).map_err(|e| e.to_string())?;
+    let conn = open_database(session.db_path(), Some(session.key_bytes())).map_err(|e| e.to_string())?;
 
     match action.as_str() {
         "retry" => {
-            // Keep document as unverified, log for re-processing
+            // P.2: Reset pipeline status to Failed so reprocess_document accepts it
+            if let Err(e) = crate::db::repository::update_pipeline_status(
+                &conn,
+                &doc_id,
+                &crate::models::enums::PipelineStatus::Failed,
+            ) {
+                tracing::warn!(
+                    document_id = %doc_id,
+                    error = %e,
+                    "Failed to reset pipeline status for retry"
+                );
+            }
+
             tracing::info!(
                 document_id = %doc_id,
                 action = "retry",
-                "Review rejected — queued for re-extraction"
+                "Review rejected — pipeline reset for re-extraction"
             );
         }
         "remove" => {
             // Mark document as rejected via notes
             update_document_rejected(&conn, &doc_id, reason.as_deref())
                 .map_err(|e| e.to_string())?;
+
+            // O.5: Update pipeline status → Rejected
+            if let Err(e) = crate::db::repository::update_pipeline_status(
+                &conn,
+                &doc_id,
+                &crate::models::enums::PipelineStatus::Rejected,
+            ) {
+                tracing::warn!(
+                    document_id = %doc_id,
+                    error = %e,
+                    "Failed to set pipeline status to Rejected"
+                );
+            }
         }
         _ => {
             return Err(format!(
@@ -387,8 +457,59 @@ pub fn reject_review(
         "Review rejected"
     );
 
+    let can_retry = action == "retry";
+
     Ok(ReviewRejectResult {
         document_id: doc_id,
         reason,
+        can_retry,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Q.2: Review progress event
+// ---------------------------------------------------------------------------
+
+/// Progress event emitted during confirm_review to show storage pipeline status.
+///
+/// Stages: "storing" (20%) → "verifying" (70%) → "complete" (100%)
+#[derive(Debug, Clone, serde::Serialize)]
+struct ReviewProgressEvent {
+    document_id: String,
+    stage: String,
+    progress_pct: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_progress_event_serializes() {
+        let event = ReviewProgressEvent {
+            document_id: "abc-123".into(),
+            stage: "storing".into(),
+            progress_pct: 20,
+            detail: Some("Saving data...".into()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"document_id\":\"abc-123\""));
+        assert!(json.contains("\"stage\":\"storing\""));
+        assert!(json.contains("\"progress_pct\":20"));
+        assert!(json.contains("\"detail\":\"Saving data...\""));
+    }
+
+    #[test]
+    fn review_progress_event_omits_null_detail() {
+        let event = ReviewProgressEvent {
+            document_id: "abc-123".into(),
+            stage: "complete".into(),
+            progress_pct: 100,
+            detail: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("detail"));
+    }
 }

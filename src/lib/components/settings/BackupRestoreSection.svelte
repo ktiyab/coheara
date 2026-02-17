@@ -1,9 +1,11 @@
 <!-- L5-01: Backup & Restore — encrypted backup creation and restore -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { createBackup, previewBackup, restoreFromBackup } from '$lib/api/trust';
   import type { BackupResult, RestorePreview } from '$lib/types/trust';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
 
-  type View = 'idle' | 'backup' | 'restore-preview' | 'restore-password';
+  type View = 'idle' | 'backup' | 'restore-preview' | 'restore-password' | 'restore-success';
 
   let view = $state<View>('idle');
   let backupPath = $state('');
@@ -13,6 +15,8 @@
   let error: string | null = $state(null);
   let backupResult: BackupResult | null = $state(null);
   let restorePreview: RestorePreview | null = $state(null);
+  // R.2: Replace alert() with inline restore success message
+  let restoreSuccessMessage: string | null = $state(null);
 
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -34,7 +38,7 @@
 
   async function handleCreateBackup() {
     if (!backupPath.trim()) {
-      error = 'Please enter a backup file path';
+      error = $t('error.field_required', { values: { field: 'backup path' } });
       return;
     }
     loading = true;
@@ -50,7 +54,7 @@
 
   async function handlePreviewRestore() {
     if (!restorePath.trim()) {
-      error = 'Please enter the backup file path';
+      error = $t('error.field_required', { values: { field: 'backup file path' } });
       return;
     }
     loading = true;
@@ -67,18 +71,17 @@
 
   async function handleRestore() {
     if (!restorePassword) {
-      error = 'Password required';
+      error = $t('error.field_required', { values: { field: 'password' } });
       return;
     }
     loading = true;
     error = null;
     try {
       const result = await restoreFromBackup(restorePath.trim(), restorePassword);
-      const warnings = result.warnings.length > 0 ? ` (${result.warnings.length} warnings)` : '';
-      alert(
-        `Restored ${result.documents_restored} documents (${formatBytes(result.total_size_bytes)})${warnings}`,
-      );
-      reset();
+      restoreSuccessMessage = $t('backup.restored_message', {
+        values: { count: result.documents_restored, size: formatBytes(result.total_size_bytes) },
+      });
+      view = 'restore-success';
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -88,7 +91,7 @@
 </script>
 
 <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 mb-3">BACKUP & RESTORE</h2>
+  <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('backup.heading')}</h2>
 
   {#if view === 'idle'}
     {#if backupResult}
@@ -112,7 +115,7 @@
           error = null;
         }}
       >
-        Create backup
+        {$t('backup.create')}
       </button>
       <button
         class="flex-1 px-4 py-3 bg-white border border-stone-200 rounded-xl
@@ -123,12 +126,12 @@
           error = null;
         }}
       >
-        Restore from backup
+        {$t('backup.restore')}
       </button>
     </div>
 
   {:else if view === 'backup'}
-    <label for="backup-path" class="block text-sm text-stone-600 mb-1">Save backup to:</label>
+    <label for="backup-path" class="block text-sm text-stone-600 mb-1">{$t('backup.save_to')}</label>
     <input
       id="backup-path"
       type="text"
@@ -149,20 +152,20 @@
         disabled={loading || !backupPath.trim()}
         onclick={handleCreateBackup}
       >
-        {loading ? 'Creating...' : 'Create backup'}
+        {loading ? $t('common.creating') : $t('backup.create')}
       </button>
       <button
         class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
                text-stone-600 min-h-[44px]"
         onclick={reset}
       >
-        Cancel
+        {$t('common.cancel')}
       </button>
     </div>
 
   {:else if view === 'restore-preview'}
     {#if !restorePreview}
-      <label for="restore-path" class="block text-sm text-stone-600 mb-1">Backup file path:</label>
+      <label for="restore-path" class="block text-sm text-stone-600 mb-1">{$t('backup.file_path')}</label>
       <input
         id="restore-path"
         type="text"
@@ -183,14 +186,14 @@
           disabled={loading || !restorePath.trim()}
           onclick={handlePreviewRestore}
         >
-          {loading ? 'Reading...' : 'Preview backup'}
+          {loading ? $t('common.loading') : $t('backup.preview')}
         </button>
         <button
           class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
                  text-stone-600 min-h-[44px]"
           onclick={reset}
         >
-          Cancel
+          {$t('common.cancel')}
         </button>
       </div>
     {:else}
@@ -200,7 +203,7 @@
           <span class="text-stone-800">{restorePreview.metadata.profile_name}</span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">Documents</span>
+          <span class="text-stone-600">{$t('settings.documents')}</span>
           <span class="text-stone-800">{restorePreview.metadata.document_count}</span>
         </div>
         <div class="flex justify-between">
@@ -210,7 +213,7 @@
           </span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">Size</span>
+          <span class="text-stone-600">{$t('settings.total_size')}</span>
           <span class="text-stone-800">{formatBytes(restorePreview.total_size_bytes)}</span>
         </div>
         <div class="flex justify-between">
@@ -231,20 +234,20 @@
                font-medium min-h-[44px] mb-2"
         onclick={() => (view = 'restore-password')}
       >
-        Restore this backup
+        {$t('backup.restore')}
       </button>
       <button
         class="w-full px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
                text-stone-600 min-h-[44px]"
         onclick={reset}
       >
-        Cancel
+        {$t('common.cancel')}
       </button>
     {/if}
 
   {:else if view === 'restore-password'}
     <p class="text-sm text-stone-600 mb-3">
-      Enter the password for <strong>{restorePreview?.metadata.profile_name}</strong> to decrypt the backup.
+      {$t('backup.restore_password', { values: { name: restorePreview?.metadata.profile_name ?? '' } })}
     </p>
 
     <input
@@ -252,11 +255,18 @@
       class="w-full px-4 py-3 rounded-lg border border-stone-200 text-stone-700
              text-sm mb-3 min-h-[44px]"
       bind:value={restorePassword}
-      placeholder="Profile password"
+      placeholder={$t('backup.password_placeholder')}
     />
 
     {#if error}
-      <p class="text-red-600 text-sm mb-3">{error}</p>
+      <div class="mb-3">
+        <ErrorBanner
+          message={error}
+          severity="error"
+          guidance={$t('backup.password_guidance')}
+          onDismiss={() => { error = null; }}
+        />
+      </div>
     {/if}
 
     <div class="flex gap-3">
@@ -266,15 +276,28 @@
         disabled={loading || !restorePassword}
         onclick={handleRestore}
       >
-        {loading ? 'Restoring...' : 'Restore'}
+        {loading ? $t('common.loading') : $t('backup.restore')}
       </button>
       <button
         class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
                text-stone-600 min-h-[44px]"
         onclick={reset}
       >
-        Cancel
+        {$t('common.cancel')}
       </button>
     </div>
+
+  {:else if view === 'restore-success'}
+    <!-- R.2: Inline success message replacing alert() -->
+    <div class="bg-green-50 rounded-lg p-3 mb-3 border border-green-200">
+      <p class="text-sm text-green-800">{restoreSuccessMessage}</p>
+    </div>
+    <button
+      class="w-full px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+             font-medium min-h-[44px]"
+      onclick={reset}
+    >
+      {$t('common.done')}
+    </button>
   {/if}
 </section>
