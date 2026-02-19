@@ -209,6 +209,14 @@ fn emit_filtered_response(
             tracing::warn!("Safety filter blocked RAG response");
             (fallback_message.clone(), 0.0, "OutOfBounds".to_string())
         }
+        FilterOutcome::Escalated { rule_id, .. } => {
+            tracing::warn!(rule_id = %rule_id, "Safety escalation rule applied");
+            (
+                filtered.text.clone(),
+                filtered.confidence,
+                format!("{:?}", filtered.boundary_check),
+            )
+        }
     };
 
     // Emit citations

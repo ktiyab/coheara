@@ -142,11 +142,11 @@ load_credentials() {
 
 install_linux_deps() {
     local pkgs=(
-        build-essential pkg-config
+        build-essential pkg-config perl
         libgtk-3-dev libwebkit2gtk-4.1-dev
         libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev
         libjavascriptcoregtk-4.1-dev tesseract-ocr libtesseract-dev
-        libleptonica-dev libclang-dev unzip
+        libleptonica-dev libclang-dev libssl-dev unzip
     )
 
     echo ""
@@ -183,6 +183,7 @@ check_dependencies() {
             pkg-config --exists tesseract      2>/dev/null || linux_missing+=("libtesseract-dev")
             pkg-config --exists lept           2>/dev/null || linux_missing+=("libleptonica-dev")
             command -v patchelf >/dev/null                 || linux_missing+=("patchelf")
+            command -v perl    >/dev/null                 || linux_missing+=("perl")
 
             if [[ ${#linux_missing[@]} -gt 0 ]]; then
                 if install_linux_deps; then
@@ -193,6 +194,7 @@ check_dependencies() {
                     pkg-config --exists tesseract      2>/dev/null || still_missing=true
                     pkg-config --exists lept           2>/dev/null || still_missing=true
                     command -v patchelf >/dev/null                 || still_missing=true
+                    command -v perl    >/dev/null                 || still_missing=true
                     if [[ "$still_missing" == true ]]; then
                         missing+=("Linux system libraries (auto-install incomplete, check errors above)")
                     fi

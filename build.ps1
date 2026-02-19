@@ -4,7 +4,7 @@
     Coheara Local Build System for Windows (.msi + .exe installers)
 .DESCRIPTION
     Mirrors build.sh but targets Windows with NSIS and MSI bundles.
-    Requires: Node.js 20+, Rust 1.80+, JDK 21+, Android SDK, vcpkg (for Tesseract).
+    Requires: Node.js 20+, Rust 1.80+, Perl (for OpenSSL), JDK 21+, Android SDK, vcpkg (for Tesseract).
 .EXAMPLE
     .\build.ps1 desktop -NoSign         # First build (unsigned, no credentials)
     .\build.ps1 desktop -SkipMobile     # Desktop only (use pre-staged mobile artifacts)
@@ -305,6 +305,70 @@ function Install-Llvm {
     return $false
 }
 
+function Find-Perl {
+    # Check PATH first
+    $perl = Get-Command perl -ErrorAction SilentlyContinue
+    if ($perl) { return $perl.Source }
+
+    # Search common Windows install locations (Strawberry Perl, ActivePerl)
+    $candidates = @(
+        "$env:ProgramFiles\Strawberry\perl\bin\perl.exe",
+        "${env:ProgramFiles(x86)}\Strawberry\perl\bin\perl.exe",
+        "C:\Strawberry\perl\bin\perl.exe",
+        "$env:ProgramFiles\Perl64\bin\perl.exe",
+        "${env:ProgramFiles(x86)}\Perl64\bin\perl.exe",
+        "$env:USERPROFILE\scoop\shims\perl.exe"
+    )
+    foreach ($path in $candidates) {
+        if (Test-Path $path) { return $path }
+    }
+
+    return $null
+}
+
+function Install-Perl {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Log-Error "Perl is not installed and winget is not available for auto-install."
+        Write-Host "  Install Strawberry Perl manually: https://strawberryperl.com/" -ForegroundColor Yellow
+        return $null
+    }
+
+    Write-Host ""
+    Log-Warn "Perl is required for OpenSSL compilation (used by the openssl-sys Rust crate)."
+    Write-Host "  This will install Strawberry Perl via winget (~2 min)" -ForegroundColor Yellow
+    Write-Host ""
+    $answer = Read-Host "  Install Perl automatically? [Y/n]"
+    if ($answer -and $answer -notin @("Y", "y", "yes", "Yes")) {
+        return $null
+    }
+
+    Log-Step "Installing Strawberry Perl via winget"
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    & winget install StrawberryPerl.StrawberryPerl --accept-package-agreements --accept-source-agreements
+    $exitCode = $LASTEXITCODE; $ErrorActionPreference = $prevEAP
+    if ($exitCode -ne 0) { Log-Error "Failed to install Perl via winget"; return $null }
+
+    # Refresh PATH to find newly installed perl
+    $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
+    $perlPath = Find-Perl
+    if ($perlPath) {
+        Log-Ok "Perl installed successfully"
+        return $perlPath
+    }
+
+    # winget installs Strawberry Perl to C:\Strawberry by default
+    $defaultPerl = "C:\Strawberry\perl\bin\perl.exe"
+    if (Test-Path $defaultPerl) {
+        $perlDir = Split-Path $defaultPerl -Parent
+        $env:PATH = "$perlDir;$env:PATH"
+        Log-Ok "Perl installed successfully (added to PATH for this session)"
+        return $defaultPerl
+    }
+
+    Log-Error "Perl was installed but could not be found. Please restart PowerShell and retry."
+    return $null
+}
+
 function Install-VcpkgTesseract {
     $vcpkgRoot = "C:\vcpkg"
 
@@ -425,6 +489,21 @@ function Check-Dependencies {
         if (-not (Find-LibClang)) {
             if (-not (Install-Llvm)) {
                 $missing += "LLVM/libclang (install via: winget install LLVM.LLVM)"
+            }
+        }
+
+        # Check for Perl (needed by openssl-sys crate to configure OpenSSL)
+        if (-not (Find-Perl)) {
+            $perlPath = Install-Perl
+            if (-not $perlPath) {
+                $missing += "Perl (install via: winget install StrawberryPerl.StrawberryPerl)"
+            }
+        } else {
+            # Ensure perl's directory is in PATH for cargo build
+            $perlPath = Find-Perl
+            $perlDir = Split-Path $perlPath -Parent
+            if ($env:PATH -notlike "*$perlDir*") {
+                $env:PATH = "$perlDir;$env:PATH"
             }
         }
 

@@ -1,0 +1,25 @@
+{
+  "devices": {
+    "paired_heading": "PAIRED DEVICES",
+    "paired_count": "{paired}/{max} paired",
+    "connected_count": "{connected} connected",
+    "loading": "Loading devices...",
+    "no_devices": "No devices paired. Use the Coheara mobile app to pair a phone via WiFi.",
+    "type_iphone": "iPhone",
+    "type_android": "Android",
+    "status_connected": "Connected",
+    "last_seen_just_now": "Last seen: just now",
+    "last_seen_yesterday": "Last seen: yesterday",
+    "last_seen_days_ago": "Last seen: {days} days ago",
+    "paired_date": "Paired: {date}",
+    "inactive_warning": "Inactive for {days} days. Consider unpairing for security.",
+    "unpair_button": "Unpair Device",
+    "unpair_title": "Unpair \"{name}\"?",
+    "unpair_consequences": "This will:",
+    "unpair_disconnect": "Disconnect the device immediately",
+    "unpair_delete_data": "Delete all cached health data from the phone",
+    "unpair_revoke": "Revoke the phone's access to your data",
+    "unpair_repaired_note": "The phone will need to be re-paired to connect again.",
+    "unpair_confirm": "Unpair"
+  }
+}

@@ -1,9 +1,15 @@
 <!-- E2E-F04: Document detail — read-only view of all extracted entities. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t, locale } from 'svelte-i18n';
   import { getDocumentDetail } from '$lib/api/documents';
   import type { DocumentDetail } from '$lib/types/documents';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import Badge from '$lib/components/ui/Badge.svelte';
 
   interface Props {
     documentId: string;
@@ -19,13 +25,13 @@
 
   let sections = $derived.by((): Section[] => {
     if (!detail) return [];
-    const s: Section[] = [{ id: 'overview', label: 'Overview', count: 0 }];
-    if (detail.medications.length > 0) s.push({ id: 'medications', label: 'Medications', count: detail.medications.length });
-    if (detail.lab_results.length > 0) s.push({ id: 'labs', label: 'Lab Results', count: detail.lab_results.length });
-    if (detail.diagnoses.length > 0) s.push({ id: 'diagnoses', label: 'Diagnoses', count: detail.diagnoses.length });
-    if (detail.allergies.length > 0) s.push({ id: 'allergies', label: 'Allergies', count: detail.allergies.length });
-    if (detail.procedures.length > 0) s.push({ id: 'procedures', label: 'Procedures', count: detail.procedures.length });
-    if (detail.referrals.length > 0) s.push({ id: 'referrals', label: 'Referrals', count: detail.referrals.length });
+    const s: Section[] = [{ id: 'overview', label: $t('documents.detail_overview'), count: 0 }];
+    if (detail.medications.length > 0) s.push({ id: 'medications', label: $t('documents.detail_medications'), count: detail.medications.length });
+    if (detail.lab_results.length > 0) s.push({ id: 'labs', label: $t('documents.detail_lab_results'), count: detail.lab_results.length });
+    if (detail.diagnoses.length > 0) s.push({ id: 'diagnoses', label: $t('documents.detail_diagnoses'), count: detail.diagnoses.length });
+    if (detail.allergies.length > 0) s.push({ id: 'allergies', label: $t('documents.detail_allergies'), count: detail.allergies.length });
+    if (detail.procedures.length > 0) s.push({ id: 'procedures', label: $t('documents.detail_procedures'), count: detail.procedures.length });
+    if (detail.referrals.length > 0) s.push({ id: 'referrals', label: $t('documents.detail_referrals'), count: detail.referrals.length });
     return s;
   });
 
@@ -48,8 +54,8 @@
   }
 
   function formatDate(dateStr: string | null): string {
-    if (!dateStr) return 'Unknown';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    if (!dateStr) return $t('documents.detail_unknown_date');
+    return new Date(dateStr).toLocaleDateString($locale ?? 'en-US', {
       month: 'long', day: 'numeric', year: 'numeric',
     });
   }
@@ -57,18 +63,18 @@
   function abnormalColor(flag: string): string {
     switch (flag) {
       case 'critical_low':
-      case 'critical_high': return 'text-red-600 bg-red-50';
+      case 'critical_high': return 'text-[var(--color-danger)] bg-[var(--color-danger-50)]';
       case 'low':
-      case 'high': return 'text-amber-600 bg-amber-50';
-      default: return 'text-green-600 bg-green-50';
+      case 'high': return 'text-[var(--color-warning)] bg-[var(--color-warning-50)]';
+      default: return 'text-[var(--color-success)] bg-[var(--color-success-50)]';
     }
   }
 
   function severityColor(severity: string): string {
     switch (severity) {
-      case 'life_threatening': return 'text-red-700 bg-red-100';
-      case 'severe': return 'text-red-600 bg-red-50';
-      case 'moderate': return 'text-amber-600 bg-amber-50';
+      case 'life_threatening': return 'text-[var(--color-danger-800)] bg-[var(--color-danger-200)]';
+      case 'severe': return 'text-[var(--color-danger)] bg-[var(--color-danger-50)]';
+      case 'moderate': return 'text-[var(--color-warning)] bg-[var(--color-warning-50)]';
       default: return 'text-stone-600 bg-stone-100';
     }
   }
@@ -79,17 +85,10 @@
 <div class="flex flex-col min-h-screen bg-stone-50">
   <!-- Header -->
   <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
-    <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             text-stone-500 hover:text-stone-700"
-      onclick={() => navigation.goBack()}
-      aria-label="Go back"
-    >
-      &larr;
-    </button>
+    <BackButton />
     <div class="flex-1 min-w-0">
       <h1 class="text-lg font-semibold text-stone-800 truncate">
-        {detail?.document_type ?? 'Document'}
+        {detail?.document_type ?? $t('documents.detail_fallback')}
       </h1>
       {#if detail?.professional_name}
         <p class="text-sm text-stone-500 truncate">
@@ -101,30 +100,21 @@
       {/if}
     </div>
     {#if detail?.status === 'PendingReview'}
-      <button
-        class="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium min-h-[44px]"
-        onclick={() => navigation.navigate('review', { documentId })}
-      >
-        Review
-      </button>
+      <Button size="sm" onclick={() => navigation.navigate('review', { documentId })}>
+        {$t('documents.detail_review')}
+      </Button>
     {/if}
   </header>
 
   {#if loading}
-    <div class="flex items-center justify-center flex-1">
-      <div class="animate-pulse text-stone-400">Loading document...</div>
-    </div>
+    <LoadingState message={$t('documents.detail_loading')} />
 
   {:else if error}
-    <div class="flex flex-col items-center justify-center flex-1 px-6 text-center">
-      <p class="text-red-600 mb-4">{error}</p>
-      <button
-        class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={loadDetail}
-      >
-        Try again
-      </button>
-    </div>
+    <ErrorState
+      message={error}
+      onretry={loadDetail}
+      retryLabel={$t('documents.detail_try_again')}
+    />
 
   {:else if detail}
     <!-- Section tabs -->
@@ -153,40 +143,37 @@
         <div class="bg-white rounded-xl p-4 border border-stone-100 mb-4">
           <dl class="space-y-3">
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">Type</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_type')}</dt>
               <dd class="text-sm font-medium text-stone-800">{detail.document_type}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">Date</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_date')}</dt>
               <dd class="text-sm text-stone-800">{formatDate(detail.document_date)}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">Imported</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_imported')}</dt>
               <dd class="text-sm text-stone-800">{formatDate(detail.imported_at)}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">File</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_file')}</dt>
               <dd class="text-sm text-stone-800 truncate ml-4">{detail.source_filename}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">Status</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_status')}</dt>
               <dd class="text-sm">
-                <span class="px-2 py-0.5 rounded-full text-xs font-medium
-                             {detail.status === 'Confirmed'
-                               ? 'bg-green-100 text-green-700'
-                               : 'bg-amber-100 text-amber-700'}">
-                  {detail.status === 'Confirmed' ? 'Confirmed' : 'Pending Review'}
-                </span>
+                <Badge variant={detail.status === 'Confirmed' ? 'success' : 'warning'} size="sm">
+                  {detail.status === 'Confirmed' ? $t('documents.detail_confirmed') : $t('documents.detail_pending')}
+                </Badge>
               </dd>
             </div>
             {#if detail.ocr_confidence !== null}
               <div class="flex justify-between">
-                <dt class="text-sm text-stone-500">OCR Confidence</dt>
+                <dt class="text-sm text-stone-500">{$t('documents.detail_ocr_confidence')}</dt>
                 <dd class="text-sm text-stone-800">{Math.round(detail.ocr_confidence * 100)}%</dd>
               </div>
             {/if}
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">Entities Found</dt>
+              <dt class="text-sm text-stone-500">{$t('documents.detail_entities_found')}</dt>
               <dd class="text-sm font-medium text-stone-800">{totalEntities}</dd>
             </div>
           </dl>
@@ -194,7 +181,7 @@
 
         {#if detail.notes}
           <div class="bg-white rounded-xl p-4 border border-stone-100">
-            <h3 class="text-sm font-medium text-stone-700 mb-2">Notes</h3>
+            <h3 class="text-sm font-medium text-stone-700 mb-2">{$t('documents.detail_notes')}</h3>
             <p class="text-sm text-stone-600">{detail.notes}</p>
           </div>
         {/if}
@@ -211,7 +198,7 @@
                   {/if}
                 </div>
                 <span class="text-xs px-2 py-0.5 rounded-full
-                             {med.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-600'}">
+                             {med.status === 'active' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]' : 'bg-stone-100 text-stone-600'}">
                   {med.status}
                 </span>
               </div>
@@ -221,9 +208,9 @@
                 <span>{med.route}</span>
               </div>
               {#if med.start_date || med.end_date}
-                <p class="text-xs text-stone-400 mt-2">
-                  {#if med.start_date}Started {formatDate(med.start_date)}{/if}
-                  {#if med.end_date} &middot; Ended {formatDate(med.end_date)}{/if}
+                <p class="text-xs text-stone-500 mt-2">
+                  {#if med.start_date}{$t('documents.detail_started')} {formatDate(med.start_date)}{/if}
+                  {#if med.end_date} &middot; {$t('documents.detail_ended')} {formatDate(med.end_date)}{/if}
                 </p>
               {/if}
             </div>
@@ -237,7 +224,7 @@
               <div class="flex items-start justify-between">
                 <p class="font-medium text-stone-800">{lab.test_name}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full {abnormalColor(lab.abnormal_flag)}">
-                  {lab.abnormal_flag === 'normal' ? 'Normal' : lab.abnormal_flag.replace('_', ' ')}
+                  {lab.abnormal_flag === 'normal' ? $t('documents.detail_normal') : lab.abnormal_flag.replace('_', ' ')}
                 </span>
               </div>
               <div class="mt-2 flex items-baseline gap-2">
@@ -249,12 +236,12 @@
                 {/if}
               </div>
               {#if lab.reference_range_low !== null || lab.reference_range_high !== null}
-                <p class="text-xs text-stone-400 mt-1">
-                  Reference: {lab.reference_range_low ?? '—'} – {lab.reference_range_high ?? '—'}
+                <p class="text-xs text-stone-500 mt-1">
+                  {$t('documents.detail_reference')} {lab.reference_range_low ?? '—'} – {lab.reference_range_high ?? '—'}
                   {#if lab.unit} {lab.unit}{/if}
                 </p>
               {/if}
-              <p class="text-xs text-stone-400 mt-1">{formatDate(lab.collection_date)}</p>
+              <p class="text-xs text-stone-500 mt-1">{formatDate(lab.collection_date)}</p>
             </div>
           {/each}
         </div>
@@ -266,17 +253,17 @@
               <div class="flex items-start justify-between">
                 <p class="font-medium text-stone-800">{dx.name}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full
-                             {dx.status === 'active' ? 'bg-amber-100 text-amber-700'
-                               : dx.status === 'resolved' ? 'bg-green-100 text-green-700'
-                               : 'bg-blue-100 text-blue-700'}">
+                             {dx.status === 'active' ? 'bg-[var(--color-warning-200)] text-[var(--color-warning-800)]'
+                               : dx.status === 'resolved' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
+                               : 'bg-[var(--color-info-200)] text-[var(--color-info)]'}">
                   {dx.status}
                 </span>
               </div>
               {#if dx.icd_code}
-                <p class="text-xs text-stone-500 mt-1">ICD: {dx.icd_code}</p>
+                <p class="text-xs text-stone-500 mt-1">{$t('documents.detail_icd')} {dx.icd_code}</p>
               {/if}
               {#if dx.date_diagnosed}
-                <p class="text-xs text-stone-400 mt-1">Diagnosed {formatDate(dx.date_diagnosed)}</p>
+                <p class="text-xs text-stone-500 mt-1">{$t('documents.detail_diagnosed')} {formatDate(dx.date_diagnosed)}</p>
               {/if}
             </div>
           {/each}
@@ -293,7 +280,7 @@
                 </span>
               </div>
               {#if allergy.reaction}
-                <p class="text-sm text-stone-600 mt-1">Reaction: {allergy.reaction}</p>
+                <p class="text-sm text-stone-600 mt-1">{$t('documents.detail_reaction')} {allergy.reaction}</p>
               {/if}
             </div>
           {/each}
@@ -308,11 +295,11 @@
                 <p class="text-xs text-stone-500 mt-1">{formatDate(proc.date)}</p>
               {/if}
               {#if proc.outcome}
-                <p class="text-sm text-stone-600 mt-1">Outcome: {proc.outcome}</p>
+                <p class="text-sm text-stone-600 mt-1">{$t('documents.detail_outcome')} {proc.outcome}</p>
               {/if}
               {#if proc.follow_up_required}
-                <span class="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                  Follow-up required
+                <span class="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning-200)] text-[var(--color-warning-800)]">
+                  {$t('documents.detail_follow_up')}
                 </span>
               {/if}
             </div>
@@ -324,16 +311,16 @@
           {#each detail.referrals as ref}
             <div class="bg-white rounded-xl p-4 border border-stone-100">
               <div class="flex items-start justify-between">
-                <p class="font-medium text-stone-800">{ref.reason ?? 'Referral'}</p>
+                <p class="font-medium text-stone-800">{ref.reason ?? $t('documents.detail_referral_fallback')}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full
-                             {ref.status === 'completed' ? 'bg-green-100 text-green-700'
-                               : ref.status === 'pending' ? 'bg-amber-100 text-amber-700'
-                               : ref.status === 'scheduled' ? 'bg-blue-100 text-blue-700'
+                             {ref.status === 'completed' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
+                               : ref.status === 'pending' ? 'bg-[var(--color-warning-200)] text-[var(--color-warning-800)]'
+                               : ref.status === 'scheduled' ? 'bg-[var(--color-info-200)] text-[var(--color-info)]'
                                : 'bg-stone-100 text-stone-600'}">
                   {ref.status}
                 </span>
               </div>
-              <p class="text-xs text-stone-400 mt-1">{formatDate(ref.date)}</p>
+              <p class="text-xs text-stone-500 mt-1">{formatDate(ref.date)}</p>
             </div>
           {/each}
         </div>

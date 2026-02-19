@@ -1,7 +1,10 @@
 <!-- L3-05: OTC medication entry form with autocomplete. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { addOtcMedication, searchMedicationAlias } from '$lib/api/medications';
   import type { AliasSearchResult } from '$lib/types/medication';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     onBack: () => void;
@@ -51,9 +54,9 @@
   async function handleSubmit() {
     error = '';
 
-    if (!name.trim()) { error = 'Please enter a medication name.'; return; }
-    if (!dose.trim()) { error = 'Please enter a dose.'; return; }
-    if (!frequency.trim()) { error = 'Please enter how often you take it.'; return; }
+    if (!name.trim()) { error = $t('medications.otc_error_name'); return; }
+    if (!dose.trim()) { error = $t('medications.otc_error_dose'); return; }
+    if (!frequency.trim()) { error = $t('medications.otc_error_frequency'); return; }
 
     loading = true;
     try {
@@ -74,34 +77,28 @@
     }
   }
 
-  const routeOptions = [
-    { value: 'oral', label: 'Oral' },
-    { value: 'topical', label: 'Topical' },
-    { value: 'other', label: 'Other' },
-  ];
+  let routeOptions = $derived([
+    { value: 'oral', label: $t('medications.otc_route_oral') },
+    { value: 'topical', label: $t('medications.otc_route_topical') },
+    { value: 'other', label: $t('medications.otc_route_other') },
+  ]);
 </script>
 
 <div class="flex flex-col min-h-screen pb-20 bg-stone-50">
   <header class="px-6 pt-4 pb-2">
-    <button
-      class="text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]"
-      onclick={onBack}
-      aria-label="Back to medication list"
-    >
-      &larr; Back
-    </button>
+    <BackButton onclick={onBack} label={$t('medications.otc_back')} />
   </header>
 
   <div class="px-6 py-4">
     <h2 class="text-xl font-bold text-stone-800 mb-6">
-      Add an over-the-counter medication
+      {$t('medications.otc_title')}
     </h2>
 
     <div class="flex flex-col gap-5">
       <!-- Medication name with autocomplete -->
       <label class="flex flex-col gap-1 relative">
         <span class="text-stone-600 text-sm font-medium">
-          Medication name <span class="text-red-500">*</span>
+          {$t('medications.otc_name_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
           type="text"
@@ -109,14 +106,14 @@
           oninput={(e) => handleNameInput(e.currentTarget.value)}
           onfocus={() => { if (suggestions.length > 0) showSuggestions = true; }}
           onblur={() => { setTimeout(() => { showSuggestions = false; }, 200); }}
-          placeholder="Ibuprofen"
+          placeholder={$t('medications.otc_name_placeholder')}
           class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
           autocomplete="off"
-          aria-label="Medication name"
+          aria-label={$t('medications.otc_name_label')}
           aria-autocomplete="list"
         />
-        <span class="text-xs text-stone-400">Start typing to search known medications</span>
+        <span class="text-xs text-stone-500">{$t('medications.otc_name_hint')}</span>
 
         {#if showSuggestions}
           <div
@@ -129,11 +126,12 @@
                 class="w-full text-left px-4 py-3 hover:bg-stone-50 text-sm
                        min-h-[44px] border-b border-stone-50 last:border-0"
                 role="option"
+                aria-selected="false"
                 onmousedown={() => selectSuggestion(result)}
               >
                 <span class="font-medium text-stone-800">{result.generic_name}</span>
                 {#if result.brand_names.length > 0}
-                  <span class="text-stone-400 ml-1">
+                  <span class="text-stone-500 ml-1">
                     ({result.brand_names.slice(0, 3).join(', ')})
                   </span>
                 {/if}
@@ -146,12 +144,12 @@
       <!-- Dose -->
       <label class="flex flex-col gap-1">
         <span class="text-stone-600 text-sm font-medium">
-          Dose <span class="text-red-500">*</span>
+          {$t('medications.otc_dose_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
           type="text"
           bind:value={dose}
-          placeholder="400mg"
+          placeholder={$t('medications.otc_dose_placeholder')}
           class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
         />
@@ -160,12 +158,12 @@
       <!-- Frequency -->
       <label class="flex flex-col gap-1">
         <span class="text-stone-600 text-sm font-medium">
-          How often? <span class="text-red-500">*</span>
+          {$t('medications.otc_frequency_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
           type="text"
           bind:value={frequency}
-          placeholder="As needed for pain"
+          placeholder={$t('medications.otc_frequency_placeholder')}
           class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
         />
@@ -173,14 +171,14 @@
 
       <!-- Route -->
       <fieldset class="flex flex-col gap-1">
-        <legend class="text-stone-600 text-sm font-medium">How do you take it?</legend>
+        <legend class="text-stone-600 text-sm font-medium">{$t('medications.otc_route_label')}</legend>
         <div class="flex gap-3 mt-1">
           {#each routeOptions as option}
             <label
               class="flex items-center justify-center px-4 py-2 rounded-lg border
                      min-h-[44px] cursor-pointer transition-colors
                      {route === option.value
-                       ? 'border-[var(--color-primary)] bg-blue-50 text-[var(--color-primary)]'
+                       ? 'border-[var(--color-primary)] bg-[var(--color-info-50)] text-[var(--color-primary)]'
                        : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}"
             >
               <input
@@ -198,11 +196,11 @@
 
       <!-- Reason -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">Why are you taking it?</span>
+        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_reason_label')}</span>
         <input
           type="text"
           bind:value={reason}
-          placeholder="Headaches and muscle pain"
+          placeholder={$t('medications.otc_reason_placeholder')}
           class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
         />
@@ -210,7 +208,7 @@
 
       <!-- Start date -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">When did you start?</span>
+        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_start_date_label')}</span>
         <input
           type="date"
           bind:value={startDate}
@@ -222,10 +220,10 @@
 
       <!-- Instructions -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">Special instructions</span>
+        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_instructions_label')}</span>
         <textarea
           bind:value={instructions}
-          placeholder="Take with food"
+          placeholder={$t('medications.otc_instructions_placeholder')}
           rows="2"
           class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none resize-none"
@@ -233,17 +231,16 @@
       </label>
 
       {#if error}
-        <p class="text-red-600 text-sm" role="alert">{error}</p>
+        <p class="text-[var(--color-danger)] text-sm" role="alert">{error}</p>
       {/if}
 
-      <button
-        class="mt-2 px-8 py-4 bg-[var(--color-primary)] text-white rounded-xl text-lg
-               font-medium hover:brightness-110 disabled:opacity-50 min-h-[44px]"
-        onclick={handleSubmit}
-        disabled={loading || !name.trim() || !dose.trim() || !frequency.trim()}
-      >
-        {loading ? 'Adding...' : 'Add medication'}
-      </button>
+      <div class="mt-2">
+        <Button variant="primary" size="lg" fullWidth loading={loading}
+                disabled={!name.trim() || !dose.trim() || !frequency.trim()}
+                onclick={handleSubmit}>
+          {loading ? $t('medications.otc_adding') : $t('medications.otc_submit')}
+        </Button>
+      </div>
     </div>
   </div>
 </div>

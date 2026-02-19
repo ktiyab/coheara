@@ -95,12 +95,12 @@
 
   {#if view === 'idle'}
     {#if backupResult}
-      <div class="bg-green-50 rounded-lg p-3 mb-3 border border-green-200">
-        <p class="text-sm text-green-800">
+      <div class="bg-[var(--color-success-50)] rounded-lg p-3 mb-3 border border-[var(--color-success-50)]">
+        <p class="text-sm text-[var(--color-success)]">
           Backup created: {backupResult.total_documents} documents,
           {formatBytes(backupResult.total_size_bytes)}
         </p>
-        <p class="text-xs text-green-600 mt-1 font-mono truncate">
+        <p class="text-xs text-[var(--color-success)] mt-1 font-mono truncate">
           {backupResult.backup_path}
         </p>
       </div>
@@ -108,7 +108,7 @@
 
     <div class="flex gap-3">
       <button
-        class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+        class="flex-1 px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
                font-medium min-h-[44px]"
         onclick={() => {
           view = 'backup';
@@ -142,12 +142,12 @@
     />
 
     {#if error}
-      <p class="text-red-600 text-sm mb-3">{error}</p>
+      <p class="text-[var(--color-danger)] text-sm mb-3">{error}</p>
     {/if}
 
     <div class="flex gap-3">
       <button
-        class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+        class="flex-1 px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
                font-medium min-h-[44px] disabled:opacity-50"
         disabled={loading || !backupPath.trim()}
         onclick={handleCreateBackup}
@@ -176,12 +176,12 @@
       />
 
       {#if error}
-        <p class="text-red-600 text-sm mb-3">{error}</p>
+        <p class="text-[var(--color-danger)] text-sm mb-3">{error}</p>
       {/if}
 
       <div class="flex gap-3">
         <button
-          class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+          class="flex-1 px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
                  font-medium min-h-[44px] disabled:opacity-50"
           disabled={loading || !restorePath.trim()}
           onclick={handlePreviewRestore}
@@ -221,8 +221,8 @@
           <span class="text-stone-800">{restorePreview.metadata.coheara_version}</span>
         </div>
         {#if !restorePreview.compatible}
-          <div class="bg-amber-50 rounded-lg p-3 border border-amber-200">
-            <p class="text-sm text-amber-800">
+          <div class="bg-[var(--color-warning-50)] rounded-lg p-3 border border-[var(--color-warning-200)]">
+            <p class="text-sm text-[var(--color-warning-800)]">
               {restorePreview.compatibility_message ?? 'This backup may not be fully compatible.'}
             </p>
           </div>
@@ -230,7 +230,7 @@
       </div>
 
       <button
-        class="w-full px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+        class="w-full px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
                font-medium min-h-[44px] mb-2"
         onclick={() => (view = 'restore-password')}
       >
@@ -271,7 +271,7 @@
 
     <div class="flex gap-3">
       <button
-        class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+        class="flex-1 px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
                font-medium min-h-[44px] disabled:opacity-50"
         disabled={loading || !restorePassword}
         onclick={handleRestore}
@@ -289,11 +289,11 @@
 
   {:else if view === 'restore-success'}
     <!-- R.2: Inline success message replacing alert() -->
-    <div class="bg-green-50 rounded-lg p-3 mb-3 border border-green-200">
-      <p class="text-sm text-green-800">{restoreSuccessMessage}</p>
+    <div class="bg-[var(--color-success-50)] rounded-lg p-3 mb-3 border border-[var(--color-success-50)]">
+      <p class="text-sm text-[var(--color-success)]">{restoreSuccessMessage}</p>
     </div>
     <button
-      class="w-full px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
+      class="w-full px-4 py-3 bg-[var(--color-interactive)] text-white rounded-xl text-sm
              font-medium min-h-[44px]"
       onclick={reset}
     >

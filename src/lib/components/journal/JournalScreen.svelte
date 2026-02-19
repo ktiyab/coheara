@@ -1,13 +1,18 @@
-<!-- L4-01: Main journal screen — history + recording toggle + nudge. -->
+<!-- L4-01: Main journal screen — history + quick-log + recording toggle + nudge. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { getSymptomHistory, checkJournalNudge } from '$lib/api/journal';
   import type { StoredSymptom, NudgeDecision } from '$lib/types/journal';
   import RecordingFlow from './RecordingFlow.svelte';
+  import QuickLogPanel from './QuickLogPanel.svelte';
   import SymptomHistory from './SymptomHistory.svelte';
   import NudgeBanner from './NudgeBanner.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
-  let view: 'history' | 'recording' = $state('history');
+  let view: 'history' | 'quick_log' | 'recording' = $state('history');
   let symptoms: StoredSymptom[] = $state([]);
   let nudge: NudgeDecision | null = $state(null);
   let loading = $state(true);
@@ -38,21 +43,22 @@
 <div class="flex flex-col min-h-screen pb-20 bg-stone-50">
   <header class="px-6 pt-6 pb-4 flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-stone-800">Journal</h1>
+      <h1 class="text-2xl font-bold text-stone-800">{$t('journal.screen_title')}</h1>
       {#if symptoms.length > 0}
         <p class="text-sm text-stone-500 mt-1">
-          {symptoms.filter(s => s.still_active).length} active symptom{symptoms.filter(s => s.still_active).length === 1 ? '' : 's'}
+          {$t('journal.screen_active_symptoms', { values: { count: symptoms.filter(s => s.still_active).length } })}
         </p>
       {/if}
     </div>
     {#if view === 'history'}
-      <button
-        class="px-4 py-2 bg-[var(--color-primary)] text-white rounded-xl text-sm
-               font-medium min-h-[44px]"
-        onclick={() => { view = 'recording'; }}
-      >
-        + Record
-      </button>
+      <div class="flex gap-2">
+        <Button variant="ghost" size="sm" onclick={() => { view = 'quick_log'; }}>
+          {$t('journal.quick_log_btn')}
+        </Button>
+        <Button variant="primary" size="sm" onclick={() => { view = 'recording'; }}>
+          {$t('journal.screen_record')}
+        </Button>
+      </div>
     {/if}
   </header>
 
@@ -61,6 +67,13 @@
       onComplete={async () => { view = 'history'; await refresh(); }}
       onCancel={() => { view = 'history'; }}
     />
+  {:else if view === 'quick_log'}
+    <div class="px-6 py-4">
+      <QuickLogPanel
+        onLogged={async () => { view = 'history'; await refresh(); }}
+        onDetailedEntry={() => { view = 'recording'; }}
+      />
+    </div>
   {:else}
     {#if nudge?.should_nudge}
       <NudgeBanner
@@ -71,19 +84,13 @@
     {/if}
 
     {#if loading && symptoms.length === 0}
-      <div class="flex items-center justify-center flex-1">
-        <div class="animate-pulse text-stone-400">Loading journal...</div>
-      </div>
+      <LoadingState message={$t('journal.screen_loading')} />
     {:else if error}
-      <div class="px-6 py-8 text-center">
-        <p class="text-red-600 mb-4">Something went wrong: {error}</p>
-        <button
-          class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-          onclick={refresh}
-        >
-          Try again
-        </button>
-      </div>
+      <ErrorState
+        message="{$t('journal.screen_error_prefix')} {error}"
+        onretry={refresh}
+        retryLabel={$t('journal.screen_try_again')}
+      />
     {:else}
       <SymptomHistory
         {symptoms}

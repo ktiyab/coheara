@@ -1,0 +1,9 @@
+{
+  "error": {
+    "generic": "Something went wrong",
+    "connection_failed": "Could not connect. Please try again.",
+    "wrong_password": "Wrong password. Please try again.",
+    "field_required": "Please enter {field}.",
+    "password_length": "Password must be at least 6 characters"
+  }
+}

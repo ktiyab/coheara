@@ -1,28 +1,13 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
 </script>
 
-<div class="flex flex-col items-center justify-center px-8 py-12 text-center">
-  <div class="w-24 h-24 bg-stone-100 rounded-2xl flex items-center justify-center mb-6">
-    <span class="text-4xl text-stone-300">&#128196;</span>
-  </div>
-
-  <h2 class="text-lg font-medium text-stone-700 mb-2">
-    {$t('home.no_documents')}
-  </h2>
-  <p class="text-sm text-stone-500 mb-6 max-w-[280px]">
-    {$t('home.empty_description_1')}
-    {$t('home.empty_description_2')}
-  </p>
-
-  <button
-    class="px-8 py-4 bg-teal-600 text-white rounded-xl text-base font-medium
-           hover:bg-teal-700 focus-visible:outline focus-visible:outline-2
-           focus-visible:outline-offset-2 focus-visible:outline-teal-600
-           min-h-[44px]"
-    onclick={() => navigation.navigate('import')}
-  >
-    {$t('home.empty_cta')}
-  </button>
-</div>
+<EmptyState
+  icon="&#128196;"
+  title={$t('home.no_documents')}
+  description="{$t('home.empty_description_1')} {$t('home.empty_description_2')}"
+  actionLabel={$t('home.empty_cta')}
+  onaction={() => navigation.navigate('import')}
+/>

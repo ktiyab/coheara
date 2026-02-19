@@ -1,0 +1,28 @@
+{
+  "common": {
+    "loading": "Chargement...",
+    "creating": "Création...",
+    "unlocking": "Déverrouillage...",
+    "saving": "Enregistrement...",
+    "processing": "Traitement...",
+    "cancel": "Annuler",
+    "back": "Retour",
+    "retry": "Réessayer",
+    "done": "Terminé",
+    "dismiss": "Fermer",
+    "send": "Envoyer",
+    "delete": "Supprimer",
+    "confirm": "Confirmer",
+    "never": "Jamais",
+    "unknown": "Inconnu",
+    "continue": "Continuer",
+    "recovering": "Récupération...",
+    "close": "Fermer",
+    "clear": "Effacer",
+    "optional": "(optionnel)",
+    "not_available": "N/D",
+    "go_back": "Retour",
+    "try_again": "Réessayer",
+    "something_went_wrong": "Une erreur est survenue"
+  }
+}

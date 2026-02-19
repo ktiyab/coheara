@@ -7,8 +7,10 @@
     approvePairing,
     denyPairing,
   } from '$lib/api/pairing';
+  import { t } from 'svelte-i18n';
   import type { PairingStartResponse, PendingApproval } from '$lib/types/pairing';
   import ConfirmPairingDialog from './ConfirmPairingDialog.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   type View = 'idle' | 'qr' | 'error';
 
@@ -103,20 +105,15 @@
 </script>
 
 <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 mb-3">PAIR A DEVICE</h2>
+  <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('pairing.pair_heading')}</h2>
 
   {#if view === 'idle'}
     <p class="text-sm text-stone-500 mb-4">
-      Scan the QR code with the Coheara app on your phone to connect it.
+      {$t('pairing.scan_instruction')}
     </p>
-    <button
-      class="w-full px-4 py-3 bg-teal-600 text-white rounded-xl text-sm
-             font-medium min-h-[44px] disabled:opacity-50"
-      disabled={loading}
-      onclick={handleStart}
-    >
-      {loading ? 'Generating...' : 'Generate QR Code'}
-    </button>
+    <Button variant="primary" fullWidth loading={loading} onclick={handleStart}>
+      {loading ? $t('pairing.generating') : $t('pairing.generate_qr')}
+    </Button>
 
   {:else if view === 'qr' && pairingData}
     <div class="qr-container">
@@ -126,28 +123,24 @@
     <p class="text-sm text-stone-500 text-center mt-3">
       Scan this code with the Coheara app on your phone.
     </p>
-    <p class="text-xs text-stone-400 text-center mt-1">
+    <p class="text-xs text-stone-500 text-center mt-1">
       Both devices must be on the same WiFi network.
     </p>
-    <p class="text-xs text-stone-400 text-center mt-2">
+    <p class="text-xs text-stone-500 text-center mt-2">
       Code expires in {timeRemaining()}
     </p>
     <div class="flex gap-3 mt-4">
-      <button
-        class="flex-1 px-4 py-3 bg-white border border-stone-200 rounded-xl
-               text-sm text-stone-600 min-h-[44px]"
-        onclick={handleCancel}
-      >
+      <Button variant="secondary" fullWidth onclick={handleCancel}>
         Cancel
-      </button>
+      </Button>
     </div>
 
   {:else if view === 'error'}
-    <div class="bg-red-50 rounded-lg p-3 border border-red-200 mb-3">
-      <p class="text-sm text-red-700">{error}</p>
+    <div class="bg-[var(--color-danger-50)] rounded-lg p-3 border border-[var(--color-danger-200)] mb-3">
+      <p class="text-sm text-[var(--color-danger)]">{error}</p>
     </div>
     <button
-      class="px-4 py-2 text-sm text-teal-600 border border-teal-200 rounded-lg"
+      class="px-4 py-2 text-sm text-[var(--color-interactive)] border border-[var(--color-interactive)] rounded-lg"
       onclick={() => {
         view = 'idle';
         error = null;

@@ -1,5 +1,6 @@
 <!-- L3-05: Dose change history timeline. -->
 <script lang="ts">
+  import { t, locale } from 'svelte-i18n';
   import type { DoseChangeView } from '$lib/types/medication';
 
   interface Props {
@@ -10,7 +11,7 @@
   let { changes, medicationName, onClose }: Props = $props();
 
   function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return new Date(dateStr).toLocaleDateString($locale ?? 'en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
     });
   }
@@ -19,15 +20,15 @@
 <div>
   <div class="flex items-center justify-between mb-3">
     <h3 class="text-sm font-medium text-stone-500">
-      Dose history for {medicationName}
+      {$t('medications.dose_history_heading', { values: { name: medicationName } })}
     </h3>
     <button
-      class="text-xs text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]
+      class="text-xs text-stone-500 hover:text-stone-600 min-h-[44px] min-w-[44px]
              flex items-center justify-center"
       onclick={onClose}
-      aria-label="Close dose history"
+      aria-label={$t('medications.dose_history_close')}
     >
-      Hide
+      {$t('medications.dose_history_hide')}
     </button>
   </div>
 
@@ -52,7 +53,7 @@
             {#if change.old_dose}
               {change.old_dose} &rarr; {change.new_dose}
             {:else}
-              Started at {change.new_dose}
+              {$t('medications.dose_history_started', { values: { dose: change.new_dose } })}
             {/if}
           </p>
           {#if change.old_frequency && change.new_frequency}
@@ -61,7 +62,7 @@
             </p>
           {/if}
           {#if change.changed_by_name}
-            <p class="text-xs text-stone-400 mt-0.5">
+            <p class="text-xs text-stone-500 mt-0.5">
               {change.changed_by_name}
             </p>
           {/if}
@@ -71,8 +72,8 @@
             </p>
           {/if}
           {#if change.document_title}
-            <p class="text-xs text-stone-400 mt-0.5">
-              Source: {change.document_title}
+            <p class="text-xs text-stone-500 mt-0.5">
+              {$t('medications.dose_history_source', { values: { title: change.document_title } })}
             </p>
           {/if}
         </div>

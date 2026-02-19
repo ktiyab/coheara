@@ -1,5 +1,6 @@
 <!-- L4-04: Timeline SVG canvas — renders events, correlation lines, date axis. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type {
     TimelineEvent, TimelineCorrelation, DateRange, ZoomLevel,
   } from '$lib/types/timeline';
@@ -119,13 +120,14 @@
         <line
           x1={sinceDateX} y1={HEADER_HEIGHT}
           x2={sinceDateX} y2={CANVAS_HEIGHT}
-          stroke="#14B8A6" stroke-width="2" stroke-dasharray="6 4"
+          stroke="var(--color-interactive)" stroke-width="2" stroke-dasharray="6 4"
         />
         <text
           x={sinceDateX + 6} y={HEADER_HEIGHT + 14}
-          class="text-xs fill-teal-600 font-medium"
+          class="text-xs font-medium"
+          fill="var(--color-interactive)"
         >
-          Last visit
+          {$t('timeline.canvas_last_visit')}
         </text>
       {/if}
 

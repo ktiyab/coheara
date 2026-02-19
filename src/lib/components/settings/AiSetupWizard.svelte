@@ -28,6 +28,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { RecommendedModel, ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize } from '$lib/types/ai';
+  import Button from '$lib/components/ui/Button.svelte';
 
   // ── Wizard State ─────────────────────────────────────────
 
@@ -47,7 +48,7 @@
   let stepContentEl: HTMLDivElement | undefined = $state();
 
   // Link HTML constant for install instructions
-  const ollamaLink = '<a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-blue-900">ollama.com/download</a>';
+  const ollamaLink = '<a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" class="font-mono font-medium underline hover:text-[var(--color-info-800)]">ollama.com/download</a>';
   const ollamaServeCmd = '<code class="font-mono">ollama serve</code>';
 
   // ACC-L6-15: Move focus to step content when step changes
@@ -325,12 +326,12 @@
         {#each STEPS as s, i (s)}
           <div class="flex items-center gap-2">
             {#if i > 0}
-              <div class="w-8 h-0.5 {i <= stepIndex ? 'bg-teal-500' : 'bg-stone-200'}"></div>
+              <div class="w-8 h-0.5 {i <= stepIndex ? 'bg-[var(--color-interactive)]' : 'bg-stone-200'}"></div>
             {/if}
             <div
               class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
-                     {i < stepIndex ? 'bg-teal-500 text-white' :
-                      i === stepIndex ? 'bg-teal-600 text-white' :
+                     {i < stepIndex ? 'bg-[var(--color-interactive)] text-white' :
+                      i === stepIndex ? 'bg-[var(--color-interactive)] text-white' :
                       'bg-stone-200 text-stone-500'}"
               aria-current={i === stepIndex ? 'step' : undefined}
             >
@@ -346,13 +347,18 @@
     {/if}
   </header>
 
+  <!-- ACC-L6-17: Step change announcement for screen readers -->
+  <div role="status" aria-live="polite" class="sr-only" aria-atomic="true">
+    {$t('ai.step_progress', { values: { current: stepIndex + 1, total: stepCount, name: currentStepName } })}
+  </div>
+
   <!-- Step content (ACC-L6-15: focusable for screen reader announcements) -->
   <div class="flex-1 px-6 pb-6" bind:this={stepContentEl} tabindex="-1" style="outline: none;"
     aria-live="polite">
     {#if step === 'detect'}
       <!-- ═══ DETECT ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.checking_ollama')}></div>
+        <div class="animate-spin w-8 h-8 border-3 border-[var(--color-interactive)] border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.checking_ollama')}></div>
         <p class="text-lg text-stone-700 mb-2">{$t('ai.checking_engine')}</p>
         <p class="text-sm text-stone-500">{$t('ai.looking_for_ollama')}</p>
       </div>
@@ -366,35 +372,35 @@
           </p>
 
           {#if detectedPlatform === 'windows'}
-            <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_windows')}</h3>
-              <p class="text-sm text-blue-700 mb-3">
+            <div class="bg-[var(--color-info-50)] rounded-xl p-4 border border-[var(--color-info-200)]">
+              <h2 class="text-sm font-medium text-[var(--color-info-800)] mb-2">{$t('ai.platform_windows')}</h2>
+              <p class="text-sm text-[var(--color-info)] mb-3">
                 {@html $t('ai.install_download', { values: { link: ollamaLink } })}
               </p>
-              <p class="text-xs text-blue-600">{$t('ai.install_windows_note')}</p>
+              <p class="text-xs text-[var(--color-info)]">{$t('ai.install_windows_note')}</p>
             </div>
           {:else if detectedPlatform === 'macos'}
-            <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_macos')}</h3>
-              <p class="text-sm text-blue-700 mb-3">
+            <div class="bg-[var(--color-info-50)] rounded-xl p-4 border border-[var(--color-info-200)]">
+              <h2 class="text-sm font-medium text-[var(--color-info-800)] mb-2">{$t('ai.platform_macos')}</h2>
+              <p class="text-sm text-[var(--color-info)] mb-3">
                 {@html $t('ai.install_macos_download', { values: { link: ollamaLink } })}
               </p>
-              <code class="block bg-blue-100 rounded-lg px-3 py-2 text-sm text-blue-900 select-all">brew install ollama</code>
-              <p class="text-xs text-blue-600 mt-2">{$t('ai.install_macos_note')}</p>
+              <code class="block bg-[var(--color-info-200)] rounded-lg px-3 py-2 text-sm text-[var(--color-info-800)] select-all">brew install ollama</code>
+              <p class="text-xs text-[var(--color-info)] mt-2">{$t('ai.install_macos_note')}</p>
             </div>
           {:else}
-            <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h3 class="text-sm font-medium text-blue-800 mb-2">{$t('ai.platform_linux')}</h3>
-              <p class="text-sm text-blue-700 mb-3">{$t('ai.install_linux')}</p>
-              <code class="block bg-blue-100 rounded-lg px-3 py-2 text-sm text-blue-900 select-all">curl -fsSL https://ollama.com/install.sh | sh</code>
-              <p class="text-xs text-blue-600 mt-2">{@html $t('ai.install_linux_note', { values: { command: ollamaServeCmd } })}</p>
+            <div class="bg-[var(--color-info-50)] rounded-xl p-4 border border-[var(--color-info-200)]">
+              <h2 class="text-sm font-medium text-[var(--color-info-800)] mb-2">{$t('ai.platform_linux')}</h2>
+              <p class="text-sm text-[var(--color-info)] mb-3">{$t('ai.install_linux')}</p>
+              <code class="block bg-[var(--color-info-200)] rounded-lg px-3 py-2 text-sm text-[var(--color-info-800)] select-all">curl -fsSL https://ollama.com/install.sh | sh</code>
+              <p class="text-xs text-[var(--color-info)] mt-2">{@html $t('ai.install_linux_note', { values: { command: ollamaServeCmd } })}</p>
             </div>
           {/if}
         </div>
 
         {#if error}
-          <div class="bg-red-50 rounded-xl p-4 border border-red-200">
-            <p class="text-sm text-red-700">{error}</p>
+          <div class="bg-[var(--color-danger-50)] rounded-xl p-4 border border-[var(--color-danger-200)]">
+            <p class="text-sm text-[var(--color-danger)]">{error}</p>
           </div>
         {/if}
 
@@ -403,18 +409,12 @@
         </p>
 
         <div class="flex gap-3">
-          <button
-            class="flex-1 px-4 py-3 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 min-h-[44px]"
-            onclick={retryDetection}
-          >
+          <Button variant="primary" onclick={retryDetection}>
             {$t('ai.retry_detection')}
-          </button>
-          <button
-            class="px-4 py-3 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
-            onclick={handleSkip}
-          >
+          </Button>
+          <Button variant="secondary" onclick={handleSkip}>
             {$t('ai.skip_for_now')}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -426,8 +426,8 @@
         </p>
 
         {#if error}
-          <div class="bg-red-50 rounded-xl p-4 border border-red-200">
-            <p class="text-sm text-red-700">{error}</p>
+          <div class="bg-[var(--color-danger-50)] rounded-xl p-4 border border-[var(--color-danger-200)]">
+            <p class="text-sm text-[var(--color-danger)]">{error}</p>
           </div>
         {/if}
 
@@ -444,7 +444,7 @@
               aria-label={$t('ai.downloading_aria', { values: { name: ai.pullProgress.model_name, percent: Math.round(ai.pullProgress.progress_percent) } })}
             >
               <div
-                class="bg-teal-500 h-2.5 rounded-full transition-all"
+                class="bg-[var(--color-interactive)] h-2.5 rounded-full transition-all"
                 style="width: {ai.pullProgress.progress_percent}%"
               ></div>
             </div>
@@ -454,20 +454,20 @@
                 &middot; {Math.round(ai.pullProgress.progress_percent)}%
               </span>
               <button
-                class="text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 min-h-[44px]"
+                class="text-xs text-[var(--color-danger)] border border-[var(--color-danger-200)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-danger-50)] min-h-[44px]"
                 onclick={handleCancelPull}
               >
                 {$t('common.cancel')}
               </button>
             </div>
-            <p class="text-xs text-stone-400 mt-2">{$t('ai.download_note')}</p>
+            <p class="text-xs text-stone-500 mt-2">{$t('ai.download_note')}</p>
           </div>
         {/if}
 
         <!-- Pull error -->
         {#if ai.pullProgress?.status === 'error'}
-          <div class="bg-red-50 rounded-xl p-4 border border-red-200">
-            <p class="text-sm text-red-700">
+          <div class="bg-[var(--color-danger-50)] rounded-xl p-4 border border-[var(--color-danger-200)]">
+            <p class="text-sm text-[var(--color-danger)]">
               {ai.pullProgress.error_message ?? $t('common.unknown')}
             </p>
           </div>
@@ -478,7 +478,7 @@
           <!-- Installed models (if user already had some) -->
           {#if ai.models.length > 0}
             <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.already_installed')}</h3>
+              <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.already_installed')}</h2>
               <div class="space-y-2">
                 {#each ai.models as model (model.name)}
                   <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100">
@@ -490,7 +490,7 @@
                       <p class="text-xs text-stone-500">{formatModelSize(model.size)}</p>
                     </div>
                     <button
-                      class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
+                      class="text-xs text-[var(--color-interactive)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
                       onclick={() => handleSelectExisting(model.name)}
                     >
                       {$t('ai.use_this')}
@@ -504,28 +504,28 @@
           <!-- Recommended models to download -->
           {#if recommended.length > 0}
             <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.recommended_models')}</h3>
+              <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.recommended_models')}</h2>
               <div class="space-y-3">
                 {#each recommended as rec, i (rec.name)}
                   {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
-                  <div class="p-4 rounded-xl border {i === 0 ? 'border-teal-300 bg-teal-50' : 'border-stone-100'}">
+                  <div class="p-4 rounded-xl border {i === 0 ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100'}">
                     <div class="flex items-start gap-3">
                       <span class="text-lg" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
                       <div class="flex-1">
                         <div class="flex items-center gap-2">
                           <p class="text-sm font-medium text-stone-800">{rec.name}</p>
                           {#if i === 0}
-                            <span class="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{$t('ai.recommended_badge')}</span>
+                            <span class="text-xs bg-[var(--color-interactive-50)] text-[var(--color-interactive)] px-2 py-0.5 rounded-full">{$t('ai.recommended_badge')}</span>
                           {/if}
                         </div>
                         <p class="text-xs text-stone-600 mt-1">{rec.description}</p>
                         <p class="text-xs text-stone-500 mt-0.5">{$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}</p>
                       </div>
                       {#if alreadyInstalled}
-                        <span class="text-xs text-stone-400 mt-1">{$t('ai.installed_tag')}</span>
+                        <span class="text-xs text-stone-500 mt-1">{$t('ai.installed_tag')}</span>
                       {:else}
                         <button
-                          class="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 min-h-[44px]"
+                          class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] min-h-[44px]"
                           onclick={() => handlePull(rec.name)}
                         >
                           {$t('ai.download_button')}
@@ -540,16 +540,16 @@
 
           <!-- Custom model input -->
           <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-            <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.custom_model_heading')}</h3>
+            <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.custom_model_heading')}</h2>
             <div class="flex gap-2">
               <input
                 type="text"
                 bind:value={pullInput}
                 placeholder={$t('ai.model_placeholder')}
-                class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-400 min-h-[44px]"
+                class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
               />
               <button
-                class="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 onclick={() => handlePull(pullInput)}
                 disabled={!pullInput.trim()}
               >
@@ -560,12 +560,9 @@
         {/if}
 
         <div class="flex justify-end">
-          <button
-            class="px-4 py-3 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
-            onclick={handleSkip}
-          >
+          <Button variant="secondary" onclick={handleSkip}>
             {$t('ai.skip_for_now')}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -573,19 +570,16 @@
       <!-- ═══ VERIFY ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
         {#if verifyRunning}
-          <div class="animate-spin w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.verifying_model')}></div>
+          <div class="animate-spin w-8 h-8 border-3 border-[var(--color-interactive)] border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.verifying_model')}></div>
           <p class="text-lg text-stone-700 mb-2">{$t('ai.testing_model', { values: { name: ai.activeModel?.name ?? 'AI' } })}</p>
           <p class="text-sm text-stone-500">{$t('ai.first_run_note')}</p>
         {:else if error}
           <div class="text-4xl mb-4">&#9888;</div>
           <p class="text-lg text-stone-700 mb-2">{$t('ai.verification_failed')}</p>
-          <p class="text-sm text-red-600 mb-6">{error}</p>
-          <button
-            class="px-6 py-3 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 min-h-[44px]"
-            onclick={runVerify}
-          >
+          <p class="text-sm text-[var(--color-danger)] mb-6">{error}</p>
+          <Button variant="primary" onclick={runVerify}>
             {$t('common.retry')}
-          </button>
+          </Button>
         {:else}
           <div class="text-4xl mb-4">&#10003;</div>
           <p class="text-lg text-stone-700 mb-2">{$t('ai.model_verified')}</p>
@@ -596,7 +590,7 @@
     {:else if step === 'done'}
       <!-- ═══ DONE ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div class="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center text-3xl text-teal-600 mb-6">
+        <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-full flex items-center justify-center text-3xl text-[var(--color-interactive)] mb-6">
           &#10003;
         </div>
         <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('ai.engine_ready_heading')}</h2>
@@ -609,30 +603,27 @@
 
         <div class="space-y-3 w-full max-w-xs text-left bg-white rounded-xl p-5 border border-stone-100 shadow-sm mb-8">
           <div class="flex items-center gap-2">
-            <span class="text-teal-500">&#10003;</span>
+            <span class="text-[var(--color-interactive)]">&#10003;</span>
             <span class="text-sm text-stone-700">{$t('ai.ollama_running')}</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-teal-500">&#10003;</span>
+            <span class="text-[var(--color-interactive)]">&#10003;</span>
             <span class="text-sm text-stone-700">
               {ai.activeModel?.name}
               {#if ai.activeModel?.quality === 'Medical'}
-                <span class="text-xs text-teal-600 ml-1">{$t('ai.medical_quality')}</span>
+                <span class="text-xs text-[var(--color-interactive)] ml-1">{$t('ai.medical_quality')}</span>
               {/if}
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-teal-500">&#10003;</span>
+            <span class="text-[var(--color-interactive)]">&#10003;</span>
             <span class="text-sm text-stone-700">{$t('ai.ai_responding')}</span>
           </div>
         </div>
 
-        <button
-          class="px-8 py-3 bg-teal-600 text-white rounded-xl text-base font-medium hover:bg-teal-700 min-h-[44px]"
-          onclick={handleDone}
-        >
+        <Button variant="primary" size="lg" onclick={handleDone}>
           {$t('ai.go_to_app')}
-        </button>
+        </Button>
       </div>
     {/if}
   </div>

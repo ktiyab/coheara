@@ -1,5 +1,7 @@
 <!-- L3-04: Confidence summary bar — field count + progress bar. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
+
   interface Props {
     totalFields: number;
     confidentFields: number;
@@ -9,15 +11,15 @@
   let { totalFields, confidentFields, flaggedFields, overallConfidence }: Props = $props();
 
   let summaryText = $derived.by(() => {
-    if (totalFields === 0) return 'No fields extracted';
-    if (flaggedFields === 0) return `${totalFields} fields extracted, all look good`;
-    return `${totalFields} fields extracted \u00B7 ${confidentFields} confident \u00B7 ${flaggedFields} need checking`;
+    if (totalFields === 0) return $t('review.summary_no_fields');
+    if (flaggedFields === 0) return $t('review.summary_all_good', { values: { count: totalFields } });
+    return $t('review.summary_mixed', { values: { total: totalFields, confident: confidentFields, flagged: flaggedFields } });
   });
 
   let barColor = $derived(
-    flaggedFields === 0 ? 'bg-green-500' :
-    flaggedFields <= 2 ? 'bg-amber-500' :
-    'bg-red-500'
+    flaggedFields === 0 ? 'bg-[var(--color-success)]' :
+    flaggedFields <= 2 ? 'bg-[var(--color-warning)]' :
+    'bg-[var(--color-danger)]'
   );
 
   let fillPercent = $derived(
@@ -34,8 +36,8 @@
              style="width: {fillPercent}%"></div>
       </div>
     </div>
-    <span class="text-xs text-stone-400">
-      Overall: {Math.round(overallConfidence * 100)}%
+    <span class="text-xs text-stone-500">
+      {$t('review.summary_overall')} {Math.round(overallConfidence * 100)}%
     </span>
   </div>
 </div>

@@ -23,7 +23,7 @@ pub struct FilteredResponse {
 /// What the filter decided.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FilterOutcome {
-    /// Response passed all 3 layers without modification.
+    /// Response passed all layers without modification.
     Passed,
     /// Response had violations but was successfully rephrased.
     Rephrased {
@@ -33,6 +33,11 @@ pub enum FilterOutcome {
     Blocked {
         violations: Vec<Violation>,
         fallback_message: String,
+    },
+    /// Layer 4 escalation: safety rule injected/replaced content (Spec 44).
+    Escalated {
+        rule_id: String,
+        severity: super::escalation::EscalationSeverity,
     },
 }
 
@@ -59,6 +64,8 @@ pub enum FilterLayer {
     BoundaryCheck,
     KeywordScan,
     ReportingVsStating,
+    /// Layer 4: Escalation check (Spec 44).
+    EscalationCheck,
 }
 
 /// Classification of what kind of unsafe content was detected.
@@ -74,6 +81,8 @@ pub enum ViolationCategory {
     AlarmLanguage,
     /// Layer 3: ungrounded claim (states fact without document reference).
     UngroundedClaim,
+    /// Layer 4: response insufficiently urgent for known-dangerous scenario (Spec 44).
+    InsufficientEscalation,
 }
 
 /// Result of input sanitization (pre-LLM).

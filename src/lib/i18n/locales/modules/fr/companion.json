@@ -1,0 +1,19 @@
+{
+  "companion": {
+    "heading": "INSTALLER L'APPLICATION COMPAGNON",
+    "description_line1": "Servez l'application compagnon Coheara à votre téléphone via WiFi.",
+    "description_line2": "Aucune boutique d'applications nécessaire.",
+    "starting": "Démarrage...",
+    "start_server": "Démarrer le serveur compagnon",
+    "scan_camera": "Scannez avec l'appareil photo de votre téléphone",
+    "phone_install_note": "Votre téléphone ouvrira une page pour installer l'application compagnon.",
+    "url_label": "URL :",
+    "version_label": "Version :",
+    "requests_label": "Requêtes :",
+    "apk_label": "APK :",
+    "available": "Disponible",
+    "not_bundled": "Non inclus",
+    "pwa_label": "PWA :",
+    "stop_server": "Arrêter le serveur"
+  }
+}

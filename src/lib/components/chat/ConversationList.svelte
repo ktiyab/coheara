@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { ConversationSummary } from '$lib/types/chat';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     conversations: ConversationSummary[];
@@ -17,36 +19,34 @@
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffMins < 1) return $t('chat.time_just_now');
+    if (diffMins < 60) return $t('chat.time_minutes_ago', { values: { count: diffMins } });
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffHours < 24) return $t('chat.time_hours_ago', { values: { count: diffHours } });
     const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffDays < 7) return $t('chat.time_days_ago', { values: { count: diffDays } });
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 </script>
 
 <div class="flex flex-col h-full">
   <div class="px-4 py-4 border-b border-stone-200">
-    <h2 class="text-lg font-bold text-stone-800">Conversations</h2>
-    <button
-      class="mt-2 w-full px-4 py-3 bg-teal-600 text-white rounded-xl
-             font-medium text-sm hover:bg-teal-700 min-h-[44px]"
-      onclick={onNewConversation}
-    >
-      + New conversation
-    </button>
+    <h2 class="text-lg font-bold text-stone-800">{$t('chat.conversations_heading')}</h2>
+    <div class="mt-2">
+      <Button variant="primary" fullWidth onclick={onNewConversation}>
+        {$t('chat.new_conversation_button')}
+      </Button>
+    </div>
   </div>
 
-  <div class="flex-1 overflow-y-auto">
+  <div class="flex-1 overflow-y-auto" role="list" aria-label={$t('chat.conversations_heading')}>
     {#if conversations.length === 0}
       <div class="px-4 py-8 text-center">
-        <p class="text-sm text-stone-400">No conversations yet</p>
+        <p class="text-sm text-stone-500">{$t('chat.no_conversations')}</p>
       </div>
     {:else}
       {#each conversations as conv (conv.id)}
-        <div class="relative">
+        <div class="relative" role="listitem">
           <button
             class="w-full text-left px-4 py-3 border-b border-stone-100
                    hover:bg-stone-50 transition-colors min-h-[60px]
@@ -58,7 +58,7 @@
                 <p class="text-sm font-medium text-stone-800 truncate">{conv.title}</p>
                 <p class="text-xs text-stone-500 truncate mt-0.5">{conv.last_message_preview}</p>
               </div>
-              <span class="text-xs text-stone-400 flex-shrink-0">
+              <span class="text-xs text-stone-500 flex-shrink-0">
                 {relativeTime(conv.last_message_at)}
               </span>
             </div>
@@ -67,19 +67,19 @@
           {#if confirmDeleteId === conv.id}
             <div class="absolute inset-0 bg-white flex items-center justify-between px-4
                         border-b border-stone-100">
-              <span class="text-xs text-stone-600">Delete this conversation?</span>
+              <span class="text-xs text-stone-600">{$t('chat.delete_confirmation')}</span>
               <div class="flex gap-2">
                 <button
                   class="px-3 py-1 text-xs text-stone-500 min-h-[32px]"
                   onclick={() => confirmDeleteId = null}
                 >
-                  Cancel
+                  {$t('common.cancel')}
                 </button>
                 <button
-                  class="px-3 py-1 text-xs text-red-600 font-medium min-h-[32px]"
+                  class="px-3 py-1 text-xs text-[var(--color-danger)] font-medium min-h-[32px]"
                   onclick={() => { onDelete(conv.id); confirmDeleteId = null; }}
                 >
-                  Delete
+                  {$t('common.delete')}
                 </button>
               </div>
             </div>

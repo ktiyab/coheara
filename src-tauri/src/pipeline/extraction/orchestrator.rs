@@ -313,7 +313,7 @@ mod tests {
     fn setup() -> (tempfile::TempDir, ProfileSession) {
         let dir = tempfile::tempdir().unwrap();
         let (info, _phrase) =
-            profile::create_profile(dir.path(), "ExtractTest", "test_pass_123", None).unwrap();
+            profile::create_profile(dir.path(), "ExtractTest", "test_pass_123", None, None).unwrap();
         let session = profile::open_profile(dir.path(), &info.id, "test_pass_123").unwrap();
         (dir, session)
     }

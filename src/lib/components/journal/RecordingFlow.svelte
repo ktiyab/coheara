@@ -1,5 +1,6 @@
 <!-- L4-01: Multi-step symptom recording flow. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { recordSymptom } from '$lib/api/journal';
   import type { SymptomEntry, TemporalCorrelation } from '$lib/types/journal';
   import CategorySelector from './CategorySelector.svelte';
@@ -7,6 +8,8 @@
   import DateSelector from './DateSelector.svelte';
   import ExpandedDetails from './ExpandedDetails.svelte';
   import CorrelationCard from './CorrelationCard.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     onComplete: () => void;
@@ -70,19 +73,25 @@
   }
 </script>
 
-<div class="px-6 py-4">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="px-6 py-4" onkeydown={(e) => { if (e.key === 'Escape' && step !== 'done') onCancel(); }}>
+  <!-- ACC: Step progress announcement -->
+  <div role="status" aria-live="polite" class="sr-only">
+    {step === 'category' ? $t('journal.recording_step_category')
+      : step === 'severity' ? $t('journal.recording_step_severity')
+      : step === 'when' ? $t('journal.recording_step_when')
+      : step === 'expanded' ? $t('journal.recording_step_expanded')
+      : step === 'notes' ? $t('journal.recording_step_notes')
+      : $t('journal.recording_done_heading')}
+  </div>
+
   <!-- Cancel button -->
   {#if step !== 'done'}
-    <button
-      class="text-stone-500 text-sm mb-4 min-h-[44px]"
-      onclick={onCancel}
-    >
-      &larr; Cancel
-    </button>
+    <BackButton onclick={onCancel} label={$t('journal.recording_cancel')} />
   {/if}
 
   {#if step === 'category'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">What's bothering you?</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('journal.recording_step_category')}</h2>
     <CategorySelector
       onSelect={(cat, spec) => {
         category = cat;
@@ -92,7 +101,7 @@
     />
 
   {:else if step === 'severity'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">How bad is it?</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('journal.recording_step_severity')}</h2>
     <SeverityScale
       value={severity}
       onChange={(v) => { severity = v; }}
@@ -100,7 +109,7 @@
     />
 
   {:else if step === 'when'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">When did this start?</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('journal.recording_step_when')}</h2>
     <DateSelector
       date={onsetDate}
       time={onsetTime}
@@ -108,25 +117,16 @@
       onTimeChange={(t) => { onsetTime = t; }}
     />
     <div class="flex gap-3 mt-6">
-      <button
-        class="flex-1 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-               font-medium min-h-[44px] disabled:opacity-50"
-        disabled={!canSave() || saving}
-        onclick={save}
-      >
-        {saving ? 'Saving...' : 'Save'}
-      </button>
-      <button
-        class="px-4 py-3 bg-stone-100 text-stone-700 rounded-xl
-               font-medium min-h-[44px]"
-        onclick={() => { step = 'expanded'; }}
-      >
-        Tell me more
-      </button>
+      <Button variant="primary" loading={saving} disabled={!canSave()} onclick={save}>
+        {saving ? $t('journal.recording_saving') : $t('journal.recording_save')}
+      </Button>
+      <Button variant="secondary" onclick={() => { step = 'expanded'; }}>
+        {$t('journal.recording_tell_more')}
+      </Button>
     </div>
 
   {:else if step === 'expanded'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">Tell me more</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('journal.recording_step_expanded')}</h2>
     <ExpandedDetails
       {bodyRegion}
       {duration}
@@ -144,48 +144,43 @@
     />
 
   {:else if step === 'notes'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">Anything else?</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('journal.recording_step_notes')}</h2>
     <textarea
       class="w-full h-32 p-4 rounded-xl border border-stone-200 text-stone-700
              resize-none focus:outline-none focus:border-[var(--color-primary)]"
-      placeholder="Optional notes..."
+      placeholder={$t('journal.recording_notes_placeholder')}
       maxlength={500}
       value={notes ?? ''}
       oninput={(e) => { notes = e.currentTarget.value || null; }}
     ></textarea>
-    <p class="text-xs text-stone-400 mt-1 text-right">{(notes?.length ?? 0)}/500</p>
-    <button
-      class="w-full mt-4 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-             font-medium min-h-[44px] disabled:opacity-50"
-      disabled={!canSave() || saving}
-      onclick={save}
-    >
-      {saving ? 'Saving...' : 'Save'}
-    </button>
+    <p class="text-xs text-stone-500 mt-1 text-right">{$t('journal.recording_char_count', { values: { count: notes?.length ?? 0 } })}</p>
+    <div class="mt-4">
+      <Button variant="primary" fullWidth loading={saving} disabled={!canSave()} onclick={save}>
+        {saving ? $t('journal.recording_saving') : $t('journal.recording_save')}
+      </Button>
+    </div>
 
   {:else if step === 'done'}
     <div class="text-center py-8">
-      <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-        <span class="text-green-600 text-2xl">&#x2713;</span>
+      <div class="w-16 h-16 bg-[var(--color-success-50)] rounded-full flex items-center justify-center mx-auto mb-4">
+        <span class="text-[var(--color-success)] text-2xl">&#x2713;</span>
       </div>
-      <h2 class="text-xl font-semibold text-stone-800 mb-2">Recorded</h2>
-      <p class="text-stone-500 text-sm mb-6">Your symptom has been saved.</p>
+      <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('journal.recording_done_title')}</h2>
+      <p class="text-stone-500 text-sm mb-6">{$t('journal.recording_done_message')}</p>
 
       {#each correlations as correlation}
         <CorrelationCard {correlation} />
       {/each}
 
-      <button
-        class="mt-6 px-6 py-3 bg-stone-100 text-stone-700 rounded-xl
-               font-medium min-h-[44px]"
-        onclick={onComplete}
-      >
-        Done
-      </button>
+      <div class="mt-6">
+        <Button variant="secondary" onclick={onComplete}>
+          {$t('journal.recording_done_button')}
+        </Button>
+      </div>
     </div>
   {/if}
 
   {#if error}
-    <p class="text-red-600 text-sm mt-4" role="alert">{error}</p>
+    <p class="text-[var(--color-danger)] text-sm mt-4" role="alert">{error}</p>
   {/if}
 </div>

@@ -13,3 +13,22 @@ export async function getDocumentDetail(documentId: string): Promise<DocumentDet
 export async function getDocuments(offset: number, limit: number): Promise<DocumentCard[]> {
   return invoke<DocumentCard[]>('get_more_documents', { offset, limit });
 }
+
+/** Spec 46 [CG-06] + Spec 49: Full-text document search. */
+export interface DocumentSearchResult {
+  document_id: string;
+  title: string;
+  professional_name: string | null;
+  snippet: string;
+  rank: number;
+}
+
+export async function searchDocuments(
+  query: string,
+  docTypeFilter?: string
+): Promise<DocumentSearchResult[]> {
+  return invoke<DocumentSearchResult[]>('search_documents', {
+    query,
+    docTypeFilter: docTypeFilter ?? null,
+  });
+}

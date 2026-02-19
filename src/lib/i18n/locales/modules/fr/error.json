@@ -1,0 +1,9 @@
+{
+  "error": {
+    "generic": "Une erreur est survenue",
+    "connection_failed": "Connexion impossible. Veuillez réessayer.",
+    "wrong_password": "Mot de passe incorrect. Veuillez réessayer.",
+    "field_required": "Veuillez renseigner {field}.",
+    "password_length": "Le mot de passe doit contenir au moins 6 caractères"
+  }
+}

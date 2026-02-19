@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { CitationView } from '$lib/types/chat';
 
   import { navigation } from '$lib/stores/navigation.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     citation: CitationView;
@@ -13,7 +15,7 @@
   let displayLabel = $derived(
     citation.professional_name
       ?? citation.document_title
-      ?? 'Source document'
+      ?? $t('chat.citation_source_document')
   );
 
   let displayDate = $derived.by(() => {
@@ -31,12 +33,12 @@
          text-xs text-stone-700 transition-colors
          min-h-[32px]"
   onclick={() => showPanel = true}
-  aria-label="View source: {displayLabel}"
+  aria-label={$t('chat.citation_view_source_aria', { values: { label: displayLabel } })}
 >
-  <span class="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0"></span>
+  <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-info)] flex-shrink-0"></span>
   <span class="truncate max-w-[140px]">{displayLabel}</span>
   {#if displayDate}
-    <span class="text-stone-400">- {displayDate}</span>
+    <span class="text-stone-500">- {displayDate}</span>
   {/if}
 </button>
 
@@ -45,7 +47,7 @@
     <button
       class="absolute inset-0 bg-black/30"
       onclick={() => showPanel = false}
-      aria-label="Close citation panel"
+      aria-label={$t('chat.citation_close_panel')}
     ></button>
 
     <div class="relative bg-white rounded-t-2xl shadow-xl max-h-[60vh] overflow-y-auto
@@ -56,9 +58,9 @@
 
       <div class="px-6 pb-8">
         <div class="mb-4">
-          <h3 class="text-lg font-medium text-stone-800">
+          <h2 class="text-lg font-medium text-stone-800">
             {citation.document_title}
-          </h3>
+          </h2>
           <div class="flex items-center gap-2 mt-1 text-sm text-stone-500">
             {#if citation.professional_name}
               <span>{citation.professional_name}</span>
@@ -70,18 +72,18 @@
         </div>
 
         <div class="mb-4">
-          <h4 class="text-xs font-medium text-stone-400 uppercase mb-2">Source excerpt</h4>
+          <h3 class="text-xs font-medium text-stone-500 uppercase mb-2">{$t('chat.citation_excerpt_heading')}</h3>
           <p class="text-sm text-stone-700 leading-relaxed bg-stone-50 rounded-lg p-3 border border-stone-100">
             {citation.chunk_text}
           </p>
         </div>
 
         <div class="mb-6">
-          <h4 class="text-xs font-medium text-stone-400 uppercase mb-2">Relevance</h4>
+          <h3 class="text-xs font-medium text-stone-500 uppercase mb-2">{$t('chat.citation_relevance_heading')}</h3>
           <div class="flex items-center gap-2">
             <div class="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden">
               <div
-                class="h-full bg-teal-600 rounded-full transition-all"
+                class="h-full bg-[var(--color-interactive)] rounded-full transition-all"
                 style="width: {relevanceWidth}%"
               ></div>
             </div>
@@ -89,16 +91,12 @@
           </div>
         </div>
 
-        <button
-          class="w-full px-6 py-3 bg-stone-100 text-stone-700 rounded-xl font-medium
-                 hover:bg-stone-200 transition-colors min-h-[44px]"
-          onclick={() => {
+        <Button variant="secondary" fullWidth onclick={() => {
             showPanel = false;
             navigation.navigate('document-detail', { documentId: citation.document_id });
-          }}
-        >
-          View full document
-        </button>
+          }}>
+          {$t('chat.citation_view_full')}
+        </Button>
       </div>
     </div>
   </div>

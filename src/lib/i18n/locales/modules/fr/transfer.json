@@ -1,0 +1,14 @@
+{
+  "transfer": {
+    "starting_server": "Démarrage du serveur de transfert...",
+    "receive_heading": "Recevoir depuis le téléphone",
+    "scan_instruction": "Scannez ce code avec l'appareil photo de votre téléphone pour envoyer des documents.",
+    "enter_pin": "Entrez ce code PIN sur votre téléphone :",
+    "url_fallback": "Ou tapez ceci dans le navigateur de votre téléphone :",
+    "files_received": "{count, plural, one {# fichier reçu} other {# fichiers reçus}}",
+    "done_button": "Réception terminée",
+    "processing_files": "Traitement des fichiers reçus...",
+    "session_ended": "Session de transfert terminée.",
+    "pin_aria": "Code PIN de transfert : {pin}"
+  }
+}

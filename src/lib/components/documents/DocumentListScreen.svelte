@@ -1,10 +1,16 @@
 <!-- E2E-F04: Full document list with search/filter and infinite scroll. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { getDocuments } from '$lib/api/documents';
   import type { DocumentCard } from '$lib/types/home';
   import DocumentCardView from '$lib/components/home/DocumentCardView.svelte';
+  import DocumentSearch from '$lib/components/documents/DocumentSearch.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import EmptyStateUI from '$lib/components/ui/EmptyState.svelte';
 
   let documents: DocumentCard[] = $state([]);
   let loading = $state(true);
@@ -13,6 +19,7 @@
   let error: string | null = $state(null);
   let filterType = $state('all');
   let filterStatus = $state('all');
+  let showSearch = $state(false);
 
   const PAGE_SIZE = 20;
 
@@ -77,15 +84,36 @@
   <!-- Header -->
   <header class="px-4 py-4 bg-white border-b border-stone-200 shrink-0">
     <div class="flex items-center justify-between mb-3">
-      <h1 class="text-xl font-semibold text-stone-800">Documents</h1>
-      <button
-        class="px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg text-sm
-               font-medium min-h-[44px]"
-        onclick={() => navigation.navigate('import')}
-      >
-        + Import
-      </button>
+      <h1 class="text-xl font-semibold text-stone-800">{$t('documents.list_heading')}</h1>
+      <div class="flex items-center gap-2">
+        <button
+          class="inline-flex items-center justify-center w-9 h-9 rounded-lg
+                 bg-transparent text-stone-600 border border-stone-200
+                 hover:bg-stone-50 active:bg-stone-100 transition-colors
+                 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+          onclick={() => { showSearch = !showSearch; }}
+          aria-label={$t('documents.search_toggle')}
+          aria-expanded={showSearch}
+        >
+          &#128269;
+        </button>
+        <Button variant="primary" size="sm" onclick={() => navigation.navigate('import')}>
+          {$t('documents.list_import')}
+        </Button>
+      </div>
     </div>
+
+    {#if showSearch}
+      <div class="mb-3">
+        <DocumentSearch
+          onSelect={(docId) => {
+            showSearch = false;
+            navigation.navigate('document-detail', { documentId: docId });
+          }}
+          onClose={() => { showSearch = false; }}
+        />
+      </div>
+    {/if}
 
     <!-- Filters -->
     <div class="flex gap-2 overflow-x-auto pb-1">
@@ -96,18 +124,18 @@
                  : 'bg-stone-100 text-stone-600'}"
         onclick={() => { filterType = 'all'; filterStatus = 'all'; }}
       >
-        All ({documents.length})
+        {$t('documents.list_filter_all', { values: { count: documents.length } })}
       </button>
 
       {#if pendingCount > 0}
         <button
           class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium min-h-[32px]
                  {filterStatus === 'pending'
-                   ? 'bg-amber-600 text-white'
-                   : 'bg-amber-50 text-amber-700'}"
+                   ? 'bg-[var(--color-warning)] text-white'
+                   : 'bg-[var(--color-warning-50)] text-[var(--color-warning-800)]'}"
           onclick={() => { filterStatus = filterStatus === 'pending' ? 'all' : 'pending'; filterType = 'all'; }}
         >
-          Pending ({pendingCount})
+          {$t('documents.list_filter_pending', { values: { count: pendingCount } })}
         </button>
       {/if}
 
@@ -128,61 +156,43 @@
   <!-- Document list -->
   <div class="flex-1 px-4 py-4">
     {#if loading}
-      <div class="flex items-center justify-center py-12">
-        <div class="animate-pulse text-stone-400">Loading documents...</div>
-      </div>
+      <LoadingState message={$t('documents.list_loading')} />
 
     {:else if error}
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <p class="text-red-600 mb-4">Something went wrong: {error}</p>
-        <button
-          class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-          onclick={loadDocuments}
-        >
-          Try again
-        </button>
-      </div>
+      <ErrorState
+        message="{$t('documents.list_error_prefix')} {error}"
+        onretry={loadDocuments}
+        retryLabel={$t('documents.list_try_again')}
+      />
 
     {:else if documents.length === 0}
-      <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div class="w-16 h-16 bg-stone-100 rounded-2xl flex items-center justify-center mb-4">
-          <span class="text-2xl text-stone-400">&#128196;</span>
-        </div>
-        <h2 class="text-lg font-semibold text-stone-700 mb-2">No documents yet</h2>
-        <p class="text-sm text-stone-500 mb-6">
-          Import your first medical document to get started.
-        </p>
-        <button
-          class="px-6 py-3 bg-[var(--color-primary)] text-white rounded-xl
-                 text-sm font-medium min-h-[44px]"
-          onclick={() => navigation.navigate('import')}
-        >
-          Import documents
-        </button>
-      </div>
+      <EmptyStateUI
+        icon="&#128196;"
+        title={$t('documents.list_empty_heading')}
+        description={$t('documents.list_empty_description')}
+        actionLabel={$t('documents.list_import_documents')}
+        onaction={() => navigation.navigate('import')}
+      />
 
     {:else if filtered.length === 0}
       <div class="flex flex-col items-center justify-center py-12 text-center">
-        <p class="text-stone-500 text-sm">No documents match the current filter.</p>
+        <p class="text-stone-500 text-sm">{$t('documents.list_no_match')}</p>
       </div>
 
     {:else}
-      <div class="space-y-3">
+      <div class="space-y-3" role="list" aria-label={$t('documents.list_heading')}>
         {#each filtered as card (card.id)}
-          <DocumentCardView {card} onTap={handleDocumentTap} />
+          <div role="listitem">
+            <DocumentCardView {card} onTap={handleDocumentTap} />
+          </div>
         {/each}
       </div>
 
       {#if hasMore && filterType === 'all' && filterStatus === 'all'}
         <div class="flex justify-center py-6">
-          <button
-            class="px-6 py-3 bg-white border border-stone-200 rounded-xl text-sm
-                   text-stone-600 min-h-[44px] disabled:opacity-50"
-            disabled={loadingMore}
-            onclick={loadMore}
-          >
-            {loadingMore ? 'Loading...' : 'Load more'}
-          </button>
+          <Button variant="ghost" loading={loadingMore} onclick={loadMore}>
+            {loadingMore ? $t('documents.list_loading_more') : $t('documents.list_load_more')}
+          </Button>
         </div>
       {/if}
     {/if}

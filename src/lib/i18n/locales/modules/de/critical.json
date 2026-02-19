@@ -1,0 +1,15 @@
+{
+  "critical": {
+    "lab_alert": "Ihr Laborbericht vom {date} meldet {testName} als auffällig.",
+    "contact_doctor": "Bitte kontaktieren Sie bald Ihren Arzt oder Apotheker.",
+    "reference_range": "(Referenz: {range})",
+    "view_button": "Ansehen",
+    "dismiss_button": "Schließen",
+    "doctor_addressed": "Hat Ihr Arzt das angesprochen?",
+    "doctor_seen": "Ja, mein Arzt hat es gesehen",
+    "not_yet": "Noch nicht",
+    "confirm_addressed": "Bitte bestätigen: «Mein Arzt hat dieses Laborergebnis behandelt»",
+    "dismiss_reason_placeholder": "z.B. Besprochen mit Dr. Schmidt am 15. Jan.",
+    "reason_required": "Bitte geben Sie einen Grund an"
+  }
+}

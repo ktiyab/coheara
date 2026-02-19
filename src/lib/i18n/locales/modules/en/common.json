@@ -1,0 +1,28 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "creating": "Creating...",
+    "unlocking": "Unlocking...",
+    "saving": "Saving...",
+    "processing": "Processing...",
+    "cancel": "Cancel",
+    "back": "Back",
+    "retry": "Try again",
+    "done": "Done",
+    "dismiss": "Dismiss",
+    "send": "Send",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "never": "Never",
+    "unknown": "Unknown",
+    "continue": "Continue",
+    "recovering": "Recovering...",
+    "close": "Close",
+    "clear": "Clear",
+    "optional": "(optional)",
+    "not_available": "N/A",
+    "go_back": "Go back",
+    "try_again": "Try again",
+    "something_went_wrong": "Something went wrong"
+  }
+}

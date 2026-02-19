@@ -1,5 +1,8 @@
 <!-- L3-05: Empty state when no medications are recorded. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
+  import Button from '$lib/components/ui/Button.svelte';
+
   interface Props {
     onAddOtc: () => void;
   }
@@ -12,17 +15,13 @@
   </div>
 
   <h2 class="text-lg font-medium text-stone-700 mb-2">
-    No medications recorded yet
+    {$t('medications.empty_title')}
   </h2>
   <p class="text-sm text-stone-500 mb-6 max-w-[300px]">
-    Medications will appear here when you load a prescription or add an over-the-counter medication.
+    {$t('medications.empty_description')}
   </p>
 
-  <button
-    class="px-8 py-4 bg-[var(--color-primary)] text-white rounded-xl text-base font-medium
-           hover:brightness-110 min-h-[44px]"
-    onclick={onAddOtc}
-  >
-    + Add an over-the-counter medication
-  </button>
+  <Button variant="primary" size="lg" onclick={onAddOtc}>
+    {$t('medications.empty_add_otc')}
+  </Button>
 </div>

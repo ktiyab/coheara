@@ -1,0 +1,16 @@
+{
+  "delete_profile": {
+    "danger_zone": "ZONE DANGEREUSE",
+    "delete_button": "Supprimer le profil et toutes les données",
+    "permanent_warning": "Cela supprimera définitivement toutes les données de santé de {name}.",
+    "cannot_undo": "Cette action est irréversible.",
+    "type_confirm_label": "Tapez « {phrase} » pour confirmer :",
+    "confirm_phrase": "DELETE MY DATA",
+    "confirm_placeholder": "DELETE MY DATA",
+    "password_label": "Entrez votre mot de passe :",
+    "deleting": "Suppression...",
+    "delete_everything": "Tout supprimer",
+    "confirm_mismatch": "Veuillez taper « {phrase} » exactement",
+    "password_required": "Mot de passe requis"
+  }
+}

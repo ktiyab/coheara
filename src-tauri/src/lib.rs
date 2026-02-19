@@ -31,7 +31,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("coheara=info")),
+                .unwrap_or_else(|_| EnvFilter::new(config::default_log_filter())),
         )
         .init();
 
@@ -57,6 +57,8 @@ pub fn run() {
             commands::profile::recover_profile,
             commands::profile::is_profile_active,
             commands::profile::get_active_profile_name,
+            commands::profile::get_active_profile_info,
+            commands::profile::get_caregiver_summaries,
             commands::profile::delete_profile,
             commands::profile::check_inactivity,
             commands::profile::update_activity,
@@ -64,6 +66,7 @@ pub fn run() {
             commands::home::get_more_documents,
             commands::home::get_document_detail,
             commands::home::dismiss_alert,
+            commands::home::search_documents,
             commands::chat::start_conversation,
             commands::chat::send_chat_message,
             commands::chat::get_conversation_messages,

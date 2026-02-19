@@ -13,6 +13,9 @@ pub mod alert;
 pub mod profile;
 pub mod filters;
 pub mod enums;
+pub mod vital_sign;
+pub mod cached_explanation;
+pub mod caregiver;
 
 pub use document::*;
 pub use medication::*;
@@ -28,3 +31,6 @@ pub use referral::*;
 pub use alert::*;
 pub use profile::*;
 pub use filters::*;
+pub use vital_sign::*;
+pub use cached_explanation::*;
+pub use caregiver::*;

@@ -1,0 +1,10 @@
+{
+  "trust": {
+    "heading": "Willkommen bei Coheara",
+    "subheading": "Ihr persönlicher Assistent für medizinische Dokumente.",
+    "benefit_local": "Ihre medizinischen Dokumente werden <b>niemals irgendwohin gesendet</b>.",
+    "benefit_encrypted": "Alles ist mit Ihrem Passwort <b>verschlüsselt</b>.",
+    "benefit_private": "Keine Konten, keine Nachverfolgung, keine Datenerhebung.",
+    "continue": "Ich verstehe, lassen Sie uns beginnen"
+  }
+}

@@ -18,6 +18,7 @@
     PromptSuggestion,
   } from '$lib/types/chat';
   import { profile } from '$lib/stores/profile.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ConversationList from './ConversationList.svelte';
@@ -26,8 +27,9 @@
 
   interface Props {
     initialConversationId?: string;
+    prefill?: string;
   }
-  let { initialConversationId }: Props = $props();
+  let { initialConversationId, prefill }: Props = $props();
 
   // Conversation state
   let currentConversationId: string | null = $state(initialConversationId ?? null);
@@ -215,6 +217,11 @@
     if (currentConversationId) {
       await loadMessages(currentConversationId);
     }
+
+    // Spec 48 [CA-05]: Pre-fill input from post-review CTA or other navigation
+    if (prefill) {
+      inputText = prefill;
+    }
   });
 </script>
 
@@ -222,7 +229,7 @@
   <!-- Header -->
   <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200">
     <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500
              hover:text-stone-600"
       onclick={() => showConversationList = !showConversationList}
       aria-label={$t('chat.toggle_conversations')}
@@ -235,8 +242,8 @@
     </h1>
 
     <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-400
-             hover:text-teal-600"
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500
+             hover:text-[var(--color-interactive)]"
       onclick={handleNewConversation}
       aria-label={$t('chat.new_conversation')}
     >
@@ -283,6 +290,7 @@
       <ChatEmptyState
         {suggestions}
         onSuggestionTap={handleSuggestionTap}
+        onNavigate={(screen: string) => navigation.navigate(screen)}
       />
     {:else}
       <div class="flex flex-col gap-4 max-w-2xl mx-auto">
@@ -294,14 +302,14 @@
 
         {#if isStreaming && streamingText}
           <div class="flex items-start gap-2">
-            <div class="w-8 h-8 rounded-full bg-teal-600 flex items-center
+            <div class="w-8 h-8 rounded-full bg-[var(--color-interactive)] flex items-center
                         justify-center text-white text-sm font-bold flex-shrink-0 mt-1">
-              C
+              {$t('chat.avatar_initial')}
             </div>
             <div class="max-w-[85%] bg-white border border-stone-100 rounded-2xl rounded-bl-md
                         px-4 py-3 shadow-sm">
               <p class="text-stone-800 text-base leading-relaxed whitespace-pre-wrap">
-                {streamingText}<span class="animate-pulse text-teal-600">|</span>
+                {streamingText}<span class="animate-pulse text-[var(--color-interactive)]">|</span>
               </p>
             </div>
           </div>
@@ -329,8 +337,8 @@
       <textarea
         class="flex-1 px-4 py-3 rounded-xl border border-stone-200 text-base
                resize-none min-h-[44px] max-h-[120px]
-               focus:border-teal-600 focus:outline-none
-               placeholder:text-stone-400"
+               focus:border-[var(--color-interactive)] focus:outline-none
+               placeholder:text-stone-500"
         placeholder={$t('chat.input_placeholder')}
         bind:value={inputText}
         onkeydown={handleKeydown}
@@ -342,8 +350,8 @@
         class="min-h-[44px] min-w-[44px] px-4 py-3 rounded-xl font-medium text-base
                transition-colors
                {canSend
-                 ? 'bg-teal-600 text-white hover:bg-teal-700'
-                 : 'bg-stone-100 text-stone-400 cursor-not-allowed'}"
+                 ? 'bg-[var(--color-interactive)] text-white hover:bg-[var(--color-interactive-hover)]'
+                 : 'bg-stone-100 text-stone-500 cursor-not-allowed'}"
         onclick={handleSend}
         disabled={!canSend}
         aria-label={$t('chat.send_aria')}

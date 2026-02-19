@@ -9,11 +9,13 @@ export async function createProfile(
   name: string,
   password: string,
   managedBy: string | null,
+  dateOfBirth: string | null = null,
 ): Promise<ProfileCreateResult> {
   return invoke<ProfileCreateResult>('create_profile', {
     name,
     password,
     managedBy,
+    dateOfBirth,
   });
 }
 
@@ -42,6 +44,30 @@ export async function isProfileActive(): Promise<boolean> {
 
 export async function getActiveProfileName(): Promise<string> {
   return invoke<string>('get_active_profile_name');
+}
+
+/** Spec 45 [PU-02]: Get full ProfileInfo for the active session. */
+export async function getActiveProfileInfo(): Promise<ProfileInfo> {
+  return invoke<ProfileInfo>('get_active_profile_info');
+}
+
+/** Spec 46 [CG-02]: Get caregiver summaries for all dependents. */
+export async function getCaregiverSummaries(): Promise<CaregiverSummary[]> {
+  return invoke<CaregiverSummary[]>('get_caregiver_summaries');
+}
+
+/** Spec 46: Summary of a managed profile visible to the caregiver. */
+export interface CaregiverSummary {
+  managed_profile_id: string;
+  managed_profile_name: string;
+  caregiver_profile_id: string;
+  alert_count: number;
+  critical_alert_count: number;
+  active_medication_count: number;
+  next_appointment_date: string | null;
+  last_document_date: string | null;
+  color_index: number | null;
+  updated_at: string;
 }
 
 import type { ResolvedModel } from '$lib/types/ai';

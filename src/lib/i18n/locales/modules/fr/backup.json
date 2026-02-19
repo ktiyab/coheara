@@ -1,0 +1,19 @@
+{
+  "backup": {
+    "heading": "SAUVEGARDE ET RESTAURATION",
+    "create": "Créer une sauvegarde",
+    "restore": "Restaurer depuis une sauvegarde",
+    "save_to": "Enregistrer la sauvegarde dans :",
+    "file_path": "Chemin du fichier de sauvegarde :",
+    "preview": "Aperçu de la sauvegarde",
+    "restore_password": "Entrez le mot de passe de {name} pour déchiffrer la sauvegarde.",
+    "password_placeholder": "Mot de passe du profil",
+    "password_guidance": "Vérifiez que le mot de passe correspond à celui utilisé lors de la création de la sauvegarde.",
+    "restored_message": "{count} documents restaurés ({size})",
+    "created_message": "Sauvegarde créée : {count} documents, {size}",
+    "profile_label": "Profil",
+    "created_label": "Créé",
+    "version_label": "Version",
+    "compatibility_warning": "Cette sauvegarde pourrait ne pas être entièrement compatible."
+  }
+}

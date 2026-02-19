@@ -1,6 +1,8 @@
 <!-- L4-01: Face-based severity scale (1-5). SVG faces, no numbers shown to patient. -->
 <script lang="ts">
-  import { SEVERITY_LABELS, SEVERITY_COLORS } from '$lib/types/journal';
+  import { t } from 'svelte-i18n';
+  import { SEVERITY_COLORS } from '$lib/types/journal';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     value: number;
@@ -10,6 +12,14 @@
   let { value, onChange, onNext }: Props = $props();
 
   const levels = [1, 2, 3, 4, 5];
+
+  const severityKeys: Record<number, string> = {
+    1: 'journal.severity_0',
+    2: 'journal.severity_1',
+    3: 'journal.severity_2',
+    4: 'journal.severity_3',
+    5: 'journal.severity_4',
+  };
 </script>
 
 <div class="flex items-center justify-between gap-3 px-2 mb-6">
@@ -17,7 +27,7 @@
     <button
       class="flex flex-col items-center gap-2 transition-all min-h-[44px] min-w-[44px]"
       class:scale-110={value === level}
-      aria-label={SEVERITY_LABELS[level]}
+      aria-label={$t(severityKeys[level])}
       onclick={() => onChange(level)}
     >
       <div
@@ -47,18 +57,14 @@
       </div>
       <span class="text-xs text-stone-500 text-center leading-tight"
             class:font-medium={value === level}>
-        {SEVERITY_LABELS[level]}
+        {$t(severityKeys[level])}
       </span>
     </button>
   {/each}
 </div>
 
 {#if value >= 1}
-  <button
-    class="w-full px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-           font-medium min-h-[44px]"
-    onclick={onNext}
-  >
-    Next
-  </button>
+  <Button variant="primary" fullWidth onclick={onNext}>
+    {$t('journal.severity_next')}
+  </Button>
 {/if}

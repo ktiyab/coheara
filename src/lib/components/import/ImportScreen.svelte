@@ -1,9 +1,10 @@
-<!-- E2E-F01 + F02: File import UI — file picker, processing progress, results. -->
+<!-- E2E-F01 + F02: File import UI — file picker, drag-and-drop, processing progress, results. -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { open } from '@tauri-apps/plugin-dialog';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { processDocument, processDocumentsBatch } from '$lib/api/import';
   import type {
     ProcessingOutcome,
@@ -11,13 +12,22 @@
     ProcessingBatchProgressEvent,
   } from '$lib/types/import';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import Divider from '$lib/components/ui/Divider.svelte';
 
-  /** Supported medical document extensions. */
-  const DOCUMENT_FILTERS = [
-    { name: 'Medical Documents', extensions: ['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'txt'] },
-    { name: 'PDF', extensions: ['pdf'] },
-    { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'tiff', 'tif'] },
-  ];
+  interface Props {
+    droppedFiles?: string;
+  }
+
+  let { droppedFiles }: Props = $props();
+
+  /** Supported medical document extensions (reactive for i18n). */
+  let documentFilters = $derived([
+    { name: $t('import.filter_medical'), extensions: ['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'txt'] },
+    { name: $t('import.filter_pdf'), extensions: ['pdf'] },
+    { name: $t('import.filter_images'), extensions: ['jpg', 'jpeg', 'png', 'tiff', 'tif'] },
+  ]);
 
   type ScreenState = 'idle' | 'processing' | 'success' | 'error';
 
@@ -36,6 +46,47 @@
 
   // Q.5: Cancel state (user abandoned processing)
   let cancelled = $state(false);
+
+  // GAP-H01: Drag-and-drop state
+  let isDragging = $state(false);
+  let unlistenDragDrop: (() => void) | null = null;
+
+  const SUPPORTED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'txt'];
+
+  function filterSupportedPaths(paths: string[]): string[] {
+    return paths.filter((p) => {
+      const ext = p.split('.').pop()?.toLowerCase() ?? '';
+      return SUPPORTED_EXTENSIONS.includes(ext);
+    });
+  }
+
+  onMount(async () => {
+    // Auto-process files dropped from home screen
+    if (droppedFiles) {
+      const paths = droppedFiles.split('|').filter(Boolean);
+      if (paths.length > 0) {
+        processFiles(paths);
+      }
+    }
+
+    const webview = getCurrentWebview();
+    unlistenDragDrop = await webview.onDragDropEvent((event) => {
+      if (screen !== 'idle') return; // Only accept drops on idle screen
+
+      const payload = event.payload;
+      if (payload.type === 'enter') {
+        isDragging = true;
+      } else if (payload.type === 'leave') {
+        isDragging = false;
+      } else if (payload.type === 'drop') {
+        isDragging = false;
+        const supported = filterSupportedPaths(payload.paths);
+        if (supported.length > 0) {
+          processFiles(supported);
+        }
+      }
+    });
+  });
 
   let unlistenProgress: (() => void) | null = null;
   let unlistenBatch: (() => void) | null = null;
@@ -66,6 +117,7 @@
   onDestroy(() => {
     unlistenProgress?.();
     unlistenBatch?.();
+    unlistenDragDrop?.();
     stopElapsedTimer();
   });
 
@@ -111,9 +163,9 @@
 
   async function browseFiles() {
     const selected = await open({
-      title: 'Select medical documents',
+      title: $t('import.dialog_title'),
       multiple: true,
-      filters: DOCUMENT_FILTERS,
+      filters: documentFilters,
     });
 
     if (!selected) return; // User cancelled
@@ -196,14 +248,7 @@
 <div class="flex flex-col min-h-screen bg-stone-50">
   <!-- Header -->
   <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
-    <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             text-stone-500 hover:text-stone-700"
-      onclick={() => navigation.goBack()}
-      aria-label={$t('nav.go_back')}
-    >
-      &larr;
-    </button>
+    <BackButton />
     <h1 class="text-lg font-semibold text-stone-800">{$t('import.heading')}</h1>
   </header>
 
@@ -211,11 +256,28 @@
   <div class="flex-1 flex flex-col items-center justify-center px-6 py-8">
 
     {#if screen === 'idle'}
-      <!-- File selection UI -->
-      <div class="w-full max-w-md">
+      <!-- File selection UI with drop zone -->
+      <div class="w-full max-w-md relative">
+        <!-- GAP-H01: Drag overlay -->
+        {#if isDragging}
+          <div
+            class="absolute inset-0 z-10 border-2 border-dashed border-[var(--color-interactive)]
+                   bg-[var(--color-interactive-50)]/80 rounded-2xl flex flex-col items-center justify-center
+                   pointer-events-none"
+            role="status"
+            aria-live="assertive"
+          >
+            <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-2xl flex items-center justify-center mb-4">
+              <span class="text-3xl text-[var(--color-interactive)]">&darr;</span>
+            </div>
+            <p class="text-lg font-semibold text-[var(--color-interactive-hover)]">{$t('import.drop_files_here')}</p>
+            <p class="text-sm text-[var(--color-interactive)] mt-1">{$t('import.supported_formats')}</p>
+          </div>
+        {/if}
+
         <div class="text-center mb-8">
-          <div class="w-16 h-16 bg-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span class="text-3xl text-teal-600">+</span>
+          <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span class="text-3xl text-[var(--color-interactive)]">+</span>
           </div>
           <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('import.add_documents')}</h2>
           <p class="text-sm text-stone-500">
@@ -224,34 +286,31 @@
         </div>
 
         <!-- Browse button -->
-        <button
-          class="w-full px-6 py-4 bg-[var(--color-primary)] text-white rounded-xl
-                 text-base font-medium min-h-[44px] mb-3"
-          onclick={browseFiles}
-        >
-          {$t('import.browse_files')}
-        </button>
+        <div class="mb-3">
+          <Button variant="primary" fullWidth onclick={browseFiles}>
+            {$t('import.browse_files')}
+          </Button>
+        </div>
 
-        <p class="text-xs text-stone-400 text-center mb-8">
+        <p class="text-xs text-stone-500 text-center mb-4">
           {$t('import.supported_formats')}
         </p>
 
+        <!-- GAP-H01: Drop hint -->
+        <p class="text-xs text-stone-400 text-center mb-4">
+          {$t('import.drag_drop_hint')}
+        </p>
+
         <!-- Divider -->
-        <div class="flex items-center gap-4 mb-6">
-          <div class="flex-1 h-px bg-stone-200"></div>
-          <span class="text-xs text-stone-400">{$t('import.or')}</span>
-          <div class="flex-1 h-px bg-stone-200"></div>
+        <div class="mb-6">
+          <Divider label={$t('import.or')} />
         </div>
 
         <!-- WiFi transfer option -->
-        <button
-          class="w-full px-6 py-4 bg-white border border-stone-200 rounded-xl
-                 text-base text-stone-700 min-h-[44px] hover:bg-stone-50"
-          onclick={() => navigation.navigate('transfer')}
-        >
+        <Button variant="secondary" fullWidth onclick={() => navigation.navigate('transfer')}>
           {$t('import.receive_from_phone')}
-        </button>
-        <p class="text-xs text-stone-400 text-center mt-2">
+        </Button>
+        <p class="text-xs text-stone-500 text-center mt-2">
           {$t('import.receive_description')}
         </p>
       </div>
@@ -262,14 +321,14 @@
         <!-- Q.4: Pulse animation during structuring, spinner otherwise -->
         <div class="w-16 h-16 mx-auto mb-6 relative">
           {#if progressStage === 'structuring'}
-            <div class="w-16 h-16 rounded-full bg-teal-100 animate-pulse flex items-center
+            <div class="w-16 h-16 rounded-full bg-[var(--color-interactive-50)] animate-pulse flex items-center
                         justify-center">
-              <div class="w-10 h-10 rounded-full bg-teal-200 animate-pulse"
+              <div class="w-10 h-10 rounded-full bg-[var(--color-interactive-50)] animate-pulse"
                    style="animation-delay: 200ms"></div>
             </div>
           {:else}
-            <div class="animate-spin w-16 h-16 border-3 border-teal-200
-                        border-t-teal-600 rounded-full"></div>
+            <div class="animate-spin w-16 h-16 border-3 border-[var(--color-interactive-50)]
+                        border-t-[var(--color-interactive)] rounded-full"></div>
           {/if}
         </div>
 
@@ -285,52 +344,49 @@
           </p>
         {/if}
 
-        <p class="text-sm font-medium text-teal-700 mb-4">
+        <p class="text-sm font-medium text-[var(--color-interactive-hover)] mb-4">
           {stageLabel(progressStage)}
         </p>
 
         <!-- Q.4: Indeterminate bar during structuring, determinate otherwise -->
         {#if progressStage === 'structuring'}
           <div class="w-full bg-stone-200 rounded-full h-2 mb-2 overflow-hidden">
-            <div class="h-2 bg-teal-600 rounded-full animate-indeterminate"></div>
+            <div class="h-2 bg-[var(--color-interactive)] rounded-full animate-indeterminate"></div>
           </div>
-          <p class="text-xs text-stone-400">{$t('import.analyzing_ai')}</p>
+          <p class="text-xs text-stone-500">{$t('import.analyzing_ai')}</p>
         {:else}
           <div class="w-full bg-stone-200 rounded-full h-2 mb-2">
             <div
-              class="bg-teal-600 h-2 rounded-full transition-all duration-300"
+              class="bg-[var(--color-interactive)] h-2 rounded-full transition-all duration-300"
               style="width: {progressPct}%"
             ></div>
           </div>
-          <p class="text-xs text-stone-400">{progressPct}%</p>
+          <p class="text-xs text-stone-500">{progressPct}%</p>
         {/if}
 
         <!-- Q.3: Elapsed timer -->
-        <p class="text-xs text-stone-400 mt-4 tabular-nums" aria-live="off">
+        <p class="text-xs text-stone-500 mt-4 tabular-nums" aria-live="off">
           {$t('import.elapsed', { values: { time: formatElapsed(elapsedSeconds) } })}
         </p>
 
-        <p class="text-xs text-stone-400 mt-2">
+        <p class="text-xs text-stone-500 mt-2">
           {$t('import.ai_analysis_note')}
         </p>
 
         <!-- Q.5: Cancel button -->
-        <button
-          class="mt-6 px-6 py-3 text-sm text-stone-500 hover:text-stone-700
-                 border border-stone-200 rounded-xl min-h-[44px]
-                 hover:bg-stone-50 transition-colors"
-          onclick={handleCancel}
-        >
-          {$t('common.cancel')}
-        </button>
+        <div class="mt-6">
+          <Button variant="ghost" onclick={handleCancel}>
+            {$t('common.cancel')}
+          </Button>
+        </div>
       </div>
 
     {:else if screen === 'success'}
       <!-- Success results -->
       <div class="w-full max-w-md">
         <div class="text-center mb-6">
-          <div class="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span class="text-3xl text-green-600">&#x2713;</span>
+          <div class="w-16 h-16 bg-[var(--color-success-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span class="text-3xl text-[var(--color-success)]">&#x2713;</span>
           </div>
           <h2 class="text-xl font-semibold text-stone-800 mb-1">
             {successCount === 1
@@ -338,7 +394,7 @@
               : $t('import.success_plural', { values: { count: successCount } })}
           </h2>
           {#if failureCount > 0}
-            <p class="text-sm text-amber-600">
+            <p class="text-sm text-[var(--color-warning)]">
               {$t('import.failures_note', { values: { count: failureCount } })}
             </p>
           {/if}
@@ -350,10 +406,10 @@
             <div
               class="flex items-center gap-3 px-4 py-3 rounded-xl
                      {outcome.import_status === 'Staged'
-                       ? 'bg-green-50 border border-green-100'
-                       : 'bg-red-50 border border-red-100'}"
+                       ? 'bg-[var(--color-success-50)] border border-[var(--color-success-50)]'
+                       : 'bg-[var(--color-danger-50)] border border-[var(--color-danger-50)]'}"
             >
-              <span class="{outcome.import_status === 'Staged' ? 'text-green-600' : 'text-red-500'} text-sm">
+              <span class="{outcome.import_status === 'Staged' ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'} text-sm">
                 {outcome.import_status === 'Staged' ? '\u2713' : '\u2717'}
               </span>
               <div class="flex-1 min-w-0">
@@ -362,16 +418,16 @@
                   <p class="text-xs text-stone-500">
                     {outcome.structuring.document_type}
                     {#if outcome.structuring.entities_count > 0}
-                      &middot; {outcome.structuring.entities_count} entities found
+                      &middot; {$t('import.entities_found', { values: { count: outcome.structuring.entities_count } })}
                     {/if}
                   </p>
                 {:else if outcome.import_status !== 'Staged'}
-                  <p class="text-xs text-red-500">{outcome.import_status}</p>
+                  <p class="text-xs text-[var(--color-danger)]">{outcome.import_status}</p>
                 {/if}
               </div>
               {#if outcome.import_status === 'Staged'}
                 <button
-                  class="text-xs text-teal-600 font-medium min-h-[44px] min-w-[44px]
+                  class="text-xs text-[var(--color-interactive)] font-medium min-h-[44px] min-w-[44px]
                          flex items-center justify-center"
                   onclick={() => navigateToReview(outcome.document_id)}
                 >
@@ -383,54 +439,40 @@
         </div>
 
         <!-- Actions -->
-        {#if successCount === 1}
-          <button
-            class="w-full px-6 py-4 bg-[var(--color-primary)] text-white rounded-xl
-                   text-base font-medium min-h-[44px] mb-3"
-            onclick={() => navigateToReview(outcomes.find((o) => o.import_status === 'Staged')!.document_id)}
-          >
-            {$t('import.review_document')}
-          </button>
-        {/if}
+        <div class="flex flex-col gap-3">
+          {#if successCount === 1}
+            <Button variant="primary" fullWidth onclick={() => navigateToReview(outcomes.find((o) => o.import_status === 'Staged')!.document_id)}>
+              {$t('import.review_document')}
+            </Button>
+          {/if}
 
-        <button
-          class="w-full px-6 py-4 bg-white border border-stone-200 rounded-xl
-                 text-base text-stone-700 min-h-[44px] mb-3"
-          onclick={reset}
-        >
-          {$t('import.import_more')}
-        </button>
+          <Button variant="secondary" fullWidth onclick={reset}>
+            {$t('import.import_more')}
+          </Button>
 
-        <button
-          class="w-full text-sm text-stone-500 min-h-[44px]"
-          onclick={() => navigation.navigate('home')}
-        >
-          {$t('import.back_to_home')}
-        </button>
+          <Button variant="ghost" fullWidth onclick={() => navigation.navigate('home')}>
+            {$t('import.back_to_home')}
+          </Button>
+        </div>
       </div>
 
     {:else if screen === 'error'}
       <!-- Error state -->
       <div class="w-full max-w-md text-center">
-        <div class="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <span class="text-3xl text-red-500">!</span>
+        <div class="w-16 h-16 bg-[var(--color-danger-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <span class="text-3xl text-[var(--color-danger)]">!</span>
         </div>
         <h2 class="text-lg font-semibold text-stone-800 mb-2">{$t('import.error_heading')}</h2>
-        <p class="text-sm text-red-600 mb-6">{errorMessage}</p>
+        <p class="text-sm text-[var(--color-danger)] mb-6">{errorMessage}</p>
 
-        <button
-          class="w-full px-6 py-4 bg-[var(--color-primary)] text-white rounded-xl
-                 text-base font-medium min-h-[44px] mb-3"
-          onclick={reset}
-        >
-          {$t('common.retry')}
-        </button>
-        <button
-          class="w-full text-sm text-stone-500 min-h-[44px]"
-          onclick={() => navigation.navigate('home')}
-        >
-          {$t('import.back_to_home')}
-        </button>
+        <div class="flex flex-col gap-3">
+          <Button variant="primary" fullWidth onclick={reset}>
+            {$t('common.retry')}
+          </Button>
+          <Button variant="ghost" fullWidth onclick={() => navigation.navigate('home')}>
+            {$t('import.back_to_home')}
+          </Button>
+        </div>
       </div>
     {/if}
   </div>

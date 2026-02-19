@@ -6,6 +6,7 @@
     getDistributionStatus,
   } from '$lib/api/distribution';
   import type { InstallQrCode, DistributionStatus } from '$lib/types/distribution';
+  import Button from '$lib/components/ui/Button.svelte';
 
   type View = 'idle' | 'serving' | 'error';
 
@@ -70,14 +71,9 @@
       Serve the Coheara companion app to your phone over WiFi.
       No app store needed.
     </p>
-    <button
-      class="w-full px-4 py-3 bg-blue-600 text-white rounded-xl text-sm
-             font-medium min-h-[44px] disabled:opacity-50"
-      disabled={loading}
-      onclick={handleStart}
-    >
+    <Button variant="primary" fullWidth loading={loading} onclick={handleStart}>
       {loading ? 'Starting...' : 'Start Companion Server'}
-    </button>
+    </Button>
 
   {:else if view === 'serving' && qrCode}
     <div class="qr-container">
@@ -88,7 +84,7 @@
     <p class="text-sm text-stone-700 text-center mt-3 font-medium">
       Scan with your phone camera
     </p>
-    <p class="text-xs text-stone-400 text-center mt-1">
+    <p class="text-xs text-stone-500 text-center mt-1">
       Your phone will open a page to install the companion app.
     </p>
 
@@ -108,21 +104,17 @@
     </div>
 
     <div class="flex gap-3 mt-4">
-      <button
-        class="flex-1 px-4 py-3 bg-white border border-stone-200 rounded-xl
-               text-sm text-stone-600 min-h-[44px]"
-        onclick={handleStop}
-      >
+      <Button variant="secondary" fullWidth onclick={handleStop}>
         Stop Server
-      </button>
+      </Button>
     </div>
 
   {:else if view === 'error'}
-    <div class="bg-red-50 rounded-lg p-3 border border-red-200 mb-3">
-      <p class="text-sm text-red-700">{error}</p>
+    <div class="bg-[var(--color-danger-50)] rounded-lg p-3 border border-[var(--color-danger-200)] mb-3">
+      <p class="text-sm text-[var(--color-danger)]">{error}</p>
     </div>
     <button
-      class="px-4 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg"
+      class="px-4 py-2 text-sm text-[var(--color-interactive)] border border-[var(--color-interactive)] rounded-lg"
       onclick={() => {
         view = 'idle';
         error = null;

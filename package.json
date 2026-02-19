@@ -4,15 +4,20 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "i18n:build": "node src/lib/i18n/build-locales.js",
+    "i18n:check": "node src/lib/i18n/build-locales.js --check",
+    "dev": "npm run i18n:build && vite dev",
+    "build": "npm run i18n:build && vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.57.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-shell": "^2",
@@ -25,11 +30,16 @@
     "@sveltejs/vite-plugin-svelte": "^6",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.3.1",
     "@types/node": "^25.2.3",
+    "happy-dom": "^20.6.2",
+    "jsdom": "^28.1.0",
     "svelte": "^5",
     "svelte-check": "^4",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vite": "^7"
+    "vite": "^7",
+    "vitest": "^4.0.18"
   }
 }

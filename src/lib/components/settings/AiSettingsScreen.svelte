@@ -27,6 +27,10 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { ModelInfo, RecommendedModel, ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize, sourceDisplayText } from '$lib/types/ai';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   let recommended = $state<RecommendedModel[]>([]);
   let pullInput = $state('');
@@ -176,42 +180,26 @@
 <div class="flex flex-col min-h-screen pb-20 bg-stone-50">
   <!-- Header -->
   <header class="px-6 pt-6 pb-4 flex items-center gap-3">
-    <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-stone-100"
-      onclick={() => navigation.goBack()}
-      aria-label={$t('nav.go_back')}
-    >
-      <span class="text-xl text-stone-600">&larr;</span>
-    </button>
+    <BackButton />
     <h1 class="text-2xl font-bold text-stone-800">{$t('ai.settings_heading')}</h1>
   </header>
 
   {#if ai.loading}
-    <!-- Loading state -->
-    <div class="flex-1 flex items-center justify-center">
-      <div class="animate-pulse text-stone-400">{$t('ai.loading_settings')}</div>
-    </div>
+    <LoadingState message={$t('ai.loading_settings')} />
 
   {:else if ai.error}
-    <!-- Error state -->
-    <div class="px-6">
-      <div class="bg-red-50 rounded-xl p-5 border border-red-200">
-        <p class="text-sm text-red-700">{ai.error}</p>
-        <button
-          class="mt-3 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm text-red-700 hover:bg-red-50 min-h-[44px]"
-          onclick={handleRetry}
-        >
-          {$t('common.retry')}
-        </button>
-      </div>
-    </div>
+    <ErrorState
+      message={ai.error}
+      onretry={handleRetry}
+      retryLabel={$t('common.retry')}
+    />
 
   {:else if !ai.isOllamaReachable}
     <!-- Ollama not running -->
     <div class="px-6 space-y-4">
-      <div class="bg-amber-50 rounded-xl p-5 border border-amber-200">
-        <h2 class="text-base font-medium text-amber-800 mb-2">{$t('ai.ollama_not_running')}</h2>
-        <p class="text-sm text-amber-700 mb-4">
+      <div class="bg-[var(--color-warning-50)] rounded-xl p-5 border border-[var(--color-warning-200)]">
+        <h2 class="text-base font-medium text-[var(--color-warning-800)] mb-2">{$t('ai.ollama_not_running')}</h2>
+        <p class="text-sm text-[var(--color-warning-800)] mb-4">
           {$t('ai.ollama_needed')}
         </p>
         <div class="space-y-2 text-sm text-stone-600">
@@ -219,7 +207,7 @@
           <p><strong>{$t('ai.start_label')}</strong> {$t('ai.start_ollama')}</p>
         </div>
         <button
-          class="mt-4 px-4 py-2 bg-amber-100 border border-amber-300 rounded-lg text-sm text-amber-800 hover:bg-amber-200 min-h-[44px]"
+          class="mt-4 px-4 py-2 bg-[var(--color-warning-200)] border border-[var(--color-warning-200)] rounded-lg text-sm text-[var(--color-warning-800)] hover:bg-[var(--color-warning-200)] min-h-[44px]"
           onclick={handleRetry}
         >
           {$t('ai.check_again')}
@@ -251,9 +239,9 @@
           </div>
         </section>
       {:else}
-        <section class="bg-amber-50 rounded-xl p-5 border border-amber-200">
-          <h2 class="text-sm font-medium text-amber-800 mb-2">{$t('ai.no_model_heading')}</h2>
-          <p class="text-sm text-amber-700">{$t('ai.no_model_description')}</p>
+        <section class="bg-[var(--color-warning-50)] rounded-xl p-5 border border-[var(--color-warning-200)]">
+          <h2 class="text-sm font-medium text-[var(--color-warning-800)] mb-2">{$t('ai.no_model_heading')}</h2>
+          <p class="text-sm text-[var(--color-warning-800)]">{$t('ai.no_model_description')}</p>
         </section>
       {/if}
 
@@ -264,7 +252,7 @@
         </h2>
 
         {#if ai.models.length === 0}
-          <p class="text-sm text-stone-400 py-4 text-center">
+          <p class="text-sm text-stone-500 py-4 text-center">
             {$t('ai.no_models_empty')}
           </p>
         {:else}
@@ -273,7 +261,7 @@
               {@const isActive = ai.activeModel?.name === model.name}
               {@const medical = isMedicalModel(model.name)}
               <div
-                class="flex items-center gap-3 p-3 rounded-lg border {isActive ? 'border-teal-200 bg-teal-50' : 'border-stone-100'}"
+                class="flex items-center gap-3 p-3 rounded-lg border {isActive ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100'}"
                 role="listitem"
                 aria-current={isActive ? 'true' : undefined}
               >
@@ -295,17 +283,17 @@
                 </div>
                 <div class="flex items-center gap-2">
                   {#if isActive}
-                    <span class="text-xs font-medium text-teal-700 bg-teal-100 px-2 py-1 rounded">{$t('ai.active_badge')}</span>
+                    <span class="text-xs font-medium text-[var(--color-interactive-hover)] bg-[var(--color-interactive-50)] px-2 py-1 rounded">{$t('ai.active_badge')}</span>
                   {:else}
                     <button
-                      class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
+                      class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
                       onclick={() => handleSelectModel(model.name)}
                     >
                       {$t('ai.select_button')}
                     </button>
                   {/if}
                   <button
-                    class="text-stone-400 hover:text-red-500 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                    class="text-stone-500 hover:text-[var(--color-danger)] min-h-[44px] min-w-[44px] flex items-center justify-center"
                     onclick={() => { deleteConfirm = model.name; }}
                     aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
                   >
@@ -332,7 +320,7 @@
             aria-label={$t('ai.downloading_aria', { values: { name: ai.pullProgress.model_name, percent: Math.round(ai.pullProgress.progress_percent) } })}
           >
             <div
-              class="bg-teal-500 h-2.5 rounded-full transition-all"
+              class="bg-[var(--color-interactive)] h-2.5 rounded-full transition-all"
               style="width: {ai.pullProgress.progress_percent}%"
             ></div>
           </div>
@@ -343,7 +331,7 @@
               &middot; {Math.round(ai.pullProgress.progress_percent)}%
             </span>
             <button
-              class="text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 min-h-[44px]"
+              class="text-xs text-[var(--color-danger)] border border-[var(--color-danger-200)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-danger-50)] min-h-[44px]"
               onclick={handleCancelPull}
             >
               {$t('common.cancel')}
@@ -354,8 +342,8 @@
 
       <!-- Pull error -->
       {#if ai.pullProgress?.status === 'error'}
-        <div class="bg-red-50 rounded-xl p-4 border border-red-200">
-          <p class="text-sm text-red-700">
+        <div class="bg-[var(--color-danger-50)] rounded-xl p-4 border border-[var(--color-danger-200)]">
+          <p class="text-sm text-[var(--color-danger-800)]">
             {$t('ai.pull_failed', { values: { name: ai.pullProgress.model_name, error: ai.pullProgress.error_message ?? $t('common.unknown') } })}
           </p>
         </div>
@@ -372,10 +360,10 @@
               type="text"
               bind:value={pullInput}
               placeholder={$t('ai.model_name_placeholder')}
-              class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-400 min-h-[44px]"
+              class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
             />
             <button
-              class="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
               onclick={() => handlePull(pullInput)}
               disabled={!pullInput.trim()}
             >
@@ -385,7 +373,7 @@
 
           <!-- Recommended models -->
           {#if recommended.length > 0}
-            <h3 class="text-xs font-medium text-stone-400 mb-2">{$t('ai.recommended_section')}</h3>
+            <h3 class="text-xs font-medium text-stone-500 mb-2">{$t('ai.recommended_section')}</h3>
             <div class="space-y-2">
               {#each recommended as rec (rec.name)}
                 {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
@@ -398,10 +386,10 @@
                     </p>
                   </div>
                   {#if alreadyInstalled}
-                    <span class="text-xs text-stone-400">{$t('ai.installed_tag')}</span>
+                    <span class="text-xs text-stone-500">{$t('ai.installed_tag')}</span>
                   {:else}
                     <button
-                      class="text-xs text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 min-h-[44px]"
+                      class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
                       onclick={() => handlePull(rec.name)}
                     >
                       {$t('ai.pull')}
@@ -461,23 +449,17 @@
         {/if}
       </p>
       {#if isActiveDelete}
-        <p class="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-2 mb-4">
+        <p class="text-sm text-[var(--color-warning-800)] bg-[var(--color-warning-50)] rounded-lg px-3 py-2 mt-2 mb-4">
           {$t('ai.delete_active_warning')}
         </p>
       {/if}
       <div class="flex gap-3 mt-4">
-        <button
-          class="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
-          onclick={() => { deleteConfirm = null; }}
-        >
+        <Button variant="secondary" onclick={() => { deleteConfirm = null; }}>
           {$t('common.cancel')}
-        </button>
-        <button
-          class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 min-h-[44px]"
-          onclick={() => handleDelete(deleteConfirm!)}
-        >
+        </Button>
+        <Button variant="danger" onclick={() => handleDelete(deleteConfirm!)}>
           {$t('common.delete')}
-        </button>
+        </Button>
       </div>
     </div>
   </div>
@@ -492,24 +474,18 @@
     aria-describedby="nonmed-desc"
   >
     <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-      <h3 class="text-lg font-semibold text-amber-800 mb-2">{$t('ai.nonmedical_heading')}</h3>
+      <h3 class="text-lg font-semibold text-[var(--color-warning-800)] mb-2">{$t('ai.nonmedical_heading')}</h3>
       <p id="nonmed-desc" class="text-sm text-stone-600">
         {$t('ai.nonmedical_description', { values: { name: nonMedicalWarning } })}
       </p>
       <p class="text-sm text-stone-500 mt-2">{$t('ai.nonmedical_privacy')}</p>
       <div class="flex gap-3 mt-4">
-        <button
-          class="flex-1 px-4 py-2 border border-stone-200 rounded-lg text-sm text-stone-600 hover:bg-stone-50 min-h-[44px]"
-          onclick={() => { nonMedicalWarning = null; }}
-        >
+        <Button variant="secondary" onclick={() => { nonMedicalWarning = null; }}>
           {$t('ai.choose_medical')}
-        </button>
-        <button
-          class="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 min-h-[44px]"
-          onclick={() => doSetModel(nonMedicalWarning!)}
-        >
+        </Button>
+        <Button variant="primary" onclick={() => doSetModel(nonMedicalWarning!)}>
           {$t('ai.use_anyway')}
-        </button>
+        </Button>
       </div>
     </div>
   </div>

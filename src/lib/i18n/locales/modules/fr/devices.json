@@ -1,0 +1,25 @@
+{
+  "devices": {
+    "paired_heading": "APPAREILS ASSOCIÉS",
+    "paired_count": "{paired}/{max} associés",
+    "connected_count": "{connected} connecté(s)",
+    "loading": "Chargement des appareils...",
+    "no_devices": "Aucun appareil associé. Utilisez l'application mobile Coheara pour associer un téléphone via WiFi.",
+    "type_iphone": "iPhone",
+    "type_android": "Android",
+    "status_connected": "Connecté",
+    "last_seen_just_now": "Vu : à l'instant",
+    "last_seen_yesterday": "Vu : hier",
+    "last_seen_days_ago": "Vu : il y a {days} jours",
+    "paired_date": "Associé : {date}",
+    "inactive_warning": "Inactif depuis {days} jours. Envisagez de dissocier pour la sécurité.",
+    "unpair_button": "Dissocier l'appareil",
+    "unpair_title": "Dissocier « {name} » ?",
+    "unpair_consequences": "Cela va :",
+    "unpair_disconnect": "Déconnecter l'appareil immédiatement",
+    "unpair_delete_data": "Supprimer toutes les données de santé en cache du téléphone",
+    "unpair_revoke": "Révoquer l'accès du téléphone à vos données",
+    "unpair_repaired_note": "Le téléphone devra être ré-associé pour se reconnecter.",
+    "unpair_confirm": "Dissocier"
+  }
+}

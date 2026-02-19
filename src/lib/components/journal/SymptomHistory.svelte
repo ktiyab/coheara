@@ -3,6 +3,8 @@
   import { resolveSymptom, deleteSymptom } from '$lib/api/journal';
   import type { StoredSymptom } from '$lib/types/journal';
   import { CATEGORIES, SEVERITY_LABELS } from '$lib/types/journal';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import Badge from '$lib/components/ui/Badge.svelte';
 
   interface Props {
     symptoms: StoredSymptom[];
@@ -77,44 +79,41 @@
   </div>
 
   {#if loading}
-    <div class="text-center py-12 text-stone-400">Loading...</div>
+    <LoadingState variant="inline" />
   {:else if filtered.length === 0}
     <div class="text-center py-12">
       <p class="text-stone-500 mb-2">No symptoms recorded yet.</p>
-      <p class="text-sm text-stone-400">Tap "+ Record" to log how you're feeling.</p>
+      <p class="text-sm text-stone-500">Tap "+ Record" to log how you're feeling.</p>
     </div>
   {:else}
     {#each [...grouped.entries()] as [date, items]}
-      <h3 class="text-xs font-medium text-stone-400 uppercase mt-4 mb-2">{date}</h3>
+      <h3 class="text-xs font-medium text-stone-500 uppercase mt-4 mb-2">{date}</h3>
       {#each items as symptom (symptom.id)}
         <div class="bg-white rounded-xl p-4 mb-2 border border-stone-100 shadow-sm">
           <div class="flex items-start justify-between">
             <div>
               <span class="font-medium text-stone-800">{symptom.specific}</span>
-              <span class="text-stone-400 mx-1" aria-hidden="true">&middot;</span>
+              <span class="text-stone-500 mx-1" aria-hidden="true">&middot;</span>
               <span class="text-sm text-stone-500">{SEVERITY_LABELS[symptom.severity] ?? ''}</span>
-              <span class="text-stone-400 mx-1" aria-hidden="true">&middot;</span>
+              <span class="text-stone-500 mx-1" aria-hidden="true">&middot;</span>
               <span class="text-sm text-stone-500">{symptom.category}</span>
             </div>
-            <span class="text-xs px-2 py-0.5 rounded-full flex-shrink-0
-                        {symptom.still_active
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-stone-100 text-stone-500'}">
+            <Badge variant={symptom.still_active ? 'success' : 'neutral'} size="sm">
               {symptom.still_active ? 'Active' : 'Resolved'}
-            </span>
+            </Badge>
           </div>
 
           {#if symptom.body_region}
-            <p class="text-xs text-stone-400 mt-1">Region: {symptom.body_region}</p>
+            <p class="text-xs text-stone-500 mt-1">Region: {symptom.body_region}</p>
           {/if}
           {#if symptom.duration}
-            <p class="text-xs text-stone-400 mt-0.5">Lasts: {symptom.duration}</p>
+            <p class="text-xs text-stone-500 mt-0.5">Lasts: {symptom.duration}</p>
           {/if}
           {#if symptom.character}
-            <p class="text-xs text-stone-400 mt-0.5">Feels: {symptom.character}</p>
+            <p class="text-xs text-stone-500 mt-0.5">Feels: {symptom.character}</p>
           {/if}
           {#if symptom.related_medication_name}
-            <p class="text-xs text-blue-600 mt-1">
+            <p class="text-xs text-[var(--color-info)] mt-1">
               Note: started {symptom.related_medication_name} recently
             </p>
           {/if}
@@ -133,7 +132,7 @@
               </button>
             {/if}
             <button
-              class="text-xs text-red-400 underline min-h-[44px] px-1"
+              class="text-xs text-[var(--color-danger)] underline min-h-[44px] px-1"
               onclick={() => handleDelete(symptom.id)}
             >
               Remove

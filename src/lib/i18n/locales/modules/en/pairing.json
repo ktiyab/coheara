@@ -1,0 +1,15 @@
+{
+  "pairing": {
+    "pair_heading": "PAIR A DEVICE",
+    "scan_instruction": "Scan the QR code with the Coheara app on your phone to connect it.",
+    "generating": "Generating...",
+    "generate_qr": "Generate QR Code",
+    "scan_qr_instruction": "Scan this code with the Coheara app on your phone.",
+    "same_wifi": "Both devices must be on the same WiFi network.",
+    "code_expires": "Code expires in {time}",
+    "new_device_title": "New Device Wants to Connect",
+    "allow_access": "Allow this device to access your health data?",
+    "deny": "Deny",
+    "allow": "Allow"
+  }
+}

@@ -1,10 +1,14 @@
 <!-- L4-02: Prep flow — multi-step appointment preparation wizard. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { listProfessionals, prepareAppointment, exportPrepPdf } from '$lib/api/appointment';
   import type { AppointmentPrep, ProfessionalInfo } from '$lib/types/appointment';
   import ProfessionalSelector from './ProfessionalSelector.svelte';
   import PrepViewer from './PrepViewer.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
 
   interface Props {
     onComplete: () => Promise<void>;
@@ -60,13 +64,13 @@
 </script>
 
 <div class="px-6 py-4">
-  <button class="text-stone-500 text-sm mb-4 min-h-[44px]" onclick={onCancel}>
-    &larr; Cancel
-  </button>
+  <div class="mb-4">
+    <BackButton onclick={onCancel} label={$t('common.cancel')} />
+  </div>
 
   {#if step === 'professional'}
     <h2 class="text-xl font-semibold text-stone-800 mb-4">
-      Which doctor is this appointment with?
+      {$t('appointment.prep_flow_select_professional')}
     </h2>
     <ProfessionalSelector
       {professionals}
@@ -75,7 +79,7 @@
     />
 
   {:else if step === 'date'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">When is the appointment?</h2>
+    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('appointment.prep_flow_select_date')}</h2>
     <input
       type="date"
       class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700
@@ -83,29 +87,21 @@
       bind:value={appointmentDate}
     />
     {#if error}
-      <p class="text-red-600 text-sm mt-2">{error}</p>
+      <p class="text-[var(--color-danger)] text-sm mt-2">{error}</p>
     {/if}
-    <button
-      class="w-full mt-6 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-             font-medium min-h-[44px] disabled:opacity-50"
-      disabled={!appointmentDate}
-      onclick={generate}
-    >
-      Generate preparation
-    </button>
+    <div class="mt-6">
+      <Button variant="primary" fullWidth disabled={!appointmentDate} onclick={generate}>
+        {$t('appointment.prep_flow_generate')}
+      </Button>
+    </div>
 
   {:else if step === 'generating'}
-    <div class="flex flex-col items-center justify-center py-16">
-      <div class="animate-spin w-8 h-8 border-2 border-[var(--color-primary)]
-                  border-t-transparent rounded-full mb-4"></div>
-      <p class="text-stone-500">Preparing your appointment summary...</p>
-      <p class="text-xs text-stone-400 mt-1">This may take a few seconds</p>
-    </div>
+    <LoadingState message={$t('appointment.prep_flow_generating')} />
 
   {:else if step === 'viewing' && prep}
     {#if phiWarning}
-      <div class="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl" role="alert">
-        <p class="text-amber-800 text-sm font-medium">{phiWarning}</p>
+      <div class="mb-4 p-4 bg-[var(--color-warning-50)] border border-[var(--color-warning-200)] rounded-xl" role="alert">
+        <p class="text-[var(--color-warning-800)] text-sm font-medium">{phiWarning}</p>
       </div>
     {/if}
     <PrepViewer

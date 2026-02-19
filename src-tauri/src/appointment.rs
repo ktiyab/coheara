@@ -938,191 +938,275 @@ use printpdf::*;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
+/// Page dimensions and margins for A4 PDF.
+const PAGE_WIDTH: f32 = 210.0;
+const PAGE_HEIGHT: f32 = 297.0;
+const PAGE_TOP_Y: f32 = 280.0;
+const PAGE_BOTTOM_MARGIN: f32 = 20.0;
+
+/// Handles multi-page PDF rendering with automatic page breaks.
+struct PdfWriter {
+    doc: PdfDocumentReference,
+    font: IndirectFontRef,
+    bold: IndirectFontRef,
+    courier: IndirectFontRef,
+    current_layer: PdfLayerReference,
+    y: Mm,
+    page_count: usize,
+}
+
+impl PdfWriter {
+    fn new(title: &str) -> Result<Self, DatabaseError> {
+        let (doc, page1, layer1) =
+            PdfDocument::new(title, Mm(PAGE_WIDTH), Mm(PAGE_HEIGHT), "Layer 1");
+        let font = doc
+            .add_builtin_font(BuiltinFont::Helvetica)
+            .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
+        let bold = doc
+            .add_builtin_font(BuiltinFont::HelveticaBold)
+            .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
+        let courier = doc
+            .add_builtin_font(BuiltinFont::Courier)
+            .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
+        let current_layer = doc.get_page(page1).get_layer(layer1);
+
+        Ok(Self {
+            doc,
+            font,
+            bold,
+            courier,
+            current_layer,
+            y: Mm(PAGE_TOP_Y),
+            page_count: 1,
+        })
+    }
+
+    /// Adds a new page and resets cursor to top.
+    fn new_page(&mut self) {
+        let (page, layer) =
+            self.doc
+                .add_page(Mm(PAGE_WIDTH), Mm(PAGE_HEIGHT), "Layer 1");
+        self.current_layer = self.doc.get_page(page).get_layer(layer);
+        self.y = Mm(PAGE_TOP_Y);
+        self.page_count += 1;
+    }
+
+    /// Ensures at least `needed_mm` of vertical space remains, adding a page if not.
+    fn ensure_space(&mut self, needed_mm: f32) {
+        if self.y.0 - needed_mm < PAGE_BOTTOM_MARGIN {
+            self.new_page();
+        }
+    }
+
+    /// Write bold heading text.
+    fn heading(&mut self, text: &str, size: f32, x_mm: f32) {
+        self.ensure_space(size);
+        self.current_layer
+            .use_text(text, size, Mm(x_mm), self.y, &self.bold);
+    }
+
+    /// Write regular text.
+    fn text(&mut self, text: &str, size: f32, x_mm: f32) {
+        self.ensure_space(size);
+        self.current_layer
+            .use_text(text, size, Mm(x_mm), self.y, &self.font);
+    }
+
+    /// Write monospace text.
+    fn mono(&mut self, text: &str, size: f32, x_mm: f32) {
+        self.ensure_space(size);
+        self.current_layer
+            .use_text(text, size, Mm(x_mm), self.y, &self.courier);
+    }
+
+    /// Advance cursor downward.
+    fn advance(&mut self, mm: f32) {
+        self.y -= Mm(mm);
+    }
+
+    /// Write wrapped text lines with auto page-break.
+    fn write_wrapped(&mut self, text: &str, max_chars: usize, size: f32, x_mm: f32, line_spacing: f32) {
+        for line in wrap_text(text, max_chars) {
+            self.ensure_space(line_spacing);
+            self.current_layer
+                .use_text(&line, size, Mm(x_mm), self.y, &self.font);
+            self.y -= Mm(line_spacing);
+        }
+    }
+
+    /// Finalize and return PDF bytes.
+    fn finish(self) -> Result<Vec<u8>, DatabaseError> {
+        let mut buf = BufWriter::new(Vec::new());
+        self.doc
+            .save(&mut buf)
+            .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF save error: {e}")))?;
+        buf.into_inner()
+            .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF buffer error: {e}")))
+    }
+}
+
 /// Generates a PDF from the patient copy. Returns PDF bytes.
 pub fn generate_patient_pdf(copy: &PatientCopy) -> Result<Vec<u8>, DatabaseError> {
-    let (doc, page1, layer1) = PdfDocument::new(&copy.title, Mm(210.0), Mm(297.0), "Layer 1");
-    let layer = doc.get_page(page1).get_layer(layer1);
-    let font = doc.add_builtin_font(BuiltinFont::Helvetica)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
-    let bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
-
-    let mut y = Mm(280.0);
+    let mut w = PdfWriter::new(&copy.title)?;
 
     // Title
-    layer.use_text(&copy.title, 14.0, Mm(20.0), y, &bold);
-    y -= Mm(10.0);
+    w.heading(&copy.title, 14.0, 20.0);
+    w.advance(10.0);
 
     // Priority items
     if !copy.priority_items.is_empty() {
-        layer.use_text("PRIORITY:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("PRIORITY:", 11.0, 20.0);
+        w.advance(6.0);
         for item in &copy.priority_items {
             let text = format!("  {} ({})", item.text, item.source);
-            for line in wrap_text(&text, 80) {
-                layer.use_text(&line, 9.0, Mm(25.0), y, &font);
-                y -= Mm(4.5);
-            }
-            y -= Mm(2.0);
+            w.write_wrapped(&text, 80, 9.0, 25.0, 4.5);
+            w.advance(2.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
     }
 
     // Questions
-    layer.use_text("YOUR QUESTIONS:", 11.0, Mm(20.0), y, &bold);
-    y -= Mm(6.0);
+    w.heading("YOUR QUESTIONS:", 11.0, 20.0);
+    w.advance(6.0);
     for (i, q) in copy.questions.iter().enumerate() {
         let text = format!("  {}. {}", i + 1, q.question);
-        for line in wrap_text(&text, 80) {
-            layer.use_text(&line, 9.0, Mm(25.0), y, &font);
-            y -= Mm(4.5);
-        }
-        y -= Mm(3.0);
+        w.write_wrapped(&text, 80, 9.0, 25.0, 4.5);
+        w.advance(3.0);
     }
 
     // Symptoms to mention
     if !copy.symptoms_to_mention.is_empty() {
-        y -= Mm(4.0);
-        layer.use_text("SYMPTOMS TO MENTION:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.advance(4.0);
+        w.heading("SYMPTOMS TO MENTION:", 11.0, 20.0);
+        w.advance(6.0);
         for s in &copy.symptoms_to_mention {
             let text = format!("  · {}", s.description);
-            layer.use_text(&text, 9.0, Mm(25.0), y, &font);
-            y -= Mm(4.5);
+            w.text(&text, 9.0, 25.0);
+            w.advance(4.5);
         }
     }
 
     // Medication changes
     if !copy.medication_changes.is_empty() {
-        y -= Mm(4.0);
-        layer.use_text("MEDICATION CHANGES:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.advance(4.0);
+        w.heading("MEDICATION CHANGES:", 11.0, 20.0);
+        w.advance(6.0);
         for mc in &copy.medication_changes {
             let text = format!("  · {}", mc.description);
-            layer.use_text(&text, 9.0, Mm(25.0), y, &font);
-            y -= Mm(4.5);
+            w.text(&text, 9.0, 25.0);
+            w.advance(4.5);
         }
     }
 
     // Reminder
-    y -= Mm(8.0);
-    layer.use_text(&copy.reminder, 10.0, Mm(20.0), y, &bold);
+    w.advance(8.0);
+    w.heading(&copy.reminder, 10.0, 20.0);
 
-    let mut buf = BufWriter::new(Vec::new());
-    doc.save(&mut buf)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF save error: {e}")))?;
-    buf.into_inner()
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF buffer error: {e}")))
+    w.finish()
 }
 
 /// Generates a PDF from the professional copy. Returns PDF bytes.
 pub fn generate_professional_pdf(copy: &ProfessionalCopy) -> Result<Vec<u8>, DatabaseError> {
-    let (doc, page1, layer1) = PdfDocument::new(
-        &copy.header.title, Mm(210.0), Mm(297.0), "Layer 1",
-    );
-    let layer = doc.get_page(page1).get_layer(layer1);
-    let font = doc.add_builtin_font(BuiltinFont::Helvetica)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
-    let bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
-    let courier = doc.add_builtin_font(BuiltinFont::Courier)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF font error: {e}")))?;
-
-    let mut y = Mm(280.0);
+    let mut w = PdfWriter::new(&copy.header.title)?;
 
     // Header
-    layer.use_text(&copy.header.title, 14.0, Mm(20.0), y, &bold);
-    y -= Mm(6.0);
-    layer.use_text(format!("Date: {}", copy.header.date), 9.0, Mm(20.0), y, &font);
-    y -= Mm(4.5);
-    layer.use_text(&copy.header.professional, 9.0, Mm(20.0), y, &font);
-    y -= Mm(4.5);
-    layer.use_text(&copy.header.disclaimer, 8.0, Mm(20.0), y, &font);
-    y -= Mm(8.0);
+    w.heading(&copy.header.title, 14.0, 20.0);
+    w.advance(6.0);
+    w.text(&format!("Date: {}", copy.header.date), 9.0, 20.0);
+    w.advance(4.5);
+    w.text(&copy.header.professional, 9.0, 20.0);
+    w.advance(4.5);
+    w.text(&copy.header.disclaimer, 8.0, 20.0);
+    w.advance(8.0);
 
     // Current Medications
     if !copy.current_medications.is_empty() {
-        layer.use_text("CURRENT MEDICATIONS:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("CURRENT MEDICATIONS:", 11.0, 20.0);
+        w.advance(6.0);
         for m in &copy.current_medications {
             let flag = if m.is_recent_change { " [CHANGED]" } else { "" };
             let text = format!(
                 "  {} {} — {} — {}{}",
                 m.name, m.dose, m.frequency, m.prescriber, flag
             );
-            layer.use_text(&text, 8.0, Mm(25.0), y, &courier);
-            y -= Mm(4.0);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
     }
 
     // Changes since last visit
     if !copy.changes_since_last_visit.is_empty() {
-        layer.use_text("CHANGES SINCE LAST VISIT:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("CHANGES SINCE LAST VISIT:", 11.0, 20.0);
+        w.advance(6.0);
         for c in &copy.changes_since_last_visit {
             let text = format!("  · {}", c.description);
-            layer.use_text(&text, 8.0, Mm(25.0), y, &courier);
-            y -= Mm(4.0);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
     }
 
     // Lab results
     if !copy.lab_results.is_empty() {
-        layer.use_text("LAB RESULTS:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("LAB RESULTS:", 11.0, 20.0);
+        w.advance(6.0);
         for l in &copy.lab_results {
             let text = format!(
                 "  {}: {} {} (ref: {}) [{}] — {}",
                 l.test_name, l.value, l.unit, l.reference_range,
                 l.abnormal_flag.to_uppercase(), l.date
             );
-            layer.use_text(&text, 8.0, Mm(25.0), y, &courier);
-            y -= Mm(4.0);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
     }
 
     // Patient-reported symptoms
     if !copy.patient_reported_symptoms.is_empty() {
-        layer.use_text("PATIENT-REPORTED SYMPTOMS:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("PATIENT-REPORTED SYMPTOMS:", 11.0, 20.0);
+        w.advance(6.0);
         for s in &copy.patient_reported_symptoms {
             let text = format!(
                 "  · {} — severity {}/5 — onset {}",
                 s.description, s.severity, s.onset_date
             );
-            layer.use_text(&text, 8.0, Mm(25.0), y, &courier);
-            y -= Mm(4.0);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
+    }
+
+    // Observations for discussion
+    if !copy.observations_for_discussion.is_empty() {
+        w.heading("OBSERVATIONS FOR DISCUSSION:", 11.0, 20.0);
+        w.advance(6.0);
+        for o in &copy.observations_for_discussion {
+            let text = format!("  · {} [{}] — {}", o.observation, o.severity, o.source);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
+        }
+        w.advance(4.0);
     }
 
     // Source documents
     if !copy.source_documents.is_empty() {
-        layer.use_text("SOURCE DOCUMENTS:", 11.0, Mm(20.0), y, &bold);
-        y -= Mm(6.0);
+        w.heading("SOURCE DOCUMENTS:", 11.0, 20.0);
+        w.advance(6.0);
         for d in &copy.source_documents {
             let text = format!("  · {} — {} — {}", d.document_type, d.professional, d.date);
-            layer.use_text(&text, 8.0, Mm(25.0), y, &courier);
-            y -= Mm(4.0);
+            w.mono(&text, 8.0, 25.0);
+            w.advance(4.0);
         }
-        y -= Mm(4.0);
+        w.advance(4.0);
     }
 
     // Disclaimer
-    y -= Mm(4.0);
-    for line in wrap_text(&copy.disclaimer, 90) {
-        layer.use_text(&line, 7.0, Mm(20.0), y, &font);
-        y -= Mm(3.5);
-    }
+    w.advance(4.0);
+    w.write_wrapped(&copy.disclaimer, 90, 7.0, 20.0, 3.5);
 
-    let mut buf = BufWriter::new(Vec::new());
-    doc.save(&mut buf)
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF save error: {e}")))?;
-    buf.into_inner()
-        .map_err(|e| DatabaseError::ConstraintViolation(format!("PDF buffer error: {e}")))
+    w.finish()
 }
 
 /// Saves PDF bytes to the profile exports directory.
@@ -1685,5 +1769,222 @@ mod tests {
     fn test_wrap_text_empty() {
         let lines = wrap_text("", 40);
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn test_pdf_patient_multipage_overflow() {
+        // Create a patient copy with enough content to overflow a single A4 page.
+        let many_questions: Vec<PrepQuestion> = (0..30)
+            .map(|i| PrepQuestion {
+                question: format!("Question {i}: Should I continue taking medication {i} given the recent lab results and side effects I have been experiencing over the past several weeks?"),
+                context: format!("Context for question {i}"),
+                relevance_score: 0.9 - (i as f64 * 0.01),
+            })
+            .collect();
+
+        let many_symptoms: Vec<SymptomMention> = (0..15)
+            .map(|i| SymptomMention {
+                description: format!("Symptom {i} — persistent discomfort reported since onset"),
+                severity: ((i % 5) + 1) as u8,
+                onset_date: format!("2026-01-{:02}", (i % 28) + 1),
+                still_active: true,
+            })
+            .collect();
+
+        let copy = PatientCopy {
+            title: "Questions for Dr. Chen — February 20, 2026".into(),
+            priority_items: vec![
+                PrepItem {
+                    text: "Potassium flagged critical high.".into(),
+                    source: "Lab Jan 10".into(),
+                    priority: "Critical".into(),
+                },
+                PrepItem {
+                    text: "HbA1c elevated above target range.".into(),
+                    source: "Lab Jan 10".into(),
+                    priority: "Important".into(),
+                },
+            ],
+            questions: many_questions,
+            symptoms_to_mention: many_symptoms,
+            medication_changes: vec![
+                MedicationChange {
+                    description: "Started Metformin 500mg on Jan 20".into(),
+                    change_type: "started".into(),
+                    date: "2026-01-20".into(),
+                },
+                MedicationChange {
+                    description: "Lisinopril increased from 10mg to 20mg".into(),
+                    change_type: "dose_changed".into(),
+                    date: "2026-01-15".into(),
+                },
+            ],
+            reminder: "Bring this to your appointment.".into(),
+        };
+
+        let bytes = generate_patient_pdf(&copy).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], b"%PDF");
+        // Multi-page: PDF should be substantially larger than single-page
+        assert!(bytes.len() > 2000, "Multi-page PDF should be larger than minimal");
+    }
+
+    #[test]
+    fn test_pdf_professional_multipage_overflow() {
+        // Create a professional copy with many medications, labs, and symptoms.
+        let many_meds: Vec<MedicationSummary> = (0..20)
+            .map(|i| MedicationSummary {
+                name: format!("Medication-{i}"),
+                dose: format!("{}mg", (i + 1) * 25),
+                frequency: "1x daily".into(),
+                prescriber: "Dr. Chen".into(),
+                start_date: format!("2025-{:02}-01", (i % 12) + 1),
+                is_recent_change: i < 5,
+            })
+            .collect();
+
+        let many_labs: Vec<LabSummary> = (0..15)
+            .map(|i| LabSummary {
+                test_name: format!("Test-{i}"),
+                value: format!("{:.1}", 5.0 + i as f64 * 0.3),
+                unit: "mg/dL".into(),
+                reference_range: "3.5-5.0".into(),
+                abnormal_flag: if i % 3 == 0 { "high".into() } else { "normal".into() },
+                date: format!("2026-01-{:02}", (i % 28) + 1),
+            })
+            .collect();
+
+        let many_symptoms: Vec<SymptomSummary> = (0..10)
+            .map(|i| SymptomSummary {
+                description: format!("Reported symptom {i} with detailed clinical notes"),
+                severity: ((i % 5) + 1) as u8,
+                onset_date: format!("2026-01-{:02}", (i % 28) + 1),
+                duration: Some("2 weeks".into()),
+            })
+            .collect();
+
+        let copy = ProfessionalCopy {
+            header: ProfessionalHeader {
+                title: "COHEARA PATIENT SUMMARY".into(),
+                date: "2026-02-20".into(),
+                professional: "For: Dr. Chen (GP)".into(),
+                disclaimer: "AI-generated summary. Not a substitute for clinical judgement.".into(),
+            },
+            current_medications: many_meds,
+            changes_since_last_visit: vec![
+                ChangeSummary {
+                    description: "Started Medication-0 on 2026-01-01".into(),
+                    date: "2026-01-01".into(),
+                    change_type: "started".into(),
+                },
+            ],
+            lab_results: many_labs,
+            patient_reported_symptoms: many_symptoms,
+            observations_for_discussion: vec![
+                ObservationSummary {
+                    observation: "HbA1c trending upward over past 3 months".into(),
+                    severity: "Warning".into(),
+                    source: "Lab trend analysis".into(),
+                },
+                ObservationSummary {
+                    observation: "Multiple new medications started within short timeframe".into(),
+                    severity: "Info".into(),
+                    source: "Medication timeline review".into(),
+                },
+            ],
+            source_documents: vec![
+                DocumentReference {
+                    document_type: "Lab Report".into(),
+                    professional: "Dr. Chen".into(),
+                    date: "2026-01-10".into(),
+                },
+            ],
+            disclaimer: "This document was generated by Coheara AI. It is not a clinical record and should not be used as a substitute for professional medical judgement. All data is patient-reported or extracted from uploaded documents.".into(),
+        };
+
+        let bytes = generate_professional_pdf(&copy).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], b"%PDF");
+        assert!(bytes.len() > 2000, "Multi-page PDF should be larger than minimal");
+    }
+
+    #[test]
+    fn test_pdf_empty_patient_copy() {
+        let copy = PatientCopy {
+            title: "Questions for Dr. Smith — March 1, 2026".into(),
+            priority_items: vec![],
+            questions: vec![],
+            symptoms_to_mention: vec![],
+            medication_changes: vec![],
+            reminder: "Bring this to your appointment.".into(),
+        };
+
+        let bytes = generate_patient_pdf(&copy).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], b"%PDF");
+    }
+
+    #[test]
+    fn test_pdf_professional_with_observations() {
+        let copy = ProfessionalCopy {
+            header: ProfessionalHeader {
+                title: "COHEARA PATIENT SUMMARY".into(),
+                date: "2026-02-20".into(),
+                professional: "For: Dr. Chen (GP)".into(),
+                disclaimer: "AI-generated.".into(),
+            },
+            current_medications: vec![MedicationSummary {
+                name: "Metformin".into(),
+                dose: "500mg".into(),
+                frequency: "2x daily".into(),
+                prescriber: "Dr. Chen".into(),
+                start_date: "2026-01-20".into(),
+                is_recent_change: true,
+            }],
+            changes_since_last_visit: vec![],
+            lab_results: vec![],
+            patient_reported_symptoms: vec![],
+            observations_for_discussion: vec![
+                ObservationSummary {
+                    observation: "HbA1c trending upward over past 3 months".into(),
+                    severity: "Warning".into(),
+                    source: "Lab trend analysis".into(),
+                },
+                ObservationSummary {
+                    observation: "Potential interaction between Metformin and new supplement".into(),
+                    severity: "Info".into(),
+                    source: "Medication review".into(),
+                },
+            ],
+            source_documents: vec![],
+            disclaimer: "Not a clinical record.".into(),
+        };
+
+        let bytes = generate_professional_pdf(&copy).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], b"%PDF");
+    }
+
+    #[test]
+    fn test_pdf_empty_professional_copy() {
+        let copy = ProfessionalCopy {
+            header: ProfessionalHeader {
+                title: "COHEARA PATIENT SUMMARY".into(),
+                date: "2026-03-01".into(),
+                professional: "For: Dr. Smith (Cardiologist)".into(),
+                disclaimer: "AI-generated.".into(),
+            },
+            current_medications: vec![],
+            changes_since_last_visit: vec![],
+            lab_results: vec![],
+            patient_reported_symptoms: vec![],
+            observations_for_discussion: vec![],
+            source_documents: vec![],
+            disclaimer: "Not a clinical record.".into(),
+        };
+
+        let bytes = generate_professional_pdf(&copy).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], b"%PDF");
     }
 }

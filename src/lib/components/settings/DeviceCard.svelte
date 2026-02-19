@@ -1,11 +1,13 @@
 <!-- ME-02: Single paired device row -->
 <script lang="ts">
+  import { t, locale } from 'svelte-i18n';
   import type { DeviceSummary } from '$lib/types/devices';
+  import Button from '$lib/components/ui/Button.svelte';
 
   let { device, onUnpair }: { device: DeviceSummary; onUnpair: (id: string) => void } = $props();
 
   function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString(undefined, {
+    return new Date(iso).toLocaleDateString($locale ?? undefined, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -13,10 +15,10 @@
   }
 
   function lastSeenText(): string {
-    if (device.is_connected) return 'Connected';
-    if (!device.days_inactive || device.days_inactive === 0) return 'Last seen: just now';
-    if (device.days_inactive === 1) return 'Last seen: yesterday';
-    return `Last seen: ${device.days_inactive} days ago`;
+    if (device.is_connected) return $t('devices.status_connected');
+    if (!device.days_inactive || device.days_inactive === 0) return $t('devices.last_seen_just_now');
+    if (device.days_inactive === 1) return $t('devices.last_seen_yesterday');
+    return $t('devices.last_seen_days_ago', { values: { days: device.days_inactive } });
   }
 
   const isInactive = $derived((device.days_inactive ?? 0) >= 30);
@@ -26,9 +28,9 @@
   <div class="device-header">
     <span class="device-icon">
       {#if device.device_model.toLowerCase().includes('iphone')}
-        iPhone
+        {$t('devices.type_iphone')}
       {:else}
-        Android
+        {$t('devices.type_android')}
       {/if}
     </span>
     <div class="device-info">
@@ -37,19 +39,19 @@
         <span class="status-dot" class:connected={device.is_connected}></span>
         {lastSeenText()}
       </p>
-      <p class="paired-date">Paired: {formatDate(device.paired_at)}</p>
+      <p class="paired-date">{$t('devices.paired_date', { values: { date: formatDate(device.paired_at) } })}</p>
     </div>
   </div>
 
   {#if isInactive}
     <div class="inactive-warning">
-      Inactive for {device.days_inactive} days. Consider unpairing for security.
+      {$t('devices.inactive_warning', { values: { days: device.days_inactive } })}
     </div>
   {/if}
 
-  <button class="unpair-btn" onclick={() => onUnpair(device.device_id)}>
-    Unpair Device
-  </button>
+  <Button variant="danger" size="sm" onclick={() => onUnpair(device.device_id)}>
+    {$t('devices.unpair_button')}
+  </Button>
 </div>
 
 <style>
@@ -110,18 +112,5 @@
     color: var(--warning-color, #b45309);
     border-radius: 0.25rem;
     font-size: 0.8rem;
-  }
-  .unpair-btn {
-    margin-top: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.8rem;
-    border: 1px solid var(--danger-color, #ef4444);
-    color: var(--danger-color, #ef4444);
-    background: transparent;
-    border-radius: 0.25rem;
-    cursor: pointer;
-  }
-  .unpair-btn:hover {
-    background: var(--danger-bg, #fef2f2);
   }
 </style>

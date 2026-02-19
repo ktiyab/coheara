@@ -14,7 +14,7 @@ use crate::crypto::ProfileSession;
 fn test_session() -> (tempfile::TempDir, ProfileSession) {
     let dir = tempfile::tempdir().unwrap();
     let (info, _phrase) =
-        profile::create_profile(dir.path(), "SecurityTest", "test_pass_123", None).unwrap();
+        profile::create_profile(dir.path(), "SecurityTest", "test_pass_123", None, None).unwrap();
     let session = profile::open_profile(dir.path(), &info.id, "test_pass_123").unwrap();
     (dir, session)
 }

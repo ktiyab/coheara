@@ -1,5 +1,6 @@
 <!-- L3-04: Extracted content view — fields grouped by entity type with color-coding. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type {
     ExtractedField,
     PlausibilityWarning,
@@ -25,15 +26,15 @@
     borderClass: string;
   };
 
-  const categoryConfig: Record<EntityCategory, { label: string; headerClass: string; borderClass: string }> = {
-    Medication: { label: 'Medications', headerClass: 'bg-blue-50 text-blue-800', borderClass: 'border-blue-200' },
-    LabResult: { label: 'Lab Results', headerClass: 'bg-green-50 text-green-800', borderClass: 'border-green-200' },
-    Diagnosis: { label: 'Diagnoses', headerClass: 'bg-indigo-50 text-indigo-800', borderClass: 'border-indigo-200' },
-    Allergy: { label: 'Allergies', headerClass: 'bg-red-50 text-red-800', borderClass: 'border-red-200' },
-    Procedure: { label: 'Procedures', headerClass: 'bg-teal-50 text-teal-800', borderClass: 'border-teal-200' },
-    Referral: { label: 'Referrals', headerClass: 'bg-violet-50 text-violet-800', borderClass: 'border-violet-200' },
-    Professional: { label: 'Professional', headerClass: 'bg-purple-50 text-purple-800', borderClass: 'border-purple-200' },
-    Date: { label: 'Date', headerClass: 'bg-amber-50 text-amber-800', borderClass: 'border-amber-200' },
+  const categoryStyles: Record<EntityCategory, { i18nKey: string; headerClass: string; borderClass: string }> = {
+    Medication: { i18nKey: 'review.category_medications', headerClass: 'bg-blue-50 text-blue-800', borderClass: 'border-blue-200' },
+    LabResult: { i18nKey: 'review.category_lab_results', headerClass: 'bg-green-50 text-green-800', borderClass: 'border-green-200' },
+    Diagnosis: { i18nKey: 'review.category_diagnoses', headerClass: 'bg-indigo-50 text-indigo-800', borderClass: 'border-indigo-200' },
+    Allergy: { i18nKey: 'review.category_allergies', headerClass: 'bg-red-50 text-red-800', borderClass: 'border-red-200' },
+    Procedure: { i18nKey: 'review.category_procedures', headerClass: 'bg-teal-50 text-teal-800', borderClass: 'border-teal-200' },
+    Referral: { i18nKey: 'review.category_referrals', headerClass: 'bg-violet-50 text-violet-800', borderClass: 'border-violet-200' },
+    Professional: { i18nKey: 'review.category_professional', headerClass: 'bg-purple-50 text-purple-800', borderClass: 'border-purple-200' },
+    Date: { i18nKey: 'review.category_date', headerClass: 'bg-amber-50 text-amber-800', borderClass: 'border-amber-200' },
   };
 
   let groupedFields = $derived.by(() => {
@@ -46,7 +47,7 @@
     for (const category of categoryOrder) {
       const categoryFields = fields.filter(f => f.entity_type === category);
       if (categoryFields.length > 0) {
-        const config = categoryConfig[category];
+        const config = categoryStyles[category];
         const sorted = [...categoryFields].sort((a, b) => {
           if (a.is_flagged && !b.is_flagged) return -1;
           if (!a.is_flagged && b.is_flagged) return 1;
@@ -54,7 +55,7 @@
         });
         groups.push({
           category,
-          label: config.label,
+          label: $t(config.i18nKey),
           fields: sorted,
           headerClass: config.headerClass,
           borderClass: config.borderClass,
@@ -80,7 +81,7 @@
       <h2 class="text-sm font-semibold px-3 py-2 rounded-t-lg {group.headerClass}">
         {group.label}
         <span class="font-normal opacity-70">
-          ({group.fields.length} field{group.fields.length === 1 ? '' : 's'})
+          ({$t('review.field_count', { values: { count: group.fields.length } })})
         </span>
       </h2>
 
@@ -122,8 +123,8 @@
             {#each fieldWarnings as warning}
               <div class="mt-2 px-3 py-2 rounded-lg text-sm
                           {warning.severity === 'Critical'
-                            ? 'bg-red-50 text-red-800 border border-red-200'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200'}">
+                            ? 'bg-[var(--color-danger-50)] text-[var(--color-danger-800)] border border-[var(--color-danger-200)]'
+                            : 'bg-[var(--color-warning-50)] text-[var(--color-warning-800)] border border-[var(--color-warning-200)]'}">
                 {warning.message}
               </div>
             {/each}
@@ -134,9 +135,9 @@
   {/each}
 
   {#if fields.length === 0}
-    <div class="text-center py-12 text-stone-400">
-      <p>No fields were extracted from this document.</p>
-      <p class="text-sm mt-2">The document may be too unclear to read, or it may not be a medical document.</p>
+    <div class="text-center py-12 text-stone-500">
+      <p>{$t('review.no_fields_title')}</p>
+      <p class="text-sm mt-2">{$t('review.no_fields_description')}</p>
     </div>
   {/if}
 </div>

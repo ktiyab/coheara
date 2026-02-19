@@ -1,0 +1,28 @@
+{
+  "common": {
+    "loading": "Wird geladen...",
+    "creating": "Wird erstellt...",
+    "unlocking": "Wird entsperrt...",
+    "saving": "Wird gespeichert...",
+    "processing": "Wird verarbeitet...",
+    "cancel": "Abbrechen",
+    "back": "Zurück",
+    "retry": "Erneut versuchen",
+    "done": "Fertig",
+    "dismiss": "Schließen",
+    "send": "Senden",
+    "delete": "Löschen",
+    "confirm": "Bestätigen",
+    "never": "Nie",
+    "unknown": "Unbekannt",
+    "continue": "Weiter",
+    "recovering": "Wiederherstellung...",
+    "close": "Schließen",
+    "clear": "Löschen",
+    "optional": "(optional)",
+    "not_available": "k. A.",
+    "go_back": "Zurück",
+    "try_again": "Erneut versuchen",
+    "something_went_wrong": "Etwas ist schiefgelaufen"
+  }
+}

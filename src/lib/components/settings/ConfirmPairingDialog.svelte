@@ -1,6 +1,10 @@
 <!-- M0-02: Desktop confirmation dialog for incoming pairing request -->
 <script lang="ts">
+  import { tick } from 'svelte';
+  import { t } from 'svelte-i18n';
   import type { PendingApproval } from '$lib/types/pairing';
+  import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
+  import Button from '$lib/components/ui/Button.svelte';
 
   let {
     pending,
@@ -11,19 +15,32 @@
     onApprove: () => void;
     onDeny: () => void;
   } = $props();
+
+  let dialogEl: HTMLDivElement | undefined = $state(undefined);
+
+  $effect(() => {
+    if (dialogEl) {
+      tick().then(() => { if (dialogEl) autoFocusFirst(dialogEl); });
+    }
+  });
 </script>
 
-<div class="overlay" role="dialog" aria-modal="true">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="overlay" role="dialog" aria-modal="true"
+     aria-label={$t('pairing.new_device_title')}
+     tabindex="-1"
+     bind:this={dialogEl}
+     onkeydown={(e) => { if (e.key === 'Escape') onDeny(); if (dialogEl) trapFocus(e, dialogEl); }}>
   <div class="dialog">
-    <h3>New Device Wants to Connect</h3>
+    <h3>{$t('pairing.new_device_title')}</h3>
     <div class="device-info">
       <p class="device-model">{pending.device_model}</p>
       <p class="device-name">"{pending.device_name}"</p>
     </div>
-    <p class="body">Allow this device to access your health data?</p>
+    <p class="body">{$t('pairing.allow_access')}</p>
     <div class="actions">
-      <button class="deny-btn" onclick={onDeny}>Deny</button>
-      <button class="allow-btn" onclick={onApprove}>Allow</button>
+      <Button variant="secondary" onclick={onDeny}>{$t('pairing.deny')}</Button>
+      <Button variant="primary" onclick={onApprove}>{$t('pairing.allow')}</Button>
     </div>
   </div>
 </div>
@@ -72,25 +89,5 @@
     display: flex;
     justify-content: center;
     gap: 0.75rem;
-  }
-  .deny-btn {
-    padding: 0.5rem 1.25rem;
-    border: 1px solid var(--border-color, #e2e8f0);
-    background: transparent;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-  .allow-btn {
-    padding: 0.5rem 1.25rem;
-    background: var(--accent-color, #0d9488);
-    color: white;
-    border: none;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-  .allow-btn:hover {
-    opacity: 0.9;
   }
 </style>

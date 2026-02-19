@@ -35,6 +35,7 @@ Once the unsigned build works, set up signing keys for production builds (see [S
 |------|---------|---------|
 | Node.js | >= 20 | [nodejs.org](https://nodejs.org/) or `nvm install 20` |
 | Rust | >= 1.80 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Perl | >= 5 | Required by OpenSSL compilation (see below) |
 | Tauri CLI | >= 2 | Installed automatically via `npm ci` (devDependency) |
 
 **After installing Rust**, ensure cargo is in your PATH. Add this to your `~/.bashrc` or `~/.zshrc`:
@@ -54,6 +55,7 @@ sudo apt-get update
 sudo apt-get install -y \
     build-essential \
     pkg-config \
+    perl \
     libgtk-3-dev \
     libwebkit2gtk-4.1-dev \
     libappindicator3-dev \
@@ -65,10 +67,11 @@ sudo apt-get install -y \
     libtesseract-dev \
     libleptonica-dev \
     libclang-dev \
+    libssl-dev \
     unzip
 ```
 
-> `unzip` is needed by the Android SDK manager. It may already be installed on your system.
+> `perl` and `libssl-dev` are needed by the `openssl-sys` Rust crate to configure and compile OpenSSL. `unzip` is needed by the Android SDK manager. All three may already be installed on your system.
 
 ### 3. Android SDK (for APK builds)
 
@@ -142,9 +145,10 @@ For Windows installers, build natively on Windows (not WSL2):
 1. **Visual Studio Build Tools** with the **C++ desktop development** workload ([download](https://visualstudio.microsoft.com/downloads/#build-tools))
 2. **Node.js >= 20** ([nodejs.org](https://nodejs.org/))
 3. **Rust >= 1.80** (`winget install Rustlang.Rustup`)
-4. **JDK 21** (`winget install EclipseAdoptium.Temurin.21.JDK`)
-5. **Android SDK** via [Android Studio](https://developer.android.com/studio) — install Platform 36, Build-Tools 36.0.0, Platform-Tools
-6. **Tesseract** via vcpkg:
+4. **Perl** (`winget install StrawberryPerl.StrawberryPerl`) — required by `openssl-sys` to configure OpenSSL during Rust compilation
+5. **JDK 21** (`winget install EclipseAdoptium.Temurin.21.JDK`)
+6. **Android SDK** via [Android Studio](https://developer.android.com/studio) — install Platform 36, Build-Tools 36.0.0, Platform-Tools
+7. **Tesseract** via vcpkg:
    ```powershell
    vcpkg install tesseract:x64-windows-static-md
    ```
@@ -157,11 +161,59 @@ Then build:
 
 > WSL2 produces Linux packages (`.deb`, `.AppImage`), not Windows ones. Use `build.ps1` on native Windows for `.msi` and `.exe` installers.
 >
-> **Lighter setup**: Items 4-5 (JDK, Android SDK) are only needed if you build mobile from scratch. If you first run `./build.sh desktop` on WSL2, the pre-staged mobile artifacts are auto-detected and items 4-5 can be skipped. Item 6 (Tesseract) is still required — the desktop Rust build links against it for OCR. See [Skipping the mobile build](#skipping-the-mobile-build---skip-mobile).
+> **Lighter setup**: Items 5-6 (JDK, Android SDK) are only needed if you build mobile from scratch. If you first run `./build.sh desktop` on WSL2, the pre-staged mobile artifacts are auto-detected and items 5-6 can be skipped. Item 7 (Tesseract) is still required — the desktop Rust build links against it for OCR. See [Skipping the mobile build](#skipping-the-mobile-build---skip-mobile).
 
 ---
 
-## Build Commands
+## Development (Fast Iteration)
+
+For day-to-day development, use the dev scripts instead of the build pipeline. No signing keys, no installer packaging — just code and see results.
+
+### Dev commands
+
+**Linux / macOS:**
+
+| Command | What it does | Speed |
+|---------|-------------|-------|
+| `./dev.sh` | Full stack: Svelte HMR + Rust backend | Frontend <1s, Rust ~10-30s |
+| `./dev.sh frontend` | Frontend only (no Rust compilation) | <1s (HMR) |
+| `./dev.sh check` | Type-check Svelte + Rust (parallel) | ~25s |
+| `./dev.sh test` | Run all tests (Vitest + cargo test) | ~3 min |
+| `./dev.sh test:watch` | Watch mode for frontend tests | Instant re-run on save |
+
+**Windows:**
+
+| Command | What it does | Speed |
+|---------|-------------|-------|
+| `.\dev.ps1` | Full stack: Svelte HMR + Rust backend | Frontend <1s, Rust ~10-30s |
+| `.\dev.ps1 frontend` | Frontend only (no Rust compilation) | <1s (HMR) |
+| `.\dev.ps1 check` | Type-check Svelte + Rust | ~25s |
+| `.\dev.ps1 test` | Run all tests (Vitest + cargo test) | ~3 min |
+| `.\dev.ps1 test:watch` | Watch mode for frontend tests | Instant re-run on save |
+
+### Choosing the right mode
+
+| I'm working on... | Use | Why |
+|--------------------|-----|-----|
+| Svelte components, styling, i18n | `./dev.sh frontend` | No Rust needed — instant feedback |
+| Frontend + Rust IPC commands | `./dev.sh` (full) | Need the backend for `invoke()` calls |
+| Rust logic only | `cargo check` + `cargo test` | Skip frontend entirely |
+| Quick sanity check before commit | `./dev.sh check` | Catches type errors in both layers |
+| Pre-push validation | `./dev.sh test` | Runs all 1,597 tests |
+
+### First-time dev setup
+
+```bash
+git clone https://github.com/ktiyab/coheara.git
+cd coheara
+./dev.sh          # Installs deps, builds i18n, starts full-stack dev server
+```
+
+The dev scripts auto-detect missing `node_modules` and i18n generated files and bootstrap them before starting.
+
+---
+
+## Build Commands (Production)
 
 **Linux / macOS** (bash):
 
@@ -247,6 +299,61 @@ This is the primary use case. WSL2 has the Android toolchain but produces Linux 
 ```
 
 Both environments share the same filesystem (`C:\` = `/mnt/c/`), so the staged resources from step 1 are immediately available in step 2.
+
+---
+
+## Security Audit
+
+Coheara includes dependency vulnerability scanning for all three component layers: Rust crates, frontend npm packages, and mobile npm packages.
+
+### Running the audit
+
+**Linux / macOS:**
+
+| Command | What it does |
+|---------|-------------|
+| `./audit.sh` | Full audit, writes report to `AUDIT.txt` |
+| `./audit.sh --ci` | Same, exits 1 if critical/high vulnerabilities found (for CI pipelines) |
+| `./audit.sh --fix` | Attempts `npm audit fix` for auto-resolvable issues |
+
+**Windows:**
+
+| Command | What it does |
+|---------|-------------|
+| `.\audit.ps1` | Full audit, writes report to `AUDIT.txt` |
+| `.\audit.ps1 -CI` | Same, exits 1 if critical/high vulnerabilities found (for CI pipelines) |
+| `.\audit.ps1 -Fix` | Attempts `npm audit fix` for auto-resolvable issues |
+
+### What gets scanned
+
+| Component | Tool | Database |
+|-----------|------|----------|
+| Rust crates (`src-tauri/Cargo.lock`) | `cargo audit` | [RustSec Advisory DB](https://rustsec.org/) |
+| Frontend npm (`package-lock.json`) | `npm audit` | npm Registry |
+| Mobile npm (`mobile/package-lock.json`) | `npm audit` | npm Registry |
+
+`cargo-audit` is auto-installed if missing. The report is written to `AUDIT.txt` (git-ignored).
+
+### Severity classification
+
+| Severity | CI behavior | Action |
+|----------|-------------|--------|
+| Critical / High | `--ci` exits 1 | Must fix before release |
+| Moderate | Warning | Review recommended |
+| Low | Informational | Monitor, fix when convenient |
+
+### Example output (AUDIT.txt)
+
+```
+SUMMARY
+  Critical:  0
+  High:      1
+  Moderate:  2
+  Low:       6
+  Total:     9
+
+VERDICT: FAIL — 0 critical + 1 high vulnerabilities require attention.
+```
 
 ---
 
@@ -395,10 +502,15 @@ After setup, your local-only files look like this:
 ```
 coheara/
 ├── .env                          # Passwords (git-ignored)
+├── dev.sh                        # Dev server — Linux/macOS (committed)
+├── dev.ps1                       # Dev server — Windows (committed)
 ├── build.sh                      # Build script — Linux/macOS (committed)
 ├── build.ps1                     # Build script — Windows (committed)
+├── audit.sh                      # Security audit — Linux/macOS (committed)
+├── audit.ps1                     # Security audit — Windows (committed)
 ├── setup-keys.sh                 # Key generator (committed)
 ├── BUILD.md                      # This file (committed)
+├── AUDIT.txt                     # Vulnerability report (git-ignored, generated)
 ├── package/                      # Build output (git-ignored)
 │   ├── *.deb / *.AppImage / *.dmg
 │   └── *.apk
@@ -497,16 +609,32 @@ Then update `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `.env` and GitHub secrets.
 
 This is expected when building with `--no-sign`. The desktop bundles (`.deb`, `.AppImage`) are still created — only the updater `.sig` files are skipped. `build.sh` handles this automatically.
 
+### `Error configuring OpenSSL build: Command 'perl' not found`
+
+The `openssl-sys` Rust crate requires Perl to configure OpenSSL during compilation.
+
+**Linux/WSL2:**
+```bash
+sudo apt-get install -y perl libssl-dev
+```
+
+**Windows:**
+```powershell
+winget install StrawberryPerl.StrawberryPerl
+```
+
+> Restart your terminal after installing Perl so it appears in PATH. `build.ps1` auto-detects Strawberry Perl at `C:\Strawberry\perl\bin\` and offers to install it via winget if missing. `build.sh` includes `perl` in the auto-install package list.
+
 ### Missing system libraries on Linux
 
 If you see errors about missing packages during the Rust build:
 
 ```bash
-sudo apt-get install -y build-essential pkg-config \
+sudo apt-get install -y build-essential pkg-config perl \
     libgtk-3-dev libwebkit2gtk-4.1-dev \
     libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev tesseract-ocr libtesseract-dev \
-    libleptonica-dev libclang-dev unzip
+    libleptonica-dev libclang-dev libssl-dev unzip
 ```
 
 ### Build seems stuck

@@ -27,13 +27,25 @@ pub fn create_profile(
     name: String,
     password: String,
     managed_by: Option<String>,
+    date_of_birth: Option<String>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileCreateResult, String> {
+    // Parse date_of_birth from ISO 8601 string (YYYY-MM-DD)
+    let dob = date_of_birth
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .map_err(|e| format!("Invalid date of birth format: {e}"))
+        })
+        .transpose()?;
+
     let (info, phrase) = profile::create_profile(
         &state.profiles_dir,
         &name,
         &password,
         managed_by.as_deref(),
+        dob,
     )
     .map_err(|e| e.to_string())?;
 
@@ -69,13 +81,20 @@ pub fn unlock_profile(
     let session =
         profile::open_profile(&state.profiles_dir, &id, &password).map_err(|e| e.to_string())?;
 
-    let info = ProfileInfo {
-        id: session.profile_id,
-        name: session.profile_name.clone(),
-        created_at: chrono::Local::now().naive_local(),
-        managed_by: None,
-        password_hint: None,
-    };
+    // Load full ProfileInfo from disk (includes DOB, color_index, managed_by)
+    let profiles = profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())?;
+    let info = profiles
+        .into_iter()
+        .find(|p| p.id == id)
+        .unwrap_or_else(|| ProfileInfo {
+            id: session.profile_id,
+            name: session.profile_name.clone(),
+            created_at: chrono::Local::now().naive_local(),
+            managed_by: None,
+            password_hint: None,
+            date_of_birth: None,
+            color_index: None,
+        });
 
     state.set_session(session).map_err(|e| e.to_string())?;
     state.update_activity();
@@ -184,6 +203,23 @@ pub fn get_active_profile_name(state: State<'_, Arc<CoreState>>) -> Result<Strin
     Ok(session.profile_name.clone())
 }
 
+/// Get the full ProfileInfo for the currently active profile (Spec 45 [PU-02]).
+/// Returns all fields including managed_by, date_of_birth, color_index.
+#[tauri::command]
+pub fn get_active_profile_info(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<ProfileInfo, String> {
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard.as_ref().ok_or("No active session")?;
+
+    let profiles =
+        profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())?;
+    profiles
+        .into_iter()
+        .find(|p| p.id == session.profile_id)
+        .ok_or_else(|| "Active profile not found in profiles list".to_string())
+}
+
 /// Delete a profile and all its data (cryptographic erasure).
 #[tauri::command]
 pub fn delete_profile(profile_id: String, state: State<'_, Arc<CoreState>>) -> Result<(), String> {
@@ -221,4 +257,31 @@ pub fn check_inactivity(state: State<'_, Arc<CoreState>>) -> bool {
 #[tauri::command]
 pub fn update_activity(state: State<'_, Arc<CoreState>>) {
     state.update_activity();
+}
+
+/// Spec 46 [CG-02]: Get caregiver summaries for all dependents managed by the current user.
+/// Returns summaries from the JSON cache — no profile decryption needed.
+#[tauri::command]
+pub fn get_caregiver_summaries(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<crate::models::caregiver::CaregiverSummary>, String> {
+    use crate::models::caregiver::CaregiverSummaries;
+
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard.as_ref().ok_or("No active session")?;
+
+    let path = state.profiles_dir.join("caregiver_summaries.json");
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+
+    let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let summaries: CaregiverSummaries = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+
+    // Filter to only dependents managed by the current profile
+    Ok(summaries
+        .summaries
+        .into_iter()
+        .filter(|s| s.caregiver_profile_id == session.profile_id)
+        .collect())
 }

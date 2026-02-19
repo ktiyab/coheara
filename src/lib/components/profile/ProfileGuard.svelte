@@ -5,11 +5,14 @@
   import { isProfileActive, listProfiles } from '$lib/api/profile';
   import type { ProfileInfo, AppScreen } from '$lib/types/profile';
   import TrustScreen from './TrustScreen.svelte';
+  import ProfileTypeChoice from './ProfileTypeChoice.svelte';
   import CreateProfile from './CreateProfile.svelte';
   import ProfilePicker from './ProfilePicker.svelte';
   import UnlockProfile from './UnlockProfile.svelte';
   import RecoveryPhraseDisplay from './RecoveryPhraseDisplay.svelte';
   import RecoverProfile from './RecoverProfile.svelte';
+  import WelcomeTour from './WelcomeTour.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
 
   interface Props {
     children: Snippet;
@@ -20,6 +23,9 @@
   let profiles = $state<ProfileInfo[]>([]);
   let selectedProfile = $state<ProfileInfo | null>(null);
   let recoveryWords = $state<string[]>([]);
+
+  // Spec 45 [ON-02]: Track caregiver path selection from ProfileTypeChoice
+  let isCaregiverPath = $state(false);
 
   onMount(async () => {
     const active = await isProfileActive();
@@ -54,13 +60,20 @@
 </script>
 
 {#if screen === 'loading'}
-  <div class="flex items-center justify-center min-h-screen">
-    <p class="text-stone-400">{$t('common.loading')}</p>
-  </div>
+  <LoadingState message={$t('common.loading')} />
 {:else if screen === 'trust'}
-  <TrustScreen onContinue={() => screen = 'create'} />
+  <TrustScreen onContinue={() => screen = 'profile_type_choice'} />
+{:else if screen === 'profile_type_choice'}
+  <!-- Spec 45 [ON-02]: "For myself" vs "For someone I care for" -->
+  <ProfileTypeChoice
+    onSelect={(isCaregiver) => {
+      isCaregiverPath = isCaregiver;
+      screen = 'create';
+    }}
+  />
 {:else if screen === 'create'}
   <CreateProfile
+    {isCaregiverPath}
     onCreated={(result) => {
       recoveryWords = result.recovery_phrase;
       selectedProfile = result.profile;
@@ -71,13 +84,17 @@
 {:else if screen === 'recovery_display'}
   <RecoveryPhraseDisplay
     words={recoveryWords}
-    onConfirmed={() => { recoveryWords = []; screen = 'app'; }}
+    profileName={selectedProfile?.name}
+    onConfirmed={() => { recoveryWords = []; screen = 'welcome_tour'; }}
   />
+{:else if screen === 'welcome_tour'}
+  <!-- Spec 45 [ON-02]: 3-slide welcome tour before home -->
+  <WelcomeTour onComplete={() => screen = 'app'} />
 {:else if screen === 'picker'}
   <ProfilePicker
     {profiles}
     onSelect={(p) => { selectedProfile = p; screen = 'unlock'; }}
-    onCreateNew={() => screen = 'create'}
+    onCreateNew={() => screen = 'profile_type_choice'}
   />
 {:else if screen === 'unlock' && selectedProfile}
   <UnlockProfile

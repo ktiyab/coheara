@@ -1,5 +1,7 @@
 <!-- L3-04: Original document viewer with zoom, pan, rotate (image/PDF). -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
+
   interface Props {
     fileBase64: string | null;
     fileType: 'Image' | 'Pdf';
@@ -73,7 +75,7 @@
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
              rounded-lg hover:bg-stone-200 text-stone-600"
       onclick={zoomOut}
-      aria-label="Zoom out"
+      aria-label={$t('review.viewer_zoom_out')}
     >
       &minus;
     </button>
@@ -82,7 +84,7 @@
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
              rounded-lg hover:bg-stone-200 text-stone-600"
       onclick={zoomIn}
-      aria-label="Zoom in"
+      aria-label={$t('review.viewer_zoom_in')}
     >
       +
     </button>
@@ -90,15 +92,15 @@
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
              rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
       onclick={fitToWidth}
-      aria-label="Fit to width"
+      aria-label={$t('review.viewer_fit_width')}
     >
-      Fit
+      {$t('review.viewer_fit')}
     </button>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
              rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
       onclick={rotate90}
-      aria-label="Rotate 90 degrees"
+      aria-label={$t('review.viewer_rotate')}
     >
       &#8635;
     </button>
@@ -110,7 +112,7 @@
                  rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
           onclick={() => currentPage = Math.max(1, currentPage - 1)}
           disabled={currentPage <= 1}
-          aria-label="Previous page"
+          aria-label={$t('review.viewer_prev_page')}
         >
           &lt;
         </button>
@@ -120,7 +122,7 @@
                  rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
           onclick={() => currentPage = Math.min(totalPages, currentPage + 1)}
           disabled={currentPage >= totalPages}
-          aria-label="Next page"
+          aria-label={$t('review.viewer_next_page')}
         >
           &gt;
         </button>
@@ -138,14 +140,14 @@
     onmouseup={handleMouseUp}
     onmouseleave={handleMouseUp}
     role="img"
-    aria-label="Original document viewer"
+    aria-label={$t('review.viewer_aria')}
   >
     {#if !dataUrl}
-      <p class="text-stone-400">Loading document...</p>
+      <p class="text-stone-500">{$t('review.viewer_loading')}</p>
     {:else if fileType === 'Image'}
       <img
         src={dataUrl}
-        alt="Original document"
+        alt={$t('review.viewer_alt_image')}
         class="max-w-full max-h-full object-contain select-none"
         style="transform: scale({zoom}) rotate({rotation}deg) translate({panX / zoom}px, {panY / zoom}px);
                transform-origin: center center;
@@ -155,7 +157,7 @@
     {:else}
       <iframe
         src={dataUrl}
-        title="Original PDF document"
+        title={$t('review.viewer_alt_pdf')}
         class="w-full h-full border-none"
         style="transform: scale({zoom}); transform-origin: top left;"
       ></iframe>

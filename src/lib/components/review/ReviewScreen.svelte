@@ -1,6 +1,7 @@
 <!-- L3-04: Main review screen — side-by-side original vs. extracted content. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { getReviewData, getOriginalFile } from '$lib/api/review';
   import type { ReviewData, FieldCorrection, EntitiesStoredSummary } from '$lib/types/review';
   import OriginalViewer from './OriginalViewer.svelte';
@@ -9,6 +10,9 @@
   import ReviewActions from './ReviewActions.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
   import ReviewSuccess from './ReviewSuccess.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
 
   interface Props {
     documentId: string;
@@ -78,28 +82,30 @@
 
 {#if showSuccess && confirmResult}
   <ReviewSuccess
-    documentType={reviewData?.document_type ?? 'Document'}
+    documentType={reviewData?.document_type ?? $t('review.document_fallback')}
+    documentDate={reviewData?.document_date}
     status={confirmResult.status}
     entities={confirmResult.entities}
     correctionsApplied={corrections.length}
     onViewDocument={() => navigation.navigate('document-detail', { documentId })}
     onBackToHome={() => navigation.navigate('home')}
+    onAskAi={() => {
+      const docType = reviewData?.document_type ?? 'document';
+      const date = reviewData?.document_date;
+      const prefill = date
+        ? `Explain my ${docType} from ${date}`
+        : `Explain my ${docType}`;
+      navigation.navigate('chat', { prefill });
+    }}
   />
 {:else}
   <div class="flex flex-col h-screen bg-stone-50">
     <!-- Header -->
     <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center
-               text-stone-500 hover:text-stone-700"
-        onclick={() => navigation.goBack()}
-        aria-label="Back to documents"
-      >
-        &larr;
-      </button>
+      <BackButton />
       <div class="flex-1 min-w-0">
         <h1 class="text-lg font-semibold text-stone-800 truncate">
-          Review: {reviewData?.document_type ?? 'Document'}
+          {$t('review.heading_prefix')} {reviewData?.document_type ?? $t('review.document_fallback')}
         </h1>
         {#if reviewData?.professional_name}
           <p class="text-sm text-stone-500 truncate">
@@ -116,21 +122,13 @@
     </header>
 
     {#if loading}
-      <div class="flex items-center justify-center flex-1">
-        <div class="flex flex-col items-center gap-3">
-          <div class="animate-pulse text-stone-400">Loading document for review...</div>
-        </div>
-      </div>
+      <LoadingState message={$t('review.loading')} />
     {:else if error}
-      <div class="flex flex-col items-center justify-center flex-1 px-6 text-center">
-        <p class="text-red-600 mb-4">Something went wrong: {error}</p>
-        <button
-          class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-          onclick={loadReviewData}
-        >
-          Try again
-        </button>
-      </div>
+      <ErrorState
+        message="{$t('review.error_prefix')} {error}"
+        onretry={loadReviewData}
+        retryLabel={$t('common.try_again')}
+      />
     {:else if reviewData}
       <!-- Tab switcher for narrow screens -->
       {#if isNarrow}
@@ -142,7 +140,7 @@
                      : 'text-stone-500'}"
             onclick={() => activeTab = 'original'}
           >
-            Original
+            {$t('review.tab_original')}
           </button>
           <button
             class="flex-1 py-3 text-sm font-medium min-h-[44px]
@@ -151,7 +149,7 @@
                      : 'text-stone-500'}"
             onclick={() => activeTab = 'extracted'}
           >
-            Extracted ({corrections.length > 0 ? `${corrections.length} corrected` : 'review'})
+            {$t('review.tab_extracted')} ({corrections.length > 0 ? $t('review.tab_corrected_count', { values: { count: corrections.length } }) : $t('review.tab_review_suffix')})
           </button>
         </div>
       {/if}

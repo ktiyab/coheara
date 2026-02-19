@@ -1,9 +1,12 @@
 <!-- L3-04: Confirm/reject action bar with flagged-fields warning and reject dialog. -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { t } from 'svelte-i18n';
   import { confirmReview, rejectReview } from '$lib/api/review';
   import type { FieldCorrection, EntitiesStoredSummary } from '$lib/types/review';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
 
   interface Props {
     documentId: string;
@@ -22,6 +25,21 @@
   // R.2: Replace alert() with inline error banner
   let errorMessage: string | null = $state(null);
   let errorGuidance: string | undefined = $state(undefined);
+
+  let flaggedDialogEl: HTMLDivElement | undefined = $state(undefined);
+  let rejectDialogEl: HTMLDivElement | undefined = $state(undefined);
+
+  $effect(() => {
+    if (flaggedDialogEl) {
+      tick().then(() => { if (flaggedDialogEl) autoFocusFirst(flaggedDialogEl); });
+    }
+  });
+
+  $effect(() => {
+    if (rejectDialogEl) {
+      tick().then(() => { if (rejectDialogEl) autoFocusFirst(rejectDialogEl); });
+    }
+  });
 
   async function handleConfirm() {
     if (flaggedFields > 0 && !showFlaggedWarning) {
@@ -66,8 +84,12 @@
 
 <!-- Flagged fields warning overlay -->
 {#if showFlaggedWarning}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 bg-black/30 flex items-end justify-center z-50 p-4"
-       role="dialog" aria-modal="true" aria-label="Flagged fields reminder">
+       role="dialog" aria-modal="true" aria-label={$t('review.flagged_dialog_aria')}
+       tabindex="-1"
+       bind:this={flaggedDialogEl}
+       onkeydown={(e) => { if (e.key === 'Escape') showFlaggedWarning = false; if (flaggedDialogEl) trapFocus(e, flaggedDialogEl); }}>
     <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
       <h3 class="text-lg font-semibold text-stone-800 mb-2">
         {$t('review.flagged_heading')}
@@ -76,21 +98,12 @@
         {$t('review.flagged_description', { values: { count: flaggedFields } })}
       </p>
       <div class="flex gap-3">
-        <button
-          class="flex-1 px-4 py-3 border border-stone-200 rounded-xl text-stone-700
-                 hover:bg-stone-50 min-h-[44px]"
-          onclick={() => showFlaggedWarning = false}
-        >
+        <Button variant="secondary" onclick={() => showFlaggedWarning = false}>
           {$t('review.check_flagged')}
-        </button>
-        <button
-          class="flex-1 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-                 font-medium hover:brightness-110 min-h-[44px]"
-          onclick={handleConfirm}
-          disabled={confirming}
-        >
+        </Button>
+        <Button variant="primary" loading={confirming} onclick={handleConfirm}>
           {confirming ? $t('common.saving') : $t('review.confirm_anyway')}
-        </button>
+        </Button>
       </div>
     </div>
   </div>
@@ -98,8 +111,12 @@
 
 <!-- Reject dialog overlay -->
 {#if showRejectDialog}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 bg-black/30 flex items-end justify-center z-50 p-4"
-       role="dialog" aria-modal="true" aria-label="Reject review">
+       role="dialog" aria-modal="true" aria-label={$t('review.reject_dialog_aria')}
+       tabindex="-1"
+       bind:this={rejectDialogEl}
+       onkeydown={(e) => { if (e.key === 'Escape') showRejectDialog = false; if (rejectDialogEl) trapFocus(e, rejectDialogEl); }}>
     <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
       <h3 class="text-lg font-semibold text-stone-800 mb-2">
         {$t('review.reject_heading')}
@@ -123,28 +140,15 @@
       </div>
 
       <div class="flex flex-col gap-2">
-        <button
-          class="w-full px-4 py-3 border border-stone-200 rounded-xl text-stone-700
-                 hover:bg-stone-50 min-h-[44px]"
-          onclick={() => handleReject('retry')}
-          disabled={rejecting}
-        >
+        <Button variant="secondary" fullWidth loading={rejecting} onclick={() => handleReject('retry')}>
           {rejecting ? $t('common.processing') : $t('review.try_again')}
-        </button>
-        <button
-          class="w-full px-4 py-3 border border-red-200 rounded-xl text-red-700
-                 hover:bg-red-50 min-h-[44px]"
-          onclick={() => handleReject('remove')}
-          disabled={rejecting}
-        >
+        </Button>
+        <Button variant="danger" fullWidth disabled={rejecting} onclick={() => handleReject('remove')}>
           {$t('review.remove_document')}
-        </button>
-        <button
-          class="w-full px-4 py-3 text-stone-500 min-h-[44px]"
-          onclick={() => showRejectDialog = false}
-        >
+        </Button>
+        <Button variant="ghost" fullWidth onclick={() => showRejectDialog = false}>
           {$t('common.cancel')}
-        </button>
+        </Button>
       </div>
     </div>
   </div>
@@ -164,20 +168,10 @@
 
 <!-- Action bar -->
 <div class="flex gap-3 px-4 py-4 bg-white border-t border-stone-200 shrink-0">
-  <button
-    class="flex-1 px-4 py-3 border border-stone-200 rounded-xl text-stone-600
-           hover:bg-stone-50 min-h-[44px]"
-    onclick={() => showRejectDialog = true}
-    disabled={confirming || rejecting}
-  >
+  <Button variant="secondary" disabled={confirming || rejecting} onclick={() => showRejectDialog = true}>
     {$t('review.not_right')}
-  </button>
-  <button
-    class="flex-1 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-           font-medium hover:brightness-110 min-h-[44px]"
-    onclick={handleConfirm}
-    disabled={confirming || rejecting}
-  >
+  </Button>
+  <Button variant="primary" loading={confirming} disabled={rejecting} onclick={handleConfirm}>
     {confirming ? $t('common.saving') : corrections.length > 0 ? $t('review.confirm_corrected', { values: { count: corrections.length } }) : $t('review.looks_good')}
-  </button>
+  </Button>
 </div>

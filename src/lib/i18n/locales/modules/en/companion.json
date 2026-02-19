@@ -1,0 +1,19 @@
+{
+  "companion": {
+    "heading": "INSTALL COMPANION APP",
+    "description_line1": "Serve the Coheara companion app to your phone over WiFi.",
+    "description_line2": "No app store needed.",
+    "starting": "Starting...",
+    "start_server": "Start Companion Server",
+    "scan_camera": "Scan with your phone camera",
+    "phone_install_note": "Your phone will open a page to install the companion app.",
+    "url_label": "URL:",
+    "version_label": "Version:",
+    "requests_label": "Requests:",
+    "apk_label": "APK:",
+    "available": "Available",
+    "not_bundled": "Not bundled",
+    "pwa_label": "PWA:",
+    "stop_server": "Stop Server"
+  }
+}

@@ -438,6 +438,14 @@ async fn handle_chat_query(
                         tracing::warn!("WS safety filter blocked RAG response");
                         (fallback_message.clone(), 0.0, "OutOfBounds".to_string())
                     }
+                    FilterOutcome::Escalated { rule_id, .. } => {
+                        tracing::warn!(rule_id = %rule_id, "WS safety escalation rule applied");
+                        (
+                            filtered.text.clone(),
+                            filtered.confidence,
+                            format!("{:?}", filtered.boundary_check),
+                        )
+                    }
                 };
 
                 // 7. Send response token via WS (single token for sync pipeline)

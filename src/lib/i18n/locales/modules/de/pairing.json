@@ -1,0 +1,15 @@
+{
+  "pairing": {
+    "pair_heading": "GERÄT KOPPELN",
+    "scan_instruction": "Scannen Sie den QR-Code mit der Coheara-App auf Ihrem Telefon, um es zu verbinden.",
+    "generating": "Wird generiert...",
+    "generate_qr": "QR-Code generieren",
+    "scan_qr_instruction": "Scannen Sie diesen Code mit der Coheara-App auf Ihrem Telefon.",
+    "same_wifi": "Beide Geräte müssen im selben WLAN-Netzwerk sein.",
+    "code_expires": "Code läuft ab in {time}",
+    "new_device_title": "Neues Gerät möchte sich verbinden",
+    "allow_access": "Diesem Gerät Zugriff auf Ihre Gesundheitsdaten erlauben?",
+    "deny": "Ablehnen",
+    "allow": "Erlauben"
+  }
+}

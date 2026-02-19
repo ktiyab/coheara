@@ -1,0 +1,64 @@
+<!-- Spec 49: Surface upcoming appointments on the home screen. -->
+<script lang="ts">
+  import { t } from 'svelte-i18n';
+  import { navigation } from '$lib/stores/navigation.svelte';
+  import type { StoredAppointment } from '$lib/types/appointment';
+
+  interface Props {
+    appointments: StoredAppointment[];
+  }
+
+  let { appointments }: Props = $props();
+
+  let upcoming = $derived.by(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return appointments
+      .filter((a) => a.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 2);
+  });
+
+  function formatDate(dateStr: string): string {
+    const date = new Date(dateStr + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.floor((date.getTime() - today.getTime()) / 86400000);
+    if (diff === 0) return $t('home.upcoming_today');
+    if (diff === 1) return $t('home.upcoming_tomorrow');
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+</script>
+
+{#if upcoming.length > 0}
+  <section class="px-6 py-3" aria-label={$t('home.upcoming_heading')}>
+    <h2 class="text-sm font-semibold text-[var(--color-text-secondary)] mb-2">
+      {$t('home.upcoming_heading')}
+    </h2>
+    <div class="flex flex-col gap-2">
+      {#each upcoming as appt (appt.id)}
+        <button
+          class="flex items-center gap-3 p-3 rounded-xl bg-white border border-[var(--color-border)]
+                 hover:bg-[var(--color-surface-hover)] transition-colors text-left w-full"
+          onclick={() => navigation.navigate('appointments')}
+        >
+          <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-50)] flex items-center justify-center text-lg">
+            &#128197;
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+              {appt.professional_name}
+            </p>
+            <p class="text-xs text-[var(--color-text-muted)]">
+              {appt.professional_specialty} · {formatDate(appt.date)}
+            </p>
+          </div>
+          {#if !appt.prep_generated}
+            <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning-50)] text-[var(--color-warning-800)]">
+              {$t('home.upcoming_prep_needed')}
+            </span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  </section>
+{/if}

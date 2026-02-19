@@ -1,0 +1,19 @@
+{
+  "backup": {
+    "heading": "BACKUP & RESTORE",
+    "create": "Create backup",
+    "restore": "Restore from backup",
+    "save_to": "Save backup to:",
+    "file_path": "Backup file path:",
+    "preview": "Preview backup",
+    "restore_password": "Enter the password for {name} to decrypt the backup.",
+    "password_placeholder": "Profile password",
+    "password_guidance": "Check that the password matches the one used when creating the backup.",
+    "restored_message": "Restored {count} documents ({size})",
+    "created_message": "Backup created: {count} documents, {size}",
+    "profile_label": "Profile",
+    "created_label": "Created",
+    "version_label": "Version",
+    "compatibility_warning": "This backup may not be fully compatible."
+  }
+}

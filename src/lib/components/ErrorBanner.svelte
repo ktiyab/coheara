@@ -36,21 +36,21 @@
 
   const styles: Record<Severity, { bg: string; border: string; text: string; icon: string }> = {
     error: {
-      bg: 'bg-red-50',
-      border: 'border-red-200',
-      text: 'text-red-800',
+      bg: 'bg-[var(--color-danger-50)]',
+      border: 'border-[var(--color-danger-200)]',
+      text: 'text-[var(--color-danger-800)]',
       icon: '!',
     },
     warning: {
-      bg: 'bg-amber-50',
-      border: 'border-amber-200',
-      text: 'text-amber-800',
+      bg: 'bg-[var(--color-warning-50)]',
+      border: 'border-[var(--color-warning-200)]',
+      text: 'text-[var(--color-warning-800)]',
       icon: '!',
     },
     info: {
-      bg: 'bg-blue-50',
-      border: 'border-blue-200',
-      text: 'text-blue-800',
+      bg: 'bg-[var(--color-info-50)]',
+      border: 'border-[var(--color-info-200)]',
+      text: 'text-[var(--color-info-800)]',
       icon: 'i',
     },
   };
@@ -67,9 +67,9 @@
     <div class="flex items-start gap-3">
       <!-- Severity icon -->
       <span class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center
-                    text-xs font-bold {severity === 'error' ? 'bg-red-200 text-red-700' :
-                    severity === 'warning' ? 'bg-amber-200 text-amber-700' :
-                    'bg-blue-200 text-blue-700'}"
+                    text-xs font-bold {severity === 'error' ? 'bg-[var(--color-danger-200)] text-[var(--color-danger)]' :
+                    severity === 'warning' ? 'bg-[var(--color-warning-200)] text-[var(--color-warning)]' :
+                    'bg-[var(--color-info-200)] text-[var(--color-info)]'}"
             aria-hidden="true">
         {s.icon}
       </span>
@@ -80,8 +80,8 @@
 
         <!-- R.3: Action guidance -->
         {#if guidance}
-          <p class="text-xs mt-1 {severity === 'error' ? 'text-red-600' :
-              severity === 'warning' ? 'text-amber-600' : 'text-blue-600'}">
+          <p class="text-xs mt-1 {severity === 'error' ? 'text-[var(--color-danger)]' :
+              severity === 'warning' ? 'text-[var(--color-warning)]' : 'text-[var(--color-info)]'}">
             {guidance}
           </p>
         {/if}
@@ -101,9 +101,9 @@
       {#if dismissible}
         <button
           class="flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center
-                 {severity === 'error' ? 'text-red-400 hover:text-red-600' :
-                 severity === 'warning' ? 'text-amber-400 hover:text-amber-600' :
-                 'text-blue-400 hover:text-blue-600'}"
+                 {severity === 'error' ? 'text-[var(--color-danger-200)] hover:text-[var(--color-danger)]' :
+                 severity === 'warning' ? 'text-[var(--color-warning-200)] hover:text-[var(--color-warning)]' :
+                 'text-[var(--color-info-200)] hover:text-[var(--color-info)]'}"
           onclick={handleDismiss}
           aria-label="Dismiss"
         >

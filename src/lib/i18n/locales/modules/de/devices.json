@@ -1,0 +1,25 @@
+{
+  "devices": {
+    "paired_heading": "GEKOPPELTE GERÄTE",
+    "paired_count": "{paired}/{max} gekoppelt",
+    "connected_count": "{connected} verbunden",
+    "loading": "Geräte werden geladen...",
+    "no_devices": "Keine Geräte gekoppelt. Verwenden Sie die Coheara-App, um ein Telefon per WLAN zu koppeln.",
+    "type_iphone": "iPhone",
+    "type_android": "Android",
+    "status_connected": "Verbunden",
+    "last_seen_just_now": "Zuletzt gesehen: gerade",
+    "last_seen_yesterday": "Zuletzt gesehen: gestern",
+    "last_seen_days_ago": "Zuletzt gesehen: vor {days} Tagen",
+    "paired_date": "Gekoppelt: {date}",
+    "inactive_warning": "Seit {days} Tagen inaktiv. Erwägen Sie das Entkoppeln aus Sicherheitsgründen.",
+    "unpair_button": "Gerät entkoppeln",
+    "unpair_title": "«{name}» entkoppeln?",
+    "unpair_consequences": "Dies wird:",
+    "unpair_disconnect": "Das Gerät sofort trennen",
+    "unpair_delete_data": "Alle zwischengespeicherten Gesundheitsdaten vom Telefon löschen",
+    "unpair_revoke": "Den Zugriff des Telefons auf Ihre Daten widerrufen",
+    "unpair_repaired_note": "Das Telefon muss erneut gekoppelt werden, um sich wieder zu verbinden.",
+    "unpair_confirm": "Entkoppeln"
+  }
+}

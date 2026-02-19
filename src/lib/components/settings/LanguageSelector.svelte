@@ -29,7 +29,7 @@
         value={lang.code}
         checked={$locale === lang.code}
         onchange={() => changeLanguage(lang.code)}
-        class="w-4 h-4 text-teal-600 focus:ring-teal-500"
+        class="w-4 h-4 text-[var(--color-interactive)] focus:ring-[var(--color-interactive)]"
       />
       <span class="text-sm text-stone-700">{lang.label}</span>
     </label>

@@ -6,7 +6,11 @@
     getTransferStatus, processStagedFiles
   } from '$lib/api/transfer';
   import type { QrCodeData, UploadResult, TransferStatus } from '$lib/types/transfer';
+  import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   let status: TransferStatus = $state('starting');
   let qrData: QrCodeData | null = $state(null);
@@ -62,27 +66,19 @@
 
 <div class="flex flex-col items-center min-h-screen pb-20 bg-stone-50 px-6 py-8">
   {#if status === 'starting'}
-    <div class="flex flex-col items-center justify-center flex-1">
-      <div class="animate-spin w-8 h-8 border-2 border-[var(--color-primary)]
-                  border-t-transparent rounded-full mb-4"></div>
-      <p class="text-stone-500">Starting transfer server...</p>
-    </div>
+    <LoadingState message={$t('transfer.starting_server')} />
 
   {:else if status === 'error'}
-    <div class="flex flex-col items-center justify-center flex-1">
-      <p class="text-red-600 mb-4">{error}</p>
-      <button
-        class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={() => navigation.goBack()}
-      >
-        Go back
-      </button>
-    </div>
+    <ErrorState
+      message={error ?? ''}
+      onretry={() => navigation.goBack()}
+      retryLabel={$t('common.go_back')}
+    />
 
   {:else if status === 'active' && qrData}
-    <h2 class="text-xl font-semibold text-stone-800 mb-2">Receive from phone</h2>
+    <h1 class="text-xl font-semibold text-stone-800 mb-2">{$t('transfer.receive_heading')}</h1>
     <p class="text-sm text-stone-500 mb-6 text-center">
-      Scan this code with your phone camera to send documents.
+      {$t('transfer.scan_instruction')}
     </p>
 
     <!-- QR Code -->
@@ -92,29 +88,32 @@
 
     <!-- PIN display -->
     <div class="mb-4 text-center">
-      <p class="text-xs text-stone-500 mb-1">Enter this PIN on your phone:</p>
-      <p class="text-4xl font-mono font-bold tracking-[0.3em] text-stone-800">
+      <p class="text-xs text-stone-500 mb-1">{$t('transfer.enter_pin')}</p>
+      <p
+        class="text-4xl font-mono font-bold tracking-[0.3em] text-stone-800"
+        aria-label={$t('transfer.pin_aria', { values: { pin: qrData.pin } })}
+      >
         {qrData.pin}
       </p>
     </div>
 
     <!-- URL fallback -->
-    <p class="text-xs text-stone-400 mb-8 text-center">
-      Or type this in your phone's browser:<br>
+    <p class="text-xs text-stone-500 mb-8 text-center">
+      {$t('transfer.url_fallback')}<br>
       <span class="font-mono text-stone-500">{qrData.url}</span>
     </p>
 
     <!-- Received files -->
     {#if receivedFiles.length > 0}
       <div class="w-full max-w-sm mb-6">
-        <h3 class="text-sm font-medium text-stone-600 mb-2">
-          {receivedFiles.length} file{receivedFiles.length === 1 ? '' : 's'} received
-        </h3>
+        <h2 class="text-sm font-medium text-stone-600 mb-2">
+          {$t('transfer.files_received', { values: { count: receivedFiles.length } })}
+        </h2>
         {#each receivedFiles as file}
-          <div class="flex items-center gap-3 py-2 px-3 bg-green-50 rounded-lg mb-1">
-            <span class="text-green-600 text-sm">&#x2713;</span>
+          <div class="flex items-center gap-3 py-2 px-3 bg-[var(--color-success-50)] rounded-lg mb-1">
+            <span class="text-[var(--color-success)] text-sm">&#x2713;</span>
             <span class="text-sm text-stone-700 truncate">{file.filename}</span>
-            <span class="text-xs text-stone-400 ml-auto">
+            <span class="text-xs text-stone-500 ml-auto">
               {Math.round(file.size_bytes / 1024)}KB
             </span>
           </div>
@@ -123,35 +122,25 @@
     {/if}
 
     <!-- Done button -->
-    <button
-      class="w-full max-w-sm px-6 py-4 bg-[var(--color-primary)] text-white rounded-xl
-             text-base font-medium min-h-[44px]"
-      onclick={handleDone}
-    >
-      Done receiving
-    </button>
-    <button
-      class="mt-2 text-stone-500 text-sm min-h-[44px]"
-      onclick={() => navigation.goBack()}
-    >
-      Cancel
-    </button>
+    <div class="w-full max-w-sm flex flex-col gap-2">
+      <Button variant="primary" fullWidth onclick={handleDone}>
+        {$t('transfer.done_button')}
+      </Button>
+      <Button variant="ghost" fullWidth onclick={() => navigation.goBack()}>
+        {$t('common.cancel')}
+      </Button>
+    </div>
 
   {:else if status === 'stopping'}
-    <div class="flex flex-col items-center justify-center flex-1">
-      <div class="animate-pulse text-stone-400">Processing received files...</div>
-    </div>
+    <LoadingState message={$t('transfer.processing_files')} />
 
   {:else}
     <!-- idle / server stopped -->
     <div class="flex flex-col items-center justify-center flex-1">
-      <p class="text-stone-500 mb-4">Transfer session ended.</p>
-      <button
-        class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={() => navigation.goBack()}
-      >
-        Go back
-      </button>
+      <p class="text-stone-500 mb-4">{$t('transfer.session_ended')}</p>
+      <Button variant="secondary" onclick={() => navigation.goBack()}>
+        {$t('common.go_back')}
+      </Button>
     </div>
   {/if}
 </div>

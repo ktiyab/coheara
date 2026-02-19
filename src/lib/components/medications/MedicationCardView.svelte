@@ -1,6 +1,8 @@
 <!-- L3-05: Single medication card in the list view. Safety-critical display. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { MedicationCard } from '$lib/types/medication';
+  import Badge from '$lib/components/ui/Badge.svelte';
 
   interface Props {
     medication: MedicationCard;
@@ -10,23 +12,23 @@
 
   let statusBadge = $derived.by(() => {
     switch (medication.status) {
-      case 'active': return { text: 'Active', color: 'bg-green-100 text-green-700' };
-      case 'paused': return { text: 'Paused', color: 'bg-amber-100 text-amber-700' };
-      case 'stopped': return { text: 'Stopped', color: 'bg-stone-100 text-stone-500' };
-      default: return { text: medication.status, color: 'bg-stone-100 text-stone-500' };
+      case 'active': return { text: $t('medications.status_active'), variant: 'success' as const };
+      case 'paused': return { text: $t('medications.status_paused'), variant: 'warning' as const };
+      case 'stopped': return { text: $t('medications.status_stopped'), variant: 'neutral' as const };
+      default: return { text: medication.status, variant: 'neutral' as const };
     }
   });
 
   let frequencyDisplay = $derived.by(() => {
-    if (medication.frequency_type === 'as_needed') return 'As needed';
-    if (medication.frequency_type === 'tapering') return 'Tapering';
+    if (medication.frequency_type === 'as_needed') return $t('medications.frequency_as_needed');
+    if (medication.frequency_type === 'tapering') return $t('medications.frequency_tapering');
     return medication.frequency;
   });
 
   let prescriberDisplay = $derived.by(() => {
-    if (medication.is_otc) return 'OTC';
+    if (medication.is_otc) return $t('medications.prescriber_otc');
     if (medication.prescriber_name) return medication.prescriber_name;
-    return 'Unknown prescriber';
+    return $t('medications.prescriber_unknown');
   });
 
   function formatRoute(route: string): string {
@@ -39,7 +41,7 @@
   class="w-full text-left bg-white rounded-xl p-4 shadow-sm border border-stone-100
          hover:shadow-md transition-shadow min-h-[44px]"
   onclick={() => onTap(medication)}
-  aria-label="Medication: {medication.generic_name} {medication.dose}"
+  aria-label={$t('medications.card_aria', { values: { name: medication.generic_name, dose: medication.dose } })}
 >
   <!-- Row 1: Generic name + Dose -->
   <div class="flex items-baseline justify-between gap-3">
@@ -67,22 +69,22 @@
 
   <!-- Row 3: Prescriber + Route + Status badge -->
   <div class="flex items-center justify-between gap-2 mt-2">
-    <div class="flex items-center gap-1 text-xs text-stone-400 truncate">
+    <div class="flex items-center gap-1 text-xs text-stone-500 truncate">
       <span>{prescriberDisplay}</span>
       <span aria-hidden="true">&middot;</span>
       <span>{formatRoute(medication.route)}</span>
       {#if medication.is_compound}
         <span aria-hidden="true">&middot;</span>
-        <span class="text-indigo-500">Compound</span>
+        <span class="text-indigo-500">{$t('medications.card_compound')}</span>
       {/if}
       {#if medication.has_tapering}
         <span aria-hidden="true">&middot;</span>
-        <span class="text-blue-500">Tapering</span>
+        <span class="text-[var(--color-info)]">{$t('medications.card_tapering')}</span>
       {/if}
     </div>
-    <span class="text-xs px-2 py-0.5 rounded-full flex-shrink-0 {statusBadge.color}">
+    <Badge variant={statusBadge.variant} size="sm">
       {statusBadge.text}
-    </span>
+    </Badge>
   </div>
 
   <!-- Row 4: Condition -->
@@ -98,9 +100,9 @@
       <div
         class="mt-2 px-3 py-2 rounded-lg text-xs
                {alert.severity === 'Critical'
-                 ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                 ? 'bg-[var(--color-warning-50)] text-[var(--color-warning-800)] border border-[var(--color-warning-200)]'
                  : alert.severity === 'Warning'
-                   ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                   ? 'bg-[var(--color-info-50)] text-[var(--color-info-800)] border border-[var(--color-info-200)]'
                    : 'bg-stone-50 text-stone-600 border border-stone-100'}"
         role="status"
       >

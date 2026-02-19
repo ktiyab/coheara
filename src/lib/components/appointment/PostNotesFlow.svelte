@@ -1,6 +1,9 @@
 <!-- L4-02: Post-appointment notes — guided note capture after appointment. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { saveAppointmentNotes } from '$lib/api/appointment';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     appointmentId: string;
@@ -40,21 +43,19 @@
 </script>
 
 <div class="px-6 py-4">
-  <button class="text-stone-500 text-sm mb-4 min-h-[44px]" onclick={onCancel}>
-    &larr; Cancel
-  </button>
+  <BackButton onclick={onCancel} label={$t('common.cancel')} />
 
-  <h2 class="text-xl font-semibold text-stone-800 mb-6">How did the appointment go?</h2>
+  <h2 class="text-xl font-semibold text-stone-800 mb-6">{$t('appointment.post_title')}</h2>
 
   <div class="flex flex-col gap-5">
     <label class="flex flex-col gap-1">
       <span class="text-sm font-medium text-stone-700">
-        What did the doctor say? <span class="text-red-400">*</span>
+        {$t('appointment.post_doctor_said_label')} <span class="text-[var(--color-danger)]">*</span>
       </span>
       <textarea
         bind:value={doctorSaid}
         rows={3}
-        placeholder="Main points from the appointment..."
+        placeholder={$t('appointment.post_doctor_said_placeholder')}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
                focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
@@ -62,12 +63,12 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-sm font-medium text-stone-700">
-        Any changes to your medications or treatment? <span class="text-red-400">*</span>
+        {$t('appointment.post_changes_label')} <span class="text-[var(--color-danger)]">*</span>
       </span>
       <textarea
         bind:value={changesMade}
         rows={3}
-        placeholder="New medications, dose changes, stopped treatments..."
+        placeholder={$t('appointment.post_changes_placeholder')}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
                focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
@@ -75,12 +76,12 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-sm font-medium text-stone-700">
-        Any follow-up needed? <span class="text-stone-400">(optional)</span>
+        {$t('appointment.post_follow_up_label')} <span class="text-stone-500">{$t('common.optional')}</span>
       </span>
       <textarea
         bind:value={followUp}
         rows={2}
-        placeholder="Next appointment, tests to schedule..."
+        placeholder={$t('appointment.post_follow_up_placeholder')}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
                focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
@@ -88,28 +89,23 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-sm font-medium text-stone-700">
-        Anything else you want to note? <span class="text-stone-400">(optional)</span>
+        {$t('appointment.post_notes_label')} <span class="text-stone-500">{$t('common.optional')}</span>
       </span>
       <textarea
         bind:value={generalNotes}
         rows={2}
-        placeholder="Other observations or reminders..."
+        placeholder={$t('appointment.post_notes_placeholder')}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
                focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
     </label>
 
     {#if error}
-      <p class="text-red-600 text-sm">{error}</p>
+      <p class="text-[var(--color-danger)] text-sm">{error}</p>
     {/if}
 
-    <button
-      class="w-full px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-             font-medium min-h-[44px] disabled:opacity-50"
-      disabled={!canSave || saving}
-      onclick={handleSave}
-    >
-      {saving ? 'Saving...' : 'Save notes'}
-    </button>
+    <Button variant="primary" fullWidth loading={saving} disabled={!canSave} onclick={handleSave}>
+      {saving ? $t('common.saving') : $t('appointment.post_save')}
+    </Button>
   </div>
 </div>

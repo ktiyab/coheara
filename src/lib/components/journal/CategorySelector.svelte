@@ -1,6 +1,9 @@
 <!-- L4-01: Two-level category → subcategory selector with tappable cards. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { CATEGORIES, SUBCATEGORIES } from '$lib/types/journal';
+  import Button from '$lib/components/ui/Button.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
 
   interface Props {
     onSelect: (category: string, specific: string) => void;
@@ -10,15 +13,15 @@
   let selectedCategory: string | null = $state(null);
   let customText = $state('');
 
-  const categoryLabels: Record<string, string> = {
-    Pain: 'Pain',
-    Digestive: 'Stomach',
-    Respiratory: 'Breathing',
-    Neurological: 'Neuro',
-    General: 'General',
-    Mood: 'Mood',
-    Skin: 'Skin',
-    Other: 'Other',
+  const categoryKeys: Record<string, string> = {
+    Pain: 'journal.category_pain',
+    Digestive: 'journal.category_digestive',
+    Respiratory: 'journal.category_respiratory',
+    Neurological: 'journal.category_neurological',
+    General: 'journal.category_general',
+    Mood: 'journal.category_mood',
+    Skin: 'journal.category_skin',
+    Other: 'journal.category_other',
   };
 </script>
 
@@ -33,19 +36,17 @@
         onclick={() => { selectedCategory = cat; }}
       >
         <span class="text-xs text-stone-600 font-medium text-center">
-          {categoryLabels[cat] ?? cat}
+          {categoryKeys[cat] ? $t(categoryKeys[cat]) : cat}
         </span>
       </button>
     {/each}
   </div>
 {:else}
   <!-- Subcategory list -->
-  <button
-    class="text-sm text-stone-500 mb-3 min-h-[44px]"
+  <BackButton
+    label={selectedCategory ?? ''}
     onclick={() => { selectedCategory = null; customText = ''; }}
-  >
-    &larr; {selectedCategory}
-  </button>
+  />
 
   <div class="flex flex-col gap-2">
     {#each SUBCATEGORIES[selectedCategory] ?? [] as sub}
@@ -55,18 +56,17 @@
             type="text"
             class="flex-1 px-4 py-3 rounded-xl border border-stone-200
                    text-stone-700 focus:outline-none focus:border-[var(--color-primary)]"
-            placeholder="Describe..."
+            placeholder={$t('journal.category_describe_placeholder')}
             maxlength={200}
             bind:value={customText}
           />
-          <button
-            class="px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-                   font-medium min-h-[44px] disabled:opacity-50"
+          <Button
+            variant="primary"
             disabled={customText.trim().length === 0}
             onclick={() => onSelect(selectedCategory!, customText.trim())}
           >
-            Next
-          </button>
+            {$t('journal.category_next')}
+          </Button>
         </div>
       {:else}
         <button

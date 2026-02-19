@@ -1,0 +1,9 @@
+{
+  "error": {
+    "generic": "Etwas ist schiefgelaufen",
+    "connection_failed": "Verbindung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+    "wrong_password": "Falsches Passwort. Bitte versuchen Sie es erneut.",
+    "field_required": "Bitte geben Sie {field} ein.",
+    "password_length": "Das Passwort muss mindestens 6 Zeichen enthalten"
+  }
+}

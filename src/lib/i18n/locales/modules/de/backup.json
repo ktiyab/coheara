@@ -1,0 +1,19 @@
+{
+  "backup": {
+    "heading": "SICHERUNG UND WIEDERHERSTELLUNG",
+    "create": "Sicherung erstellen",
+    "restore": "Aus Sicherung wiederherstellen",
+    "save_to": "Sicherung speichern unter:",
+    "file_path": "Pfad der Sicherungsdatei:",
+    "preview": "Sicherung anzeigen",
+    "restore_password": "Geben Sie das Passwort für {name} ein, um die Sicherung zu entschlüsseln.",
+    "password_placeholder": "Profil-Passwort",
+    "password_guidance": "Überprüfen Sie, ob das Passwort mit dem bei der Erstellung der Sicherung verwendeten übereinstimmt.",
+    "restored_message": "{count} Dokumente wiederhergestellt ({size})",
+    "created_message": "Sicherung erstellt: {count} Dokumente, {size}",
+    "profile_label": "Profil",
+    "created_label": "Erstellt",
+    "version_label": "Version",
+    "compatibility_warning": "Diese Sicherung ist möglicherweise nicht vollständig kompatibel."
+  }
+}

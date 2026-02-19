@@ -1,5 +1,10 @@
 <!-- ME-02: Unpair device confirmation dialog -->
 <script lang="ts">
+  import { tick } from 'svelte';
+  import { t } from 'svelte-i18n';
+  import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
+  import Button from '$lib/components/ui/Button.svelte';
+
   let {
     deviceName,
     onConfirm,
@@ -9,23 +14,36 @@
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
+
+  let dialogEl: HTMLDivElement | undefined = $state(undefined);
+
+  $effect(() => {
+    if (dialogEl) {
+      tick().then(() => { if (dialogEl) autoFocusFirst(dialogEl); });
+    }
+  });
 </script>
 
-<div class="overlay" role="dialog" aria-modal="true">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="overlay" role="dialog" aria-modal="true"
+     aria-label={$t('devices.unpair_title', { values: { name: deviceName } })}
+     tabindex="-1"
+     bind:this={dialogEl}
+     onkeydown={(e) => { if (e.key === 'Escape') onCancel(); if (dialogEl) trapFocus(e, dialogEl); }}>
   <div class="dialog">
-    <h3>Unpair "{deviceName}"?</h3>
+    <h3>{$t('devices.unpair_title', { values: { name: deviceName } })}</h3>
     <div class="body">
-      <p>This will:</p>
+      <p>{$t('devices.unpair_consequences')}</p>
       <ul>
-        <li>Disconnect the device immediately</li>
-        <li>Delete all cached health data from the phone</li>
-        <li>Revoke the phone's access to your data</li>
+        <li>{$t('devices.unpair_disconnect')}</li>
+        <li>{$t('devices.unpair_delete_data')}</li>
+        <li>{$t('devices.unpair_revoke')}</li>
       </ul>
-      <p>The phone will need to be re-paired to connect again.</p>
+      <p>{$t('devices.unpair_repaired_note')}</p>
     </div>
     <div class="actions">
-      <button class="cancel-btn" onclick={onCancel}>Cancel</button>
-      <button class="confirm-btn" onclick={onConfirm}>Unpair</button>
+      <Button variant="secondary" onclick={onCancel}>{$t('common.cancel')}</Button>
+      <Button variant="danger" onclick={onConfirm}>{$t('devices.unpair_confirm')}</Button>
     </div>
   </div>
 </div>
@@ -71,23 +89,5 @@
     justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 1rem;
-  }
-  .cancel-btn {
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--border-color, #e2e8f0);
-    background: transparent;
-    border-radius: 0.25rem;
-    cursor: pointer;
-  }
-  .confirm-btn {
-    padding: 0.5rem 1rem;
-    background: var(--danger-color, #ef4444);
-    color: white;
-    border: none;
-    border-radius: 0.25rem;
-    cursor: pointer;
-  }
-  .confirm-btn:hover {
-    opacity: 0.9;
   }
 </style>

@@ -1,18 +1,39 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { t } from 'svelte-i18n';
+  import { t, locale } from 'svelte-i18n';
   import { getHomeData, getMoreDocuments } from '$lib/api/home';
   import { listen } from '@tauri-apps/api/event';
   import type { HomeData, DocumentCard } from '$lib/types/home';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
+  import { ai } from '$lib/stores/ai.svelte';
   import QuickActions from './QuickActions.svelte';
   import DocumentCardView from './DocumentCardView.svelte';
   import OnboardingMilestones from './OnboardingMilestones.svelte';
   import EmptyState from './EmptyState.svelte';
   import CriticalAlertBanner from './CriticalAlertBanner.svelte';
+  import ObservationsBanner from './ObservationsBanner.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
+  import { getCoherenceAlerts } from '$lib/api/coherence';
+  import type { CoherenceAlert } from '$lib/types/coherence';
+  import { getCaregiverSummaries, type CaregiverSummary } from '$lib/api/profile';
+  import { listAppointments } from '$lib/api/appointment';
+  import { getMedications } from '$lib/api/medications';
+  import type { StoredAppointment } from '$lib/types/appointment';
+  import type { MedicationCard } from '$lib/types/medication';
+  import CaregiverDashboard from './CaregiverDashboard.svelte';
+  import UpcomingAppointments from './UpcomingAppointments.svelte';
+  import ActiveMedsSummary from './ActiveMedsSummary.svelte';
+  import DropZoneOverlay from './DropZoneOverlay.svelte';
 
   let homeData: HomeData | null = $state(null);
+  let observations: CoherenceAlert[] = $state([]);
+  let dependents: CaregiverSummary[] = $state([]);
+  let appointments: StoredAppointment[] = $state([]);
+  let activeMeds: MedicationCard[] = $state([]);
+  let aiBannerDismissed = $state(false);
   let loading = $state(true);
   let error: string | null = $state(null);
   let loadingMore = $state(false);
@@ -21,7 +42,20 @@
     try {
       loading = true;
       error = null;
-      homeData = await getHomeData();
+      const [data, alerts, caregiverData, appts, medData] = await Promise.all([
+        getHomeData(),
+        getCoherenceAlerts().catch(() => [] as CoherenceAlert[]),
+        getCaregiverSummaries().catch(() => [] as CaregiverSummary[]),
+        listAppointments().catch(() => [] as StoredAppointment[]),
+        getMedications({ status: 'Active', prescriber_id: null, search_query: null, include_otc: true })
+          .catch(() => ({ medications: [] as MedicationCard[], total_active: 0, total_paused: 0, total_stopped: 0, prescribers: [] })),
+      ]);
+      homeData = data;
+      dependents = caregiverData;
+      appointments = appts;
+      activeMeds = medData.medications;
+      // Show only non-dismissed, standard/info severity observations (exclude critical — handled by CriticalAlertBanner)
+      observations = alerts.filter(a => !a.dismissed && a.severity !== 'Critical');
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -62,15 +96,18 @@
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    if (diffMins < 1) return $t('home.time_just_now');
+    if (diffMins < 60) return $t('home.time_minutes_ago', { values: { count: diffMins } });
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return $t('home.time_hours_ago', { values: { count: diffHours } });
     const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-    return date.toLocaleDateString();
+    if (diffDays < 7) return $t('home.time_days_ago', { values: { count: diffDays } });
+    return date.toLocaleDateString($locale ?? 'en');
   }
 </script>
+
+<!-- Spec 49 [FE-04]: Global drop zone for file import -->
+<DropZoneOverlay />
 
 <div class="flex flex-col min-h-screen pb-20 bg-stone-50">
   <!-- Header -->
@@ -89,17 +126,12 @@
   </header>
 
   {#if loading}
-    <div class="flex items-center justify-center flex-1">
-      <div class="animate-pulse text-stone-400">{$t('common.loading')}</div>
-    </div>
+    <LoadingState message={$t('common.loading')} />
   {:else if error}
-    <div class="px-6 py-8 text-center">
-      <p class="text-red-600 mb-4">{$t('home.error')}: {error}</p>
-      <button class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-              onclick={refresh}>
-        {$t('common.retry')}
-      </button>
-    </div>
+    <ErrorState
+      message="{$t('home.error')}: {error}"
+      onretry={refresh}
+    />
   {:else if homeData}
     <!-- Critical lab alerts — shown first for patient safety -->
     {#if homeData.critical_alerts.length > 0}
@@ -108,10 +140,49 @@
       />
     {/if}
 
+    <!-- L2-03/GAP-M02: Non-critical coherence observations -->
+    {#if observations.length > 0}
+      <ObservationsBanner
+        alerts={observations}
+        onDismiss={refresh}
+      />
+    {/if}
+
+    <!-- Spec 46 [CG-02]: Caregiver dashboard (above personal content) -->
+    {#if dependents.length > 0}
+      <CaregiverDashboard {dependents} />
+    {/if}
+
     <!-- Quick actions -->
     <QuickActions
       hasDocuments={homeData.stats.total_documents > 0}
     />
+
+    <!-- Spec 47 [OB-03]: AI setup banner — only after first document, only when AI not configured -->
+    {#if homeData.stats.total_documents > 0 && !ai.isAiAvailable && !aiBannerDismissed}
+      <div class="mx-6 mt-3 p-4 bg-[var(--color-primary-50)] border border-[var(--color-primary-200)] rounded-xl">
+        <p class="text-sm font-medium text-[var(--color-text-primary)] mb-1">
+          {$t('home.ai_setup_title')}
+        </p>
+        <p class="text-xs text-[var(--color-text-secondary)] mb-3">
+          {$t('home.ai_setup_description')}
+        </p>
+        <div class="flex gap-2">
+          <Button variant="primary" size="sm" onclick={() => navigation.navigate('ai-setup')}>
+            {$t('settings.ai_setup')}
+          </Button>
+          <Button variant="ghost" size="sm" onclick={() => { aiBannerDismissed = true; }}>
+            {$t('home.ai_setup_later')}
+          </Button>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Spec 49: Upcoming appointments surfacing -->
+    <UpcomingAppointments {appointments} />
+
+    <!-- Spec 49: Active medications surfacing -->
+    <ActiveMedsSummary medications={activeMeds} />
 
     <!-- Document feed or empty state -->
     {#if homeData.stats.total_documents === 0}
@@ -123,14 +194,9 @@
         {/each}
 
         {#if homeData.recent_documents.length < homeData.stats.total_documents}
-          <button
-            class="w-full py-3 text-sm text-teal-600 font-medium rounded-xl
-                   bg-white border border-stone-200 hover:bg-stone-50 min-h-[44px]"
-            onclick={loadMore}
-            disabled={loadingMore}
-          >
-            {loadingMore ? $t('common.loading') : $t('home.load_more')}
-          </button>
+          <Button variant="ghost" fullWidth loading={loadingMore} onclick={loadMore}>
+            {$t('home.load_more')}
+          </Button>
         {/if}
       </div>
     {/if}

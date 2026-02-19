@@ -1,5 +1,6 @@
 <!-- L3-05: Search bar + prescriber filter dropdown. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { PrescriberOption } from '$lib/types/medication';
 
   interface Props {
@@ -18,13 +19,13 @@
       type="text"
       {value}
       oninput={(e) => onInput(e.currentTarget.value)}
-      placeholder="Search medications..."
+      placeholder={$t('medications.search_placeholder')}
       class="w-full px-4 py-2.5 pl-10 rounded-lg border border-stone-200 bg-white
              text-sm min-h-[44px]
              focus:border-[var(--color-primary)] focus:outline-none"
-      aria-label="Search medications"
+      aria-label={$t('medications.search_aria')}
     />
-    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm"
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 text-sm"
           aria-hidden="true">
       &#x1F50D;
     </span>
@@ -40,9 +41,9 @@
         const val = e.currentTarget.value;
         onPrescriberChange(val === '' ? null : val);
       }}
-      aria-label="Filter by prescriber"
+      aria-label={$t('medications.search_filter_prescriber')}
     >
-      <option value="">All prescribers</option>
+      <option value="">{$t('medications.search_all_prescribers')}</option>
       {#each prescribers as prescriber}
         <option value={prescriber.id}>
           {prescriber.name} ({prescriber.medication_count})

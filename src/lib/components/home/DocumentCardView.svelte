@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { t, locale } from 'svelte-i18n';
   import type { DocumentCard } from '$lib/types/home';
+  import Badge from '$lib/components/ui/Badge.svelte';
 
   interface Props {
     card: DocumentCard;
@@ -10,25 +12,25 @@
   let entityText = $derived.by(() => {
     const parts: string[] = [];
     const s = card.entity_summary;
-    if (s.medications > 0) parts.push(`${s.medications} medication${s.medications > 1 ? 's' : ''}`);
-    if (s.lab_results > 0) parts.push(`${s.lab_results} lab result${s.lab_results > 1 ? 's' : ''}`);
-    if (s.diagnoses > 0) parts.push(`${s.diagnoses} diagnosis${s.diagnoses > 1 ? 'es' : ''}`);
-    if (s.allergies > 0) parts.push(`${s.allergies} allergy${s.allergies > 1 ? ' alerts' : ' alert'}`);
-    if (s.procedures > 0) parts.push(`${s.procedures} procedure${s.procedures > 1 ? 's' : ''}`);
-    if (s.referrals > 0) parts.push(`${s.referrals} referral${s.referrals > 1 ? 's' : ''}`);
-    return parts.length > 0 ? parts.join(' · ') : 'Processing...';
+    if (s.medications > 0) parts.push($t('home.card_medications', { values: { count: s.medications } }));
+    if (s.lab_results > 0) parts.push($t('home.card_lab_results', { values: { count: s.lab_results } }));
+    if (s.diagnoses > 0) parts.push($t('home.card_diagnoses', { values: { count: s.diagnoses } }));
+    if (s.allergies > 0) parts.push($t('home.card_allergy_alerts', { values: { count: s.allergies } }));
+    if (s.procedures > 0) parts.push($t('home.card_procedures', { values: { count: s.procedures } }));
+    if (s.referrals > 0) parts.push($t('home.card_referrals', { values: { count: s.referrals } }));
+    return parts.length > 0 ? parts.join(' · ') : $t('home.card_processing');
   });
 
   let statusBadge = $derived.by(() => {
     if (card.status === 'PendingReview') {
-      return { text: 'Pending review', color: 'bg-amber-100 text-amber-700' };
+      return { text: $t('home.card_pending_review'), variant: 'warning' as const };
     }
-    return { text: 'Confirmed', color: 'bg-green-100 text-green-700' };
+    return { text: $t('home.card_confirmed'), variant: 'success' as const };
   });
 
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return new Date(dateStr).toLocaleDateString($locale ?? 'en', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -45,17 +47,17 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <span class="font-medium text-stone-800 truncate">{card.document_type}</span>
-        <span class="text-xs px-2 py-0.5 rounded-full {statusBadge.color}">
+        <Badge variant={statusBadge.variant} size="sm">
           {statusBadge.text}
-        </span>
+        </Badge>
       </div>
       <p class="text-sm text-stone-500 mt-1 truncate">
-        {card.professional_name ?? 'Unknown professional'}
+        {card.professional_name ?? $t('home.card_unknown_professional')}
         {#if card.professional_specialty}
           · {card.professional_specialty}
         {/if}
       </p>
-      <p class="text-xs text-stone-400 mt-1">
+      <p class="text-xs text-stone-500 mt-1">
         {formatDate(card.document_date ?? card.imported_at)}
         · {entityText}
       </p>

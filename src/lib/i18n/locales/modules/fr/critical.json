@@ -1,0 +1,15 @@
+{
+  "critical": {
+    "lab_alert": "Votre rapport d'analyses du {date} signale {testName} comme nécessitant une attention rapide.",
+    "contact_doctor": "Veuillez contacter votre médecin ou pharmacien rapidement.",
+    "reference_range": "(référence : {range})",
+    "view_button": "Voir",
+    "dismiss_button": "Fermer",
+    "doctor_addressed": "Votre médecin a-t-il traité ce sujet ?",
+    "doctor_seen": "Oui, mon médecin l'a vu",
+    "not_yet": "Pas encore",
+    "confirm_addressed": "Veuillez confirmer : « Mon médecin a traité ce résultat d'analyse »",
+    "dismiss_reason_placeholder": "ex. Discuté avec le Dr. Martin le 15 janv.",
+    "reason_required": "Veuillez fournir une raison"
+  }
+}

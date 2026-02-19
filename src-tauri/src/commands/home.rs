@@ -108,3 +108,16 @@ pub fn dismiss_alert(
 
     Ok(())
 }
+
+/// Spec 46 [CG-06] + Spec 49: Full-text search across documents.
+#[tauri::command]
+pub fn search_documents(
+    query: String,
+    doc_type_filter: Option<String>,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<crate::db::DocumentSearchResult>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    crate::db::search_documents_fts(&conn, &query, doc_type_filter.as_deref(), 50)
+        .map_err(|e| e.to_string())
+}

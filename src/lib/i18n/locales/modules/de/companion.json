@@ -1,0 +1,19 @@
+{
+  "companion": {
+    "heading": "BEGLEIT-APP INSTALLIEREN",
+    "description_line1": "Stellen Sie die Coheara-Begleit-App über WLAN auf Ihrem Telefon bereit.",
+    "description_line2": "Kein App Store nötig.",
+    "starting": "Wird gestartet...",
+    "start_server": "Begleitserver starten",
+    "scan_camera": "Mit der Telefonkamera scannen",
+    "phone_install_note": "Ihr Telefon öffnet eine Seite zur Installation der Begleit-App.",
+    "url_label": "URL:",
+    "version_label": "Version:",
+    "requests_label": "Anfragen:",
+    "apk_label": "APK:",
+    "available": "Verfügbar",
+    "not_bundled": "Nicht enthalten",
+    "pwa_label": "PWA:",
+    "stop_server": "Server stoppen"
+  }
+}

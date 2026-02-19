@@ -1,7 +1,9 @@
 <!-- L4-02: Professional selector — choose existing or create new. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { ProfessionalInfo } from '$lib/types/appointment';
   import { SPECIALTIES } from '$lib/types/appointment';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     professionals: ProfessionalInfo[];
@@ -35,34 +37,29 @@
       >
         <p class="font-medium text-stone-800">{prof.name}</p>
         <p class="text-sm text-stone-500">
-          {prof.specialty ?? 'Specialist'}
+          {prof.specialty ?? $t('appointment.professional_default_specialty')}
           {#if prof.last_seen_date}
-            <span class="text-stone-400"> · Last visit: {prof.last_seen_date}</span>
+            <span class="text-stone-500"> · {$t('appointment.professional_last_visit')} {prof.last_seen_date}</span>
           {/if}
         </p>
         {#if prof.institution}
-          <p class="text-xs text-stone-400 mt-0.5">{prof.institution}</p>
+          <p class="text-xs text-stone-500 mt-0.5">{prof.institution}</p>
         {/if}
       </button>
     {/each}
 
     {#if professionals.length === 0}
-      <p class="text-center text-stone-400 py-4">No professionals found. Add one below.</p>
+      <p class="text-center text-stone-500 py-4">{$t('appointment.professional_empty')}</p>
     {/if}
 
-    <button
-      class="w-full p-4 border-2 border-dashed border-stone-200 rounded-xl
-             text-stone-500 text-sm font-medium min-h-[44px] hover:border-stone-300
-             transition-colors"
-      onclick={() => showNewForm = true}
-    >
-      + Add new professional
-    </button>
+    <Button variant="dashed" fullWidth onclick={() => showNewForm = true}>
+      {$t('appointment.professional_add_new')}
+    </Button>
   {:else}
     <div class="flex flex-col gap-3">
       <input
         type="text"
-        placeholder="Doctor's name"
+        placeholder={$t('appointment.professional_name_placeholder')}
         bind:value={newName}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700
                focus:outline-none focus:border-[var(--color-primary)] min-h-[44px]"
@@ -73,31 +70,23 @@
                focus:outline-none focus:border-[var(--color-primary)] min-h-[44px]"
       >
         {#each SPECIALTIES as spec}
-          <option value={spec}>{spec}</option>
+          <option value={spec}>{$t(`appointment.specialty_${spec.toLowerCase()}`)}</option>
         {/each}
       </select>
       <input
         type="text"
-        placeholder="Institution (optional)"
+        placeholder={$t('appointment.professional_institution_placeholder')}
         bind:value={newInstitution}
         class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700
                focus:outline-none focus:border-[var(--color-primary)] min-h-[44px]"
       />
       <div class="flex gap-2">
-        <button
-          class="flex-1 px-4 py-3 bg-[var(--color-primary)] text-white rounded-xl
-                 font-medium min-h-[44px] disabled:opacity-50"
-          disabled={!newName.trim()}
-          onclick={handleCreate}
-        >
-          Continue
-        </button>
-        <button
-          class="px-4 py-3 text-stone-500 rounded-xl min-h-[44px]"
-          onclick={() => showNewForm = false}
-        >
-          Cancel
-        </button>
+        <Button variant="primary" disabled={!newName.trim()} onclick={handleCreate}>
+          {$t('common.continue')}
+        </Button>
+        <Button variant="ghost" onclick={() => showNewForm = false}>
+          {$t('common.cancel')}
+        </Button>
       </div>
     </div>
   {/if}

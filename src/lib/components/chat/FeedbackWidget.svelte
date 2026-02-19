@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { setMessageFeedback } from '$lib/api/chat';
 
   interface Props {
@@ -34,18 +35,18 @@
 </script>
 
 <div class="flex items-center gap-2">
-  <span class="text-xs text-stone-400">Was this helpful?</span>
+  <span class="text-xs text-stone-500">{$t('chat.feedback_question')}</span>
 
   <button
     class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-full
            transition-all
            {feedback === 'Helpful'
-             ? 'bg-green-100 text-green-600'
+             ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
              : feedback === 'NotHelpful'
-               ? 'opacity-30 text-stone-400'
-               : 'text-stone-400 hover:bg-stone-100'}"
+               ? 'opacity-30 text-stone-500'
+               : 'text-stone-500 hover:bg-stone-100'}"
     onclick={() => handleFeedback('Helpful')}
-    aria-label="Helpful"
+    aria-label={$t('chat.feedback_helpful')}
     aria-pressed={feedback === 'Helpful'}
     disabled={saving}
   >
@@ -58,10 +59,10 @@
            {feedback === 'NotHelpful'
              ? 'bg-stone-100 text-stone-600'
              : feedback === 'Helpful'
-               ? 'opacity-30 text-stone-400'
-               : 'text-stone-400 hover:bg-stone-100'}"
+               ? 'opacity-30 text-stone-500'
+               : 'text-stone-500 hover:bg-stone-100'}"
     onclick={() => handleFeedback('NotHelpful')}
-    aria-label="Not helpful"
+    aria-label={$t('chat.feedback_not_helpful')}
     aria-pressed={feedback === 'NotHelpful'}
     disabled={saving}
   >
@@ -69,8 +70,8 @@
   </button>
 
   {#if showThankYou}
-    <span class="text-xs text-stone-400 animate-fade-out">
-      {feedback === 'Helpful' ? 'Thank you!' : 'Thank you for the feedback'}
+    <span class="text-xs text-stone-500 animate-fade-out">
+      {feedback === 'Helpful' ? $t('chat.feedback_thanks_positive') : $t('chat.feedback_thanks_negative')}
     </span>
   {/if}
 </div>

@@ -222,6 +222,14 @@ fn log_filter_outcome(outcome: &FilterOutcome) {
                 "Safety filter: blocked"
             );
         }
+        FilterOutcome::Escalated { rule_id, severity } => {
+            tracing::warn!(
+                outcome = "escalated",
+                rule_id = %rule_id,
+                severity = ?severity,
+                "Safety filter: escalation rule fired"
+            );
+        }
     }
 }
 
@@ -377,6 +385,9 @@ mod tests {
             FilterOutcome::Passed => {
                 panic!("Expected Blocked or Rephrased for alarm text, got Passed");
             }
+            FilterOutcome::Escalated { .. } => {
+                // Acceptable — escalation rule may have fired
+            }
         }
     }
 
@@ -398,6 +409,9 @@ mod tests {
             }
             FilterOutcome::Passed => {
                 panic!("Expected Rephrased or Blocked, got Passed");
+            }
+            FilterOutcome::Escalated { .. } => {
+                // Acceptable — escalation rule may have fired
             }
         }
     }

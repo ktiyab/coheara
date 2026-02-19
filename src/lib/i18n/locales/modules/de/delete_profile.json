@@ -1,0 +1,16 @@
+{
+  "delete_profile": {
+    "danger_zone": "GEFAHRENZONE",
+    "delete_button": "Profil und alle Daten löschen",
+    "permanent_warning": "Dies wird alle Gesundheitsdaten von {name} dauerhaft löschen.",
+    "cannot_undo": "Dies kann nicht rückgängig gemacht werden.",
+    "type_confirm_label": "Geben Sie «{phrase}» zur Bestätigung ein:",
+    "confirm_phrase": "DELETE MY DATA",
+    "confirm_placeholder": "DELETE MY DATA",
+    "password_label": "Geben Sie Ihr Passwort ein:",
+    "deleting": "Wird gelöscht...",
+    "delete_everything": "Alles löschen",
+    "confirm_mismatch": "Bitte geben Sie «{phrase}» genau ein",
+    "password_required": "Passwort erforderlich"
+  }
+}

@@ -7,14 +7,18 @@
  *   3. Fallback to English
  *
  * Supported languages: en, fr, de (I18N-01)
+ *
+ * SE-002: Locale files are built from domain modules (locales/modules/{lang}/*.json)
+ * via build-locales.js → locales/_generated/{lang}.json.
+ * Source of truth: locales/modules/. Edit modules, not _generated files.
  */
 
 import { register, init, getLocaleFromNavigator } from 'svelte-i18n';
 
-// Lazy-load locale files (only loaded when needed)
-register('en', () => import('./locales/en.json'));
-register('fr', () => import('./locales/fr.json'));
-register('de', () => import('./locales/de.json'));
+// Lazy-load locale files from build output (SE-002: domain modules merged at build time)
+register('en', () => import('./locales/_generated/en.json'));
+register('fr', () => import('./locales/_generated/fr.json'));
+register('de', () => import('./locales/_generated/de.json'));
 
 const SUPPORTED_LANGUAGES = new Set(['en', 'fr', 'de']);
 

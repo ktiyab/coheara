@@ -1,10 +1,13 @@
 <!-- L4-04: Event detail popup — displays type-specific details, correlations, actions. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import type { TimelineEvent, TimelineCorrelation } from '$lib/types/timeline';
   import { EVENT_COLORS, eventColorGroup } from '$lib/utils/timeline';
 
   import { navigation } from '$lib/stores/navigation.svelte';
+  import Badge from '$lib/components/ui/Badge.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
     event: TimelineEvent;
@@ -61,7 +64,7 @@
 <button
   class="fixed inset-0 z-20 bg-transparent"
   onclick={onClose}
-  aria-label="Close event details"
+  aria-label={$t('timeline.event_close_aria')}
   tabindex="-1"
 ></button>
 
@@ -72,7 +75,7 @@
          overflow-y-auto p-4"
   style={popupStyle()}
   role="dialog"
-  aria-label="Event details: {event.title}"
+  aria-label={$t('timeline.event_dialog_aria', { values: { title: event.title } })}
   tabindex="-1"
 >
   <!-- Header -->
@@ -87,10 +90,10 @@
       {/if}
     </div>
     <button
-      class="text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]
+      class="text-stone-500 hover:text-stone-600 min-h-[44px] min-w-[44px]
              flex items-center justify-center -mr-2 -mt-2"
       onclick={onClose}
-      aria-label="Close"
+      aria-label={$t('timeline.event_close_aria')}
     >
       &times;
     </button>
@@ -99,81 +102,79 @@
   <!-- Type-specific details -->
   <div class="text-sm text-stone-700 space-y-1 mb-3">
     {#if event.metadata.kind === 'Medication'}
-      <p><span class="text-stone-500">Dose:</span> {event.metadata.dose} {event.metadata.frequency}</p>
+      <p><span class="text-stone-500">{$t('timeline.event_dose')}</span> {event.metadata.dose} {event.metadata.frequency}</p>
       {#if event.metadata.brand_name}
-        <p><span class="text-stone-500">Brand:</span> {event.metadata.brand_name}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_brand')}</span> {event.metadata.brand_name}</p>
       {/if}
       {#if event.metadata.reason}
-        <p><span class="text-stone-500">Reason:</span> {event.metadata.reason}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
       {/if}
     {:else if event.metadata.kind === 'DoseChange'}
-      <p><span class="text-stone-500">Changed:</span> {event.metadata.old_dose ?? '?'} &rarr; {event.metadata.new_dose}</p>
+      <p><span class="text-stone-500">{$t('timeline.event_changed')}</span> {event.metadata.old_dose ?? '?'} &rarr; {event.metadata.new_dose}</p>
       {#if event.metadata.old_frequency && event.metadata.new_frequency}
-        <p><span class="text-stone-500">Frequency:</span> {event.metadata.old_frequency} &rarr; {event.metadata.new_frequency}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_frequency')}</span> {event.metadata.old_frequency} &rarr; {event.metadata.new_frequency}</p>
       {/if}
       {#if event.metadata.reason}
-        <p><span class="text-stone-500">Reason:</span> {event.metadata.reason}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
       {/if}
     {:else if event.metadata.kind === 'Lab'}
       <p>
-        <span class="text-stone-500">Result:</span>
+        <span class="text-stone-500">{$t('timeline.event_result')}</span>
         {event.metadata.value ?? event.metadata.value_text ?? 'N/A'}
         {event.metadata.unit ?? ''}
       </p>
       {#if event.metadata.reference_low !== null && event.metadata.reference_high !== null}
-        <p><span class="text-stone-500">Range:</span> {event.metadata.reference_low} — {event.metadata.reference_high} {event.metadata.unit ?? ''}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_range')}</span> {event.metadata.reference_low} — {event.metadata.reference_high} {event.metadata.unit ?? ''}</p>
       {/if}
       {#if event.metadata.abnormal_flag !== 'normal'}
-        <p class="text-amber-700 text-xs">
-          This result is outside the normal range. Consider discussing with your doctor.
+        <p class="text-[var(--color-warning-800)] text-xs">
+          {$t('timeline.event_abnormal_warning')}
         </p>
       {/if}
     {:else if event.metadata.kind === 'Symptom'}
-      <p><span class="text-stone-500">Severity:</span> {event.metadata.severity}/5</p>
+      <p><span class="text-stone-500">{$t('timeline.event_severity')}</span> {event.metadata.severity}/5</p>
       {#if event.metadata.body_region}
-        <p><span class="text-stone-500">Location:</span> {event.metadata.body_region}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_location')}</span> {event.metadata.body_region}</p>
       {/if}
       <p>
-        <span class="text-xs px-2 py-0.5 rounded-full
-               {event.metadata.still_active ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}">
-          {event.metadata.still_active ? 'Still active' : 'Resolved'}
-        </span>
+        <Badge variant={event.metadata.still_active ? 'warning' : 'success'} size="sm">
+          {event.metadata.still_active ? $t('timeline.event_still_active') : $t('timeline.event_resolved')}
+        </Badge>
       </p>
     {:else if event.metadata.kind === 'Procedure'}
       {#if event.metadata.facility}
-        <p><span class="text-stone-500">Facility:</span> {event.metadata.facility}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_facility')}</span> {event.metadata.facility}</p>
       {/if}
       {#if event.metadata.outcome}
-        <p><span class="text-stone-500">Outcome:</span> {event.metadata.outcome}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_outcome')}</span> {event.metadata.outcome}</p>
       {/if}
       {#if event.metadata.follow_up_required}
-        <p class="text-amber-700 text-xs">Follow-up recommended</p>
+        <p class="text-[var(--color-warning-800)] text-xs">{$t('timeline.event_follow_up')}</p>
       {/if}
     {:else if event.metadata.kind === 'Appointment'}
-      <p><span class="text-stone-500">Type:</span> {event.metadata.appointment_type}</p>
+      <p><span class="text-stone-500">{$t('timeline.event_type')}</span> {event.metadata.appointment_type}</p>
       {#if event.metadata.professional_specialty}
-        <p><span class="text-stone-500">Specialty:</span> {event.metadata.professional_specialty}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_specialty')}</span> {event.metadata.professional_specialty}</p>
       {/if}
     {:else if event.metadata.kind === 'Document'}
-      <p><span class="text-stone-500">Type:</span> {event.metadata.document_type}</p>
+      <p><span class="text-stone-500">{$t('timeline.event_type')}</span> {event.metadata.document_type}</p>
       <p>
-        <span class="text-xs px-2 py-0.5 rounded-full
-               {event.metadata.verified ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
-          {event.metadata.verified ? 'Verified' : 'Not verified'}
-        </span>
+        <Badge variant={event.metadata.verified ? 'success' : 'warning'} size="sm">
+          {event.metadata.verified ? $t('timeline.event_verified') : $t('timeline.event_not_verified')}
+        </Badge>
       </p>
     {:else if event.metadata.kind === 'Diagnosis'}
       {#if event.metadata.icd_code}
-        <p><span class="text-stone-500">ICD:</span> {event.metadata.icd_code}</p>
+        <p><span class="text-stone-500">{$t('timeline.event_icd')}</span> {event.metadata.icd_code}</p>
       {/if}
-      <p><span class="text-stone-500">Status:</span> {event.metadata.status}</p>
+      <p><span class="text-stone-500">{$t('timeline.event_status')}</span> {event.metadata.status}</p>
     {/if}
   </div>
 
   <!-- Correlations -->
   {#if correlations.length > 0}
     <div class="border-t border-stone-100 pt-2 mb-3">
-      <p class="text-xs text-stone-500 font-medium mb-1">Related events ({correlations.length})</p>
+      <p class="text-xs text-stone-500 font-medium mb-1">{$t('timeline.event_related', { values: { count: correlations.length } })}</p>
       {#each correlations as corr}
         <button
           class="w-full text-left text-xs text-stone-600 py-1.5 hover:text-stone-800
@@ -183,7 +184,7 @@
             onScrollToEvent(targetId);
           }}
         >
-          <span class="text-stone-400 mr-1">&rarr;</span>
+          <span class="text-stone-500 mr-1">&rarr;</span>
           {corr.description}
         </button>
       {/each}
@@ -193,17 +194,12 @@
   <!-- Action buttons -->
   <div class="flex gap-2 border-t border-stone-100 pt-2">
     {#if event.document_id}
-      <button
-        class="flex-1 text-sm text-center py-2 rounded-lg bg-stone-100 text-stone-700
-               hover:bg-stone-200 min-h-[44px]"
-        onclick={() => navigation.navigate('document-detail', { documentId: event.document_id! })}
-      >
-        View document
-      </button>
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('document-detail', { documentId: event.document_id! })}>
+        {$t('timeline.event_view_document')}
+      </Button>
     {/if}
-    <button
-      class="flex-1 text-sm text-center py-2 rounded-lg bg-stone-100 text-stone-700
-             hover:bg-stone-200 min-h-[44px]"
+    <Button variant="secondary" size="sm"
       onclick={() => {
         const route = event.metadata.kind === 'Medication' || event.metadata.kind === 'DoseChange'
           ? 'medications'
@@ -212,9 +208,8 @@
           : event.metadata.kind === 'Appointment' ? 'appointments'
           : 'documents';
         navigation.navigate(route, { entityId: event.id });
-      }}
-    >
-      Go to source
-    </button>
+      }}>
+      {$t('timeline.event_go_to_source')}
+    </Button>
   </div>
 </div>

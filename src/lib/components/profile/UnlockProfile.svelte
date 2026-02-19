@@ -2,6 +2,9 @@
   import { t } from 'svelte-i18n';
   import { unlockProfile } from '$lib/api/profile';
   import type { ProfileInfo } from '$lib/types/profile';
+  import Button from '$lib/components/ui/Button.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
+  import Avatar from '$lib/components/ui/Avatar.svelte';
 
   interface Props {
     profile: ProfileInfo;
@@ -38,23 +41,16 @@
 </script>
 
 <div class="flex flex-col items-center justify-center min-h-screen px-8 gap-6 max-w-md mx-auto">
-  <button
-    class="self-start text-stone-400 hover:text-stone-600 min-h-[44px] min-w-[44px]"
-    onclick={onBack}
-    aria-label={$t('profile.back_to_list')}
-  >
-    &larr; {$t('common.back')}
-  </button>
-
-  <div class="w-16 h-16 rounded-full bg-stone-200 flex items-center justify-center
-              text-stone-600 text-2xl font-bold">
-    {profile.name.charAt(0).toUpperCase()}
+  <div class="self-start">
+    <BackButton onclick={onBack} label={$t('common.back')} />
   </div>
+
+  <Avatar name={profile.name} variant="user" size="lg" />
 
   <h2 class="text-2xl font-bold text-stone-800">{profile.name}</h2>
 
   {#if profile.password_hint}
-    <p class="text-stone-400 text-sm">{$t('profile.hint_prefix')}{profile.password_hint}</p>
+    <p class="text-stone-500 text-sm">{$t('profile.hint_prefix')}{profile.password_hint}</p>
   {/if}
 
   <label class="w-full flex flex-col gap-1">
@@ -71,24 +67,16 @@
   </label>
 
   {#if error}
-    <p class="text-red-600 text-sm">{error}</p>
+    <p class="text-[var(--color-danger)] text-sm">{error}</p>
   {/if}
 
-  <button
-    class="w-full px-8 py-4 bg-[var(--color-primary)] text-white rounded-xl text-lg
-           font-medium hover:brightness-110 disabled:opacity-50 min-h-[44px]"
-    onclick={handleUnlock}
-    disabled={loading || !password}
-  >
+  <Button variant="primary" fullWidth loading={loading} disabled={!password} onclick={handleUnlock}>
     {loading ? $t('common.unlocking') : $t('profile.unlock_button')}
-  </button>
+  </Button>
 
   {#if attempts >= 3}
-    <button
-      class="text-[var(--color-primary)] text-sm underline min-h-[44px]"
-      onclick={onForgotPassword}
-    >
+    <Button variant="ghost" onclick={onForgotPassword}>
       {$t('profile.forgot_password')}
-    </button>
+    </Button>
   {/if}
 </div>

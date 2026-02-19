@@ -1,6 +1,7 @@
 <!-- L4-04: Timeline Screen — container for the full timeline experience. -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
   import { getTimelineData } from '$lib/api/timeline';
   import type {
     TimelineData, TimelineFilter, TimelineEvent, TimelineCorrelation,
@@ -12,6 +13,8 @@
   import TimelineCanvas from './TimelineCanvas.svelte';
   import EventDetailPopup from './EventDetailPopup.svelte';
   import EmptyTimeline from './EmptyTimeline.svelte';
+  import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import ErrorState from '$lib/components/ui/ErrorState.svelte';
 
   interface Props {
     sinceAppointmentId?: string;
@@ -117,24 +120,17 @@
 <div class="flex flex-col h-full bg-stone-50">
   <!-- Header -->
   <header class="px-4 pt-4 pb-2">
-    <h1 class="text-xl font-bold text-stone-800">Timeline</h1>
-    <p class="text-sm text-stone-500 mt-0.5">Your medical journey</p>
+    <h1 class="text-xl font-bold text-stone-800">{$t('timeline.screen_title')}</h1>
+    <p class="text-sm text-stone-500 mt-0.5">{$t('timeline.screen_subtitle')}</p>
   </header>
 
   {#if loading}
-    <div class="flex items-center justify-center flex-1">
-      <div class="animate-pulse text-stone-400">Loading timeline...</div>
-    </div>
+    <LoadingState message={$t('timeline.screen_loading')} />
   {:else if error}
-    <div class="px-6 py-8 text-center">
-      <p class="text-red-600 mb-4">Something went wrong: {error}</p>
-      <button
-        class="px-6 py-3 bg-stone-200 rounded-xl text-stone-700 min-h-[44px]"
-        onclick={fetchData}
-      >
-        Try again
-      </button>
-    </div>
+    <ErrorState
+      message={error}
+      onretry={fetchData}
+    />
   {:else if timelineData && timelineData.events.length === 0}
     <EmptyTimeline />
   {:else if timelineData}
@@ -158,17 +154,17 @@
     {#if sinceAppointment}
       {@const appt = timelineData.events.find(e => e.id === sinceAppointment)}
       {#if appt}
-        <div class="mx-4 mb-2 px-4 py-2 bg-teal-50 border border-teal-200 rounded-lg
+        <div class="mx-4 mb-2 px-4 py-2 bg-[var(--color-interactive-50)] border border-[var(--color-interactive)] border-opacity-20 rounded-lg
                     flex items-center justify-between">
-          <span class="text-sm text-teal-800">
-            Changes since {appt.professional_name ?? 'visit'} on {new Date(appt.date).toLocaleDateString()}
+          <span class="text-sm text-[var(--color-interactive-hover)]">
+            {$t('timeline.screen_changes_since', { values: { name: appt.professional_name ?? $t('timeline.screen_visit_fallback'), date: new Date(appt.date).toLocaleDateString() } })}
           </span>
           <button
-            class="text-sm text-teal-600 font-medium min-h-[44px] min-w-[44px] px-2"
+            class="text-sm text-[var(--color-interactive)] font-medium min-h-[44px] min-w-[44px] px-2"
             onclick={() => handleSinceVisitChange(null)}
-            aria-label="Clear since last visit filter"
+            aria-label={$t('timeline.screen_clear_filter_aria')}
           >
-            Clear
+            {$t('common.clear')}
           </button>
         </div>
       {/if}
