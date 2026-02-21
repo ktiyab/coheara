@@ -288,6 +288,44 @@ pub fn clear_document_entities(conn: &Connection, document_id: &Uuid) -> Result<
     Ok(())
 }
 
+/// Get recently ingested documents (within `days` days).
+/// Used by the suggestion scorer to surface unreviewed documents.
+pub fn get_recent_documents(conn: &Connection, days: i64) -> Result<Vec<Document>, DatabaseError> {
+    let modifier = format!("-{days} days");
+    let mut stmt = conn.prepare(
+        "SELECT id, type, title, document_date, ingestion_date, professional_id,
+         source_file, markdown_file, ocr_confidence, verified, source_deleted, perceptual_hash, notes,
+         pipeline_status
+         FROM documents WHERE ingestion_date > datetime('now', ?1)
+         ORDER BY ingestion_date DESC LIMIT 5",
+    )?;
+
+    let rows = stmt.query_map(params![modifier], |row| {
+        Ok(DocumentRow {
+            id: row.get::<_, String>(0)?,
+            doc_type: row.get::<_, String>(1)?,
+            title: row.get::<_, String>(2)?,
+            document_date: row.get::<_, Option<String>>(3)?,
+            ingestion_date: row.get::<_, String>(4)?,
+            professional_id: row.get::<_, Option<String>>(5)?,
+            source_file: row.get::<_, String>(6)?,
+            markdown_file: row.get::<_, Option<String>>(7)?,
+            ocr_confidence: row.get::<_, Option<f32>>(8)?,
+            verified: row.get::<_, i32>(9)?,
+            source_deleted: row.get::<_, i32>(10)?,
+            perceptual_hash: row.get::<_, Option<String>>(11)?,
+            notes: row.get::<_, Option<String>>(12)?,
+            pipeline_status: row.get::<_, Option<String>>(13)?,
+        })
+    })?;
+
+    let mut docs = Vec::new();
+    for row in rows {
+        docs.push(document_from_row(row?)?);
+    }
+    Ok(docs)
+}
+
 // Internal row type for Document mapping
 struct DocumentRow {
     id: String,

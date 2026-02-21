@@ -24,6 +24,7 @@
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ConversationList from './ConversationList.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
+  import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { BarsOutline } from 'flowbite-svelte-icons';
 
@@ -97,6 +98,7 @@
       streamError = null;
       showConversationList = false;
       await loadConversations();
+      suggestions = await getPromptSuggestions();
     } catch (e) {
       console.error('Failed to start conversation:', e);
     }
@@ -202,9 +204,19 @@
     }
   }
 
+  function formatSuggestionText(s: PromptSuggestion): string {
+    return $t(s.template_key, { values: s.params });
+  }
+
   function handleSuggestionTap(suggestion: PromptSuggestion) {
-    inputText = suggestion.text;
-    handleSend();
+    const text = formatSuggestionText(suggestion);
+    if (suggestion.intent === 'query') {
+      inputText = text;
+      handleSend();
+    } else {
+      inputText = text;
+      // Focus the textarea for expression — user completes then sends
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -334,6 +346,15 @@
       </div>
     {/if}
   </div>
+
+  <!-- Quick action chips (expression suggestions) -->
+  {#if hasMessages}
+    <QuickActionChips
+      {suggestions}
+      {isStreaming}
+      onChipTap={handleSuggestionTap}
+    />
+  {/if}
 
   <!-- Input bar -->
   <div class="bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 px-4 py-3">

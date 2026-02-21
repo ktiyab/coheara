@@ -102,6 +102,29 @@ struct MessageRow {
     feedback: Option<String>,
 }
 
+/// Get concatenated lowercase text of recent user messages for topic detection.
+/// Used by the suggestion scorer to suppress already-discussed topics.
+pub fn get_recent_user_messages(conn: &Connection, hours: i64) -> Result<String, DatabaseError> {
+    let modifier = format!("-{hours} hours");
+    let mut stmt = conn.prepare(
+        "SELECT content FROM messages
+         WHERE role = 'patient' AND timestamp > datetime('now', ?1)
+         ORDER BY timestamp DESC LIMIT 100",
+    )?;
+
+    let rows = stmt.query_map(params![modifier], |row| row.get::<_, String>(0))?;
+
+    let mut text = String::new();
+    for row in rows {
+        let content = row?;
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(&content.to_lowercase());
+    }
+    Ok(text)
+}
+
 fn message_from_row(row: MessageRow) -> Result<Message, DatabaseError> {
     Ok(Message {
         id: Uuid::parse_str(&row.id)

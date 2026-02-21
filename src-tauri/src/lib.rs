@@ -21,6 +21,7 @@ pub mod distribution; // ADS: App Distribution Server
 pub mod timeline; // L4-04: Timeline View
 pub mod sync; // M0-04: Sync Engine
 pub mod trust; // L5-01: Trust & Safety
+pub mod suggestions; // LP-05: Intelligent Chat Suggestions
 
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;

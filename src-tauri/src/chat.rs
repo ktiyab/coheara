@@ -62,12 +62,8 @@ pub enum StreamChunkPayload {
     Error { message: String },
 }
 
-/// Prompt suggestion for empty state / new conversation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PromptSuggestion {
-    pub text: String,
-    pub category: String,
-}
+// Re-export from suggestions module (LP-05)
+pub use crate::suggestions::{PromptSuggestion, SuggestionIntent};
 
 // ═══════════════════════════════════════════
 // Title generation
@@ -94,71 +90,6 @@ pub fn generate_title(first_message: &str) -> String {
     } else {
         format!("{}...", &trimmed[..boundary])
     }
-}
-
-// ═══════════════════════════════════════════
-// Prompt suggestions
-// ═══════════════════════════════════════════
-
-/// Default prompt suggestions for empty conversations.
-pub fn default_prompt_suggestions() -> Vec<PromptSuggestion> {
-    vec![
-        PromptSuggestion {
-            text: "What medications am I currently taking?".into(),
-            category: "medications".into(),
-        },
-        PromptSuggestion {
-            text: "Summarize my latest lab results".into(),
-            category: "labs".into(),
-        },
-        PromptSuggestion {
-            text: "Are there any interactions between my medications?".into(),
-            category: "medications".into(),
-        },
-        PromptSuggestion {
-            text: "What should I ask my doctor at my next visit?".into(),
-            category: "appointments".into(),
-        },
-        PromptSuggestion {
-            text: "Explain my diagnosis in simple terms".into(),
-            category: "general".into(),
-        },
-        PromptSuggestion {
-            text: "What changed since my last appointment?".into(),
-            category: "general".into(),
-        },
-    ]
-}
-
-/// Get prompt suggestions contextual to the patient's data.
-/// Replaces generic defaults with contextual suggestions when data exists.
-/// Returns at most 6 suggestions.
-pub fn get_contextual_suggestions(conn: &Connection) -> Result<Vec<PromptSuggestion>, DatabaseError> {
-    let mut suggestions = default_prompt_suggestions();
-
-    let has_meds: bool = conn
-        .query_row("SELECT COUNT(*) > 0 FROM medications", [], |row| row.get(0))
-        .unwrap_or(false);
-
-    let has_labs: bool = conn
-        .query_row("SELECT COUNT(*) > 0 FROM lab_results", [], |row| row.get(0))
-        .unwrap_or(false);
-
-    // Replace generic suggestions with contextual ones (from the end)
-    if has_meds && suggestions.len() >= 6 {
-        suggestions[5] = PromptSuggestion {
-            text: "Do any of my medications have common side effects?".into(),
-            category: "medications".into(),
-        };
-    }
-    if has_labs && suggestions.len() >= 5 {
-        suggestions[4] = PromptSuggestion {
-            text: "Are any of my lab values outside the normal range?".into(),
-            category: "labs".into(),
-        };
-    }
-
-    Ok(suggestions)
 }
 
 // ═══════════════════════════════════════════
@@ -306,29 +237,22 @@ mod tests {
         assert_eq!(generate_title("   "), "New conversation");
     }
 
-    // ── Prompt suggestions ──
+    // ── Prompt suggestions (LP-05: scorer-based) ──
 
     #[test]
-    fn default_suggestions_returns_six() {
-        let suggestions = default_prompt_suggestions();
+    fn scorer_returns_six_with_empty_vault() {
+        let conn = open_memory_database().unwrap();
+        let scorer = crate::suggestions::SuggestionScorer::new();
+        let suggestions = scorer.score(&conn, 6).unwrap();
         assert_eq!(suggestions.len(), 6);
-        assert!(suggestions.iter().all(|s| !s.text.is_empty()));
+        assert!(suggestions.iter().all(|s| !s.template_key.is_empty()));
         assert!(suggestions.iter().all(|s| !s.category.is_empty()));
     }
 
     #[test]
-    fn contextual_suggestions_no_data() {
-        let conn = open_memory_database().unwrap();
-        let suggestions = get_contextual_suggestions(&conn).unwrap();
-        // No medications or labs → defaults only, still capped at 6
-        assert_eq!(suggestions.len(), 6);
-    }
-
-    #[test]
-    fn contextual_suggestions_with_medications() {
+    fn scorer_with_medications_surfaces_med_suggestion() {
         let conn = open_memory_database().unwrap();
 
-        // Insert a document and medication to trigger contextual suggestion
         let doc_id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO documents (id, type, title, source_file, ingestion_date, verified)
@@ -344,12 +268,13 @@ mod tests {
         )
         .unwrap();
 
-        let suggestions = get_contextual_suggestions(&conn).unwrap();
-        assert_eq!(suggestions.len(), 6); // 6 defaults, +1 contextual → truncated to 6
-        // The last suggestion should be the contextual one (replaces last default)
+        let scorer = crate::suggestions::SuggestionScorer::new();
+        let suggestions = scorer.score(&conn, 6).unwrap();
+        assert_eq!(suggestions.len(), 6);
+        // Should have a medication-related suggestion from the scorer
         assert!(suggestions
             .iter()
-            .any(|s| s.text.contains("side effects")));
+            .any(|s| s.category == "medications"));
     }
 
     // ── Conversation summaries ──

@@ -38,6 +38,8 @@ export interface ChatStreamEvent {
 }
 
 export interface PromptSuggestion {
-  text: string;
+  template_key: string;
+  params: Record<string, string>;
   category: string;
+  intent: 'query' | 'expression';
 }

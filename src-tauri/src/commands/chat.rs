@@ -389,12 +389,14 @@ pub fn set_message_feedback(
 }
 
 /// Get prompt suggestions based on the patient's data.
+/// LP-05: Uses SuggestionScorer with 5 SignalProviders for ranked, personalized suggestions.
 #[tauri::command]
 pub fn get_prompt_suggestions(
     state: State<'_, Arc<CoreState>>,
 ) -> Result<Vec<PromptSuggestion>, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
-    let suggestions = chat::get_contextual_suggestions(&conn).map_err(|e| e.to_string())?;
+    let scorer = crate::suggestions::SuggestionScorer::new();
+    let suggestions = scorer.score(&conn, 6).map_err(|e| e.to_string())?;
 
     state.update_activity();
     Ok(suggestions)

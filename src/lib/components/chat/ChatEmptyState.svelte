@@ -12,6 +12,14 @@
     onNavigate?: (screen: string) => void;
   }
   let { suggestions, onSuggestionTap, onNavigate }: Props = $props();
+
+  let querySuggestions = $derived(suggestions.filter(s => s.intent === 'query'));
+  let expressionSuggestions = $derived(suggestions.filter(s => s.intent === 'expression'));
+
+  function formatSuggestion(s: PromptSuggestion): string {
+    const text = $t(s.template_key, { values: s.params });
+    return text.length > 60 ? text.slice(0, 57) + '...' : text;
+  }
 </script>
 
 <div class="flex flex-col items-center justify-center h-full px-6 text-center max-w-md mx-auto">
@@ -41,18 +49,36 @@
     </div>
   {/if}
 
-  {#if suggestions.length > 0}
-    <div class="w-full">
-      <p class="text-xs text-stone-500 dark:text-gray-400 uppercase font-medium mb-3">{$t('chat.suggestions_header')}</p>
+  {#if querySuggestions.length > 0}
+    <div class="w-full mb-4">
+      <p class="text-xs text-stone-500 dark:text-gray-400 uppercase font-medium mb-3">{$t('chat.suggestions_query_header')}</p>
       <div class="grid grid-cols-1 gap-2">
-        {#each suggestions as suggestion}
+        {#each querySuggestions as suggestion}
           <button
             class="w-full text-left px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700
                    text-sm text-stone-700 dark:text-gray-200 hover:border-[var(--color-interactive)]
                    hover:shadow-sm transition-all min-h-[44px]"
             onclick={() => onSuggestionTap(suggestion)}
           >
-            {suggestion.text}
+            {formatSuggestion(suggestion)}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  {#if expressionSuggestions.length > 0}
+    <div class="w-full">
+      <p class="text-xs text-stone-500 dark:text-gray-400 uppercase font-medium mb-3">{$t('chat.suggestions_expression_header')}</p>
+      <div class="grid grid-cols-1 gap-2">
+        {#each expressionSuggestions as suggestion}
+          <button
+            class="w-full text-left px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700
+                   text-sm text-[var(--color-interactive)] hover:border-[var(--color-interactive)]
+                   hover:shadow-sm transition-all min-h-[44px]"
+            onclick={() => onSuggestionTap(suggestion)}
+          >
+            {formatSuggestion(suggestion)}
           </button>
         {/each}
       </div>
