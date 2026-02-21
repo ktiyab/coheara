@@ -159,7 +159,17 @@ function Ensure-Deps {
     if (-not (Test-Path (Join-Path $ProjectRoot "node_modules"))) {
         Log-Step "Installing npm dependencies"
         Push-Location $ProjectRoot
-        try { & npm ci } finally { Pop-Location }
+        # --force: lockfile may have been generated on WSL2 (Linux) with
+        # platform-specific optional deps (e.g. @rollup/rollup-linux-x64-gnu).
+        # --force bypasses EBADPLATFORM and adds Windows binaries alongside Linux ones,
+        # so both WSL2 and Windows share the same node_modules.
+        try {
+            & npm install --force
+            if ($LASTEXITCODE -ne 0) {
+                Log-Error "npm install failed"
+                exit 1
+            }
+        } finally { Pop-Location }
     }
 
     # Build i18n locale files if missing
@@ -325,8 +335,9 @@ function Invoke-Setup {
     Log-Info "Installing npm dependencies..."
     Push-Location $ProjectRoot
     try {
-        & npm ci
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        # --force: bypass EBADPLATFORM for cross-platform lockfile (WSL2 + Windows)
+        & npm install --force
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
         Log-Ok "npm dependencies installed"
     } finally { Pop-Location }
 

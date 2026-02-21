@@ -606,8 +606,9 @@ function Build-Frontend {
     Log-Step "Building desktop frontend (SvelteKit)"
     Push-Location $ProjectRoot
     try {
-        & npm ci --prefer-offline
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        # --force: bypass EBADPLATFORM for cross-platform lockfile (WSL2 + Windows)
+        & npm install --prefer-offline --force
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
         Log-Ok "Frontend built -> .\build\"
@@ -618,8 +619,8 @@ function Build-MobilePwa {
     Log-Step "Building mobile PWA"
     Push-Location $MobileDir
     try {
-        & npm ci --prefer-offline
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        & npm install --prefer-offline --force
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
         Log-Ok "Mobile PWA built -> mobile\build\"
@@ -879,8 +880,9 @@ function Invoke-Setup {
     Log-Info "Installing npm dependencies..."
     Push-Location $ProjectRoot
     try {
-        & npm ci
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        # --force: bypass EBADPLATFORM for cross-platform lockfile (WSL2 + Windows)
+        & npm install --force
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
         Log-Ok "npm dependencies installed"
     } finally { Pop-Location }
 

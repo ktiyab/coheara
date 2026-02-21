@@ -17,8 +17,10 @@ use crate::pipeline::processor::{stage_name, stage_pct_range, StageTracker, STAG
 ///
 /// Validates the path, runs L1-01 format detection + staging + dedup,
 /// and returns the import result for the frontend to handle.
+/// SD-03: Synchronous — runs on Tauri's blocking threadpool to avoid nested
+/// Tokio runtime issues with `reqwest::blocking` and blocking I/O.
 #[tauri::command]
-pub async fn import_document(
+pub fn import_document(
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
     file_path: String,
@@ -103,8 +105,9 @@ pub async fn import_document(
 ///
 /// Processes each file independently, collecting results.
 /// Does not stop on individual file failures.
+/// SD-03: Synchronous — see `import_document` for rationale.
 #[tauri::command]
-pub async fn import_documents_batch(
+pub fn import_documents_batch(
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
     file_paths: Vec<String>,
@@ -256,8 +259,14 @@ fn stop_heartbeat(
 /// This is the primary command for the file picker flow. The user selects a file,
 /// the system imports it, extracts text, structures with the LLM, and saves the
 /// result for the patient to review before committing to storage.
+/// SD-03: Synchronous command — runs on Tauri's blocking threadpool.
+/// This is intentional: the pipeline uses `reqwest::blocking::Client` internally
+/// (for Ollama HTTP calls), which creates its own Tokio runtime. Declaring this
+/// as `async` would run it on the Tokio runtime, causing a panic when the nested
+/// runtime is dropped ("Cannot drop a runtime in a context where blocking is not
+/// allowed").
 #[tauri::command]
-pub async fn process_document(
+pub fn process_document(
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
     file_path: String,
@@ -403,8 +412,9 @@ pub async fn process_document(
 ///
 /// Each file goes through the full pipeline independently.
 /// Failures on individual files do not stop the batch.
+/// SD-03: Synchronous — see `process_document` for rationale.
 #[tauri::command]
-pub async fn process_documents_batch(
+pub fn process_documents_batch(
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
     file_paths: Vec<String>,
@@ -543,8 +553,9 @@ pub async fn process_documents_batch(
 ///
 /// Uses the cascade delete from O.2 to ensure complete cleanup.
 /// Also removes any pending review file for this document.
+/// SD-03: Synchronous — see `import_document` for rationale.
 #[tauri::command]
-pub async fn delete_document(
+pub fn delete_document(
     document_id: String,
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
@@ -590,8 +601,9 @@ pub async fn delete_document(
 ///
 /// The document must exist and be in a reprocessable state
 /// (Imported, Failed, or PendingReview).
+/// SD-03: Synchronous — see `process_document` for rationale.
 #[tauri::command]
-pub async fn reprocess_document(
+pub fn reprocess_document(
     document_id: String,
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
