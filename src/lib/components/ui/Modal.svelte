@@ -11,7 +11,7 @@
   import type { Snippet } from 'svelte';
   import { t } from 'svelte-i18n';
   import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
-  import { CloseOutline } from 'flowbite-svelte-icons';
+  import { CloseIcon } from '$lib/components/icons/md';
 
   interface Props {
     open: boolean;
@@ -91,7 +91,7 @@
           onclick={onclose}
           aria-label={$t('common.close')}
         >
-          <CloseOutline class="w-5 h-5" />
+          <CloseIcon class="w-5 h-5" />
         </button>
       </div>
 

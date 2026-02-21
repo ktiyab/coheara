@@ -5,7 +5,7 @@
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { ChevronDownOutline } from 'flowbite-svelte-icons';
+  import { ChevronDownIcon } from '$lib/components/icons/md';
 
   let open = $state(false);
   let containerEl: HTMLElement | undefined = $state();
@@ -111,7 +111,7 @@
           {extraction.count > 99 ? '99+' : extraction.count}
         </span>
       {/if}
-      <ChevronDownOutline class="w-3 h-3 transition-transform {open ? 'rotate-180' : ''}" />
+      <ChevronDownIcon class="w-3 h-3 transition-transform {open ? 'rotate-180' : ''}" />
     </button>
 
     {#if open}

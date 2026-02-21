@@ -3,13 +3,14 @@
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { ExtractionSuggestion } from '$lib/types/home';
+  import type { Component } from 'svelte';
   import {
-    CalendarMonthOutline,
-    ExclamationCircleOutline,
-    InfoCircleOutline,
-    HeartOutline,
-    CloseOutline,
-  } from 'flowbite-svelte-icons';
+    CalendarIcon,
+    WarningIcon,
+    InfoIcon,
+    HeartIcon,
+    CloseIcon,
+  } from '$lib/components/icons/md';
 
   interface Props {
     suggestions: ExtractionSuggestion[];
@@ -20,11 +21,11 @@
   const MAX_VISIBLE = 3;
   let visible = $derived(suggestions.slice(0, MAX_VISIBLE));
 
-  const typeIcon: Record<string, typeof HeartOutline> = {
-    appointment_prep: CalendarMonthOutline,
-    medication_update: ExclamationCircleOutline,
-    lab_follow_up: InfoCircleOutline,
-    symptom_tracking: HeartOutline,
+  const typeIcon: Record<string, Component<{ class?: string }>> = {
+    appointment_prep: CalendarIcon,
+    medication_update: WarningIcon,
+    lab_follow_up: InfoIcon,
+    symptom_tracking: HeartIcon,
   };
 
   const typeColor: Record<string, string> = {
@@ -52,7 +53,7 @@
     </h2>
     <div class="flex flex-col gap-2">
       {#each visible as suggestion (suggestion.id)}
-        {@const Icon = typeIcon[suggestion.suggestion_type] ?? InfoCircleOutline}
+        {@const Icon = typeIcon[suggestion.suggestion_type] ?? InfoIcon}
         {@const colors = typeColor[suggestion.suggestion_type] ?? typeColor.symptom_tracking}
         <div class="bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl px-4 py-3 flex items-start gap-3">
           <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center {colors}">
@@ -73,7 +74,7 @@
             onclick={() => onDismiss(suggestion.suggestion_type, extractEntityId(suggestion))}
             aria-label={$t('common.dismiss')}
           >
-            <CloseOutline class="w-4 h-4" />
+            <CloseIcon class="w-4 h-4" />
           </button>
         </div>
       {/each}

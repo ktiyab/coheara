@@ -14,7 +14,7 @@
 @plugin 'flowbite/plugin';
 @custom-variant dark (&:where(.dark, .dark *));
 @source "../node_modules/flowbite-svelte/dist";
-@source "../node_modules/flowbite-svelte-icons/dist";
+/* @source for flowbite-svelte-icons removed — replaced by MD icons */
 
 /* === SECTION 2: Theme Definition (@theme) ===
    Primary color scale + shadows + layout + motion.
@@ -56,6 +56,22 @@
   --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1.0);
   --ease-in: cubic-bezier(0.42, 0, 1, 1);
   --ease-out: cubic-bezier(0, 0, 0.58, 1);
+
+  /* Spacing tokens (AUDIT_01 Section 10) */
+  --radius-card: 0.75rem;
+  --spacing-card: 1.5rem;
+  --spacing-grid: 1rem;
+  --spacing-page-x: 2rem;
+  --spacing-page-top: 1.5rem;
+
+  /* Typography scale (AUDIT_01 Section 9) */
+  --text-page-title: 1.75rem;
+  --text-section: 1.25rem;
+  --text-card-title: 1rem;
+  --text-body: 0.875rem;
+  --text-caption: 0.8125rem;
+  --text-badge: 0.75rem;
+  --text-small: 0.6875rem;
 }
 
 /* === SECTION 3: Light Theme Tokens (:root) ===

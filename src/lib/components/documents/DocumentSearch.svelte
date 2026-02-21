@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { searchDocuments, type DocumentSearchResult } from '$lib/api/documents';
-  import { SearchOutline, CloseOutline } from 'flowbite-svelte-icons';
+  import { SearchIcon, CloseIcon } from '$lib/components/icons/md';
 
   interface Props {
     onSelect: (documentId: string) => void;
@@ -55,7 +55,7 @@
   <!-- Search input -->
   <div class="relative">
     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" aria-hidden="true">
-      <SearchOutline class="w-4 h-4" />
+      <SearchIcon class="w-4 h-4" />
     </span>
     <input
       type="search"
@@ -76,7 +76,7 @@
         onclick={() => handleInput('')}
         aria-label={$t('documents.search_clear')}
       >
-        <CloseOutline class="w-3.5 h-3.5" />
+        <CloseIcon class="w-3.5 h-3.5" />
       </button>
     {/if}
   </div>

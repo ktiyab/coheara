@@ -3,7 +3,7 @@
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { RecentSymptomCard } from '$lib/types/home';
-  import { PlusOutline } from 'flowbite-svelte-icons';
+  import { PlusIcon } from '$lib/components/icons/md';
 
   interface Props {
     symptoms: RecentSymptomCard[];
@@ -97,7 +97,7 @@
       class="mt-2 flex items-center gap-1.5 text-sm text-[var(--color-primary)] hover:underline"
       onclick={() => navigation.navigate('chat', { prefill: $t('chat.prefill_symptom') ?? 'I want to log a symptom.' })}
     >
-      <PlusOutline class="w-3.5 h-3.5" />
+      <PlusIcon class="w-3.5 h-3.5" />
       {$t('home.symptoms_log_new') ?? 'Log new symptom'}
     </button>
   </section>

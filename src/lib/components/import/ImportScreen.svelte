@@ -15,7 +15,7 @@
   import BackButton from '$lib/components/ui/BackButton.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Divider from '$lib/components/ui/Divider.svelte';
-  import { ArrowDownOutline, CheckOutline } from 'flowbite-svelte-icons';
+  import { ArrowDownIcon, CheckIcon } from '$lib/components/icons/md';
   import { ai } from '$lib/stores/ai.svelte';
 
   interface Props {
@@ -273,7 +273,7 @@
             aria-live="assertive"
           >
             <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-2xl flex items-center justify-center mb-4">
-              <ArrowDownOutline class="w-8 h-8 text-[var(--color-interactive)]" />
+              <ArrowDownIcon class="w-8 h-8 text-[var(--color-interactive)]" />
             </div>
             <p class="text-lg font-semibold text-[var(--color-interactive-hover)]">{$t('import.drop_files_here')}</p>
             <p class="text-sm text-[var(--color-interactive)] mt-1">{$t('import.supported_formats')}</p>
@@ -391,7 +391,7 @@
       <div class="w-full max-w-md">
         <div class="text-center mb-6">
           <div class="w-16 h-16 bg-[var(--color-success-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <CheckOutline class="w-8 h-8 text-[var(--color-success)]" />
+            <CheckIcon class="w-8 h-8 text-[var(--color-success)]" />
           </div>
           <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-1">
             {successCount === 1

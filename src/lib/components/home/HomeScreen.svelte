@@ -140,7 +140,7 @@
 
 <div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
-  <header class="px-6 pt-6 pb-4">
+  <header class="px-[var(--spacing-page-x)] pt-6 pb-4">
     <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">
       {$t('home.greeting', { values: { name: profile.name } })}
     </h1>
@@ -208,7 +208,7 @@
     {/if}
 
     {#if homeData.stats.total_documents > 0 && !ai.isAiAvailable && !aiBannerDismissed}
-      <div class="mx-6 mt-3 p-4 bg-[var(--color-primary-50)] border border-[var(--color-primary-200)] rounded-xl">
+      <div class="mx-[var(--spacing-page-x)] mt-3 p-4 bg-[var(--color-primary-50)] border border-[var(--color-primary-200)] rounded-xl">
         <p class="text-sm font-medium text-[var(--color-text-primary)] mb-1">
           {$t('home.ai_setup_title')}
         </p>
@@ -233,7 +233,7 @@
 
     <!-- Document feed (populated state) -->
     {#if homeData.stats.total_documents > 0}
-      <div class="px-6 py-3 flex flex-col gap-3">
+      <div class="px-[var(--spacing-page-x)] py-3 flex flex-col gap-3">
         {#each homeData.recent_documents as card (card.id)}
           <DocumentCardView {card} onTap={handleDocumentTap} />
         {/each}

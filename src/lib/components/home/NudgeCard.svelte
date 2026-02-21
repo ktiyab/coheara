@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { CloseOutline, SearchOutline } from 'flowbite-svelte-icons';
+  import { CloseIcon, SearchIcon } from '$lib/components/icons/md';
 
   interface NudgeData {
     should_nudge: boolean;
@@ -38,7 +38,7 @@
                hover:opacity-80 transition-opacity"
       >
         <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-100)] dark:bg-blue-800/40 flex items-center justify-center">
-          <SearchOutline class="w-5 h-5 text-[var(--color-primary)]" />
+          <SearchIcon class="w-5 h-5 text-[var(--color-primary)]" />
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-[var(--color-text-primary)]">
@@ -56,7 +56,7 @@
         class="shrink-0 p-1.5 rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 transition-colors"
         aria-label={$t('home.nudge_dismiss_aria')}
       >
-        <CloseOutline class="w-4 h-4 text-[var(--color-text-muted)]" />
+        <CloseIcon class="w-4 h-4 text-[var(--color-text-muted)]" />
       </button>
     </div>
   </section>

@@ -60,6 +60,11 @@
     "extraction_pending": "{count} items pending review",
     "extraction_view": "Review",
     "section_privacy": "Privacy & Devices",
-    "section_about": "About"
+    "section_about": "About",
+    "section_ai_desc": "Configure AI model and profile",
+    "section_prefs_desc": "Language, theme, and sound",
+    "section_extraction_desc": "Batch extraction settings",
+    "section_privacy_desc": "Privacy, data, and devices",
+    "section_about_desc": "Version and app info"
   }
 }

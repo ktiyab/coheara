@@ -1,43 +1,25 @@
-<!-- D6: Desktop sidebar — LP-06: simplified 5-item nav (AI-first vision). -->
+<!-- D6: Desktop sidebar — LP-06 + AUDIT_01: flat list, 3px left bar, MD icons. -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { navigation, NAV_SECTIONS } from '$lib/stores/navigation.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { lockProfile } from '$lib/api/profile';
-  import {
-    HomeSolid, HomeOutline,
-    SearchSolid, SearchOutline,
-    FileSolid, FileOutline,
-    ClockSolid, ClockOutline,
-    CogSolid, CogOutline,
-    ChevronDoubleLeftOutline, ChevronDoubleRightOutline,
-    LockSolid
-  } from 'flowbite-svelte-icons';
-
+  import { HomeIcon, SearchIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, LockIcon } from '$lib/components/icons/md';
   import type { Component } from 'svelte';
 
   type NavItem = {
     id: string;
     key: string;
-    Active: Component<{ class?: string }>;
-    Inactive: Component<{ class?: string }>;
+    Icon: Component<{ class?: string }>;
   };
 
-  const navItems: Record<string, NavItem[]> = {
-    main: [
-      { id: 'home', key: 'nav.home', Active: HomeSolid, Inactive: HomeOutline },
-      { id: 'chat', key: 'nav.chat', Active: SearchSolid, Inactive: SearchOutline },
-    ],
-    library: [
-      { id: 'documents', key: 'nav.documents', Active: FileSolid, Inactive: FileOutline },
-      { id: 'timeline', key: 'nav.timeline', Active: ClockSolid, Inactive: ClockOutline },
-    ],
-    system: [
-      { id: 'settings', key: 'nav.settings', Active: CogSolid, Inactive: CogOutline },
-    ],
-  };
-
-  const sectionKeys: (keyof typeof NAV_SECTIONS)[] = ['main', 'library', 'system'];
+  const navItems: NavItem[] = [
+    { id: 'home', key: 'nav.home', Icon: HomeIcon },
+    { id: 'chat', key: 'nav.chat', Icon: SearchIcon },
+    { id: 'documents', key: 'nav.documents', Icon: DocsIcon },
+    { id: 'timeline', key: 'nav.timeline', Icon: TimelineIcon },
+    { id: 'settings', key: 'nav.settings', Icon: SettingsIcon },
+  ];
 
   let collapsed = $derived(navigation.sidebarCollapsed);
 
@@ -66,83 +48,86 @@
       title={collapsed ? ($t('nav.expand_sidebar') ?? 'Expand sidebar') : ($t('nav.collapse_sidebar') ?? 'Collapse sidebar')}
     >
       {#if collapsed}
-        <ChevronDoubleRightOutline class="w-4 h-4" />
+        <ChevronRightIcon class="w-4 h-4" />
       {:else}
-        <ChevronDoubleLeftOutline class="w-4 h-4" />
+        <ChevronLeftIcon class="w-4 h-4" />
       {/if}
     </button>
   </div>
 
-  <!-- Navigation sections -->
-  <div class="flex-1 overflow-y-auto py-2 px-2">
-    {#each sectionKeys as section, sectionIdx}
-      {#if sectionIdx > 0}
-        <div class="border-t border-stone-100 dark:border-gray-800 my-2"></div>
-      {/if}
-
-      {#if !collapsed}
-        <p class="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400 dark:text-gray-500">
-          {$t(`nav.section_${section}`) ?? section}
-        </p>
-      {/if}
-
-      <ul class="space-y-0.5">
-        {#each navItems[section] as item}
-          {@const isActive = navigation.activeScreen === item.id}
-          <li>
-            <button
-              class="w-full flex items-center gap-3 rounded-lg transition-colors
-                     min-h-[40px] {collapsed ? 'justify-center px-2' : 'px-3'}
-                     {isActive
-                       ? 'bg-[var(--color-interactive)]/10 text-[var(--color-interactive)] font-medium'
-                       : 'text-stone-600 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-800'}"
-              onclick={() => handleNav(item.id)}
-              aria-current={isActive ? 'page' : undefined}
-              title={collapsed ? ($t(item.key) ?? item.id) : undefined}
-            >
-              <span class="flex-shrink-0">
-                {#if isActive}
-                  <item.Active class="w-5 h-5" />
-                {:else}
-                  <item.Inactive class="w-5 h-5" />
-                {/if}
-              </span>
-              {#if !collapsed}
-                <span class="text-sm truncate flex-1">{$t(item.key)}</span>
-              {/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/each}
+  <!-- Navigation — flat list, no section labels (AUDIT_01 §1B) -->
+  <div class="flex-1 overflow-y-auto py-2">
+    <ul class="space-y-0.5">
+      {#each navItems as item}
+        {@const isActive = navigation.activeScreen === item.id}
+        <li>
+          <button
+            class="w-full flex items-center gap-3 transition-colors
+                   min-h-[44px] border-l-[3px]
+                   {collapsed ? 'justify-center px-2' : 'px-4'}
+                   {isActive
+                     ? 'border-[var(--color-interactive)] text-[var(--color-interactive)] font-medium'
+                     : 'border-transparent text-stone-600 dark:text-gray-400 hover:bg-stone-50 dark:hover:bg-gray-800/50'}"
+            onclick={() => handleNav(item.id)}
+            aria-current={isActive ? 'page' : undefined}
+            title={collapsed ? ($t(item.key) ?? item.id) : undefined}
+          >
+            <span class="flex-shrink-0">
+              <item.Icon class="w-5 h-5" />
+            </span>
+            {#if !collapsed}
+              <span class="text-sm truncate flex-1">{$t(item.key)}</span>
+            {/if}
+          </button>
+        </li>
+      {/each}
+    </ul>
   </div>
 
-  <!-- Profile section (bottom) -->
+  <!-- Profile section (bottom) — 2-line layout (AUDIT_01 §1D) -->
   <div class="flex-shrink-0 border-t border-stone-100 dark:border-gray-800 p-2">
     {#if collapsed}
       <button
-        class="w-full flex items-center justify-center rounded-lg min-h-[40px]
+        class="w-full flex items-center justify-center rounded-lg min-h-[44px]
                text-stone-500 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
         onclick={async () => { await lockProfile(); }}
         title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
       >
-        <LockSolid class="w-5 h-5" />
+        <LockIcon class="w-5 h-5" />
       </button>
     {:else}
-      <div class="flex items-center gap-2 px-2 py-1.5">
-        <div class="w-7 h-7 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-          {(profile.name ?? 'P').charAt(0).toUpperCase()}
+      <div class="px-3 py-2">
+        <!-- Line 1: Avatar + name -->
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {(profile.name ?? 'P').charAt(0).toUpperCase()}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-stone-700 dark:text-gray-300 truncate font-medium">{profile.name ?? 'Patient'}</p>
+            <p class="text-xs text-stone-400 dark:text-gray-500 truncate">{$t('nav.profile_status_active') ?? 'Active profile'}</p>
+          </div>
         </div>
-        <span class="text-sm text-stone-700 dark:text-gray-300 truncate flex-1">{profile.name ?? 'Patient'}</span>
-        <button
-          class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg
-                 text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
-          onclick={async () => { await lockProfile(); }}
-          title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
-          aria-label={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
-        >
-          <LockSolid class="w-4 h-4" />
-        </button>
+        <!-- Line 2: Utility icons -->
+        <div class="flex items-center gap-1 mt-2">
+          <button
+            class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg
+                   text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
+            onclick={() => navigation.navigate('settings')}
+            title={$t('nav.settings') ?? 'Settings'}
+            aria-label={$t('nav.settings') ?? 'Settings'}
+          >
+            <SettingsIcon class="w-4 h-4" />
+          </button>
+          <button
+            class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg
+                   text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
+            onclick={async () => { await lockProfile(); }}
+            title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
+            aria-label={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
+          >
+            <LockIcon class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     {/if}
   </div>

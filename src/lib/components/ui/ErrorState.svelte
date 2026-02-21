@@ -9,7 +9,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import Button from './Button.svelte';
-  import { ExclamationCircleSolid } from 'flowbite-svelte-icons';
+  import { WarningIcon } from '$lib/components/icons/md';
 
   interface Props {
     message: string;
@@ -34,7 +34,7 @@
   role="alert"
 >
   <div class="flex items-center gap-2 mb-4">
-    <ExclamationCircleSolid class="w-5 h-5 flex-shrink-0 {iconColor}" />
+    <WarningIcon class="w-5 h-5 flex-shrink-0 {iconColor}" />
     <p class={textColor}>{message}</p>
   </div>
   {#if onretry}

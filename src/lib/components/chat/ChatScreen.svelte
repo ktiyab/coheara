@@ -26,7 +26,7 @@
   import ChatEmptyState from './ChatEmptyState.svelte';
   import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { BarsOutline } from 'flowbite-svelte-icons';
+  import { BarsIcon } from '$lib/components/icons/md';
   import { soundManager } from '$lib/utils/sound';
 
   interface Props {
@@ -252,7 +252,7 @@
       onclick={() => showConversationList = !showConversationList}
       aria-label={$t('chat.toggle_conversations')}
     >
-      <BarsOutline class="w-5 h-5" />
+      <BarsIcon class="w-5 h-5" />
     </button>
 
     <h1 class="flex-1 text-base font-medium text-stone-800 dark:text-gray-100 truncate">

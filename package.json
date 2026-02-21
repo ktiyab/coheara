@@ -24,7 +24,6 @@
     "@tauri-apps/plugin-updater": "^2.10.0",
     "flowbite": "^4.0.1",
     "flowbite-svelte": "^1.31.0",
-    "flowbite-svelte-icons": "^3.1.0",
     "svelte-i18n": "^4.0.1"
   },
   "devDependencies": {

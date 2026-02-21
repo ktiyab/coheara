@@ -11,7 +11,7 @@
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import EmptyStateUI from '$lib/components/ui/EmptyState.svelte';
-  import { FileOutline, SearchOutline } from 'flowbite-svelte-icons';
+  import { DocsIcon, SearchIcon } from '$lib/components/icons/md';
 
   let documents: DocumentCard[] = $state([]);
   let loading = $state(true);
@@ -97,7 +97,7 @@
             aria-label={$t('documents.search_toggle')}
             aria-expanded={showSearch}
           >
-            <SearchOutline class="w-4 h-4" />
+            <SearchIcon class="w-4 h-4" />
           </button>
           <Button variant="primary" size="sm" onclick={() => navigation.navigate('import')}>
             {$t('documents.list_import')}
@@ -172,7 +172,7 @@
 
     {:else if documents.length === 0}
       <EmptyStateUI
-        icon={FileOutline}
+        icon={DocsIcon}
         title={$t('documents.list_empty_heading')}
         description={$t('documents.list_empty_description')}
         actionLabel={$t('documents.list_import_documents')}

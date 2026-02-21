@@ -84,6 +84,9 @@
     "meds_recently_changed": "{count, plural, one {# recently changed} other {# recently changed}}",
     "feature_timeline_title": "See your health journey",
     "feature_timeline_body": "Medications, symptoms, appointments, and lab results — all on one timeline. Spot patterns, track progress, and understand your history.",
-    "feature_timeline_cta": "Open timeline"
+    "feature_timeline_cta": "Open timeline",
+    "feature_documents_status": "Ready to import",
+    "feature_chat_status": "Ready to ask",
+    "feature_timeline_status": "Ready to explore"
   }
 }

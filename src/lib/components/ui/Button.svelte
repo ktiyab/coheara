@@ -4,7 +4,7 @@
   Replaces: 20+ inline button implementations
 
   5 variants: primary, secondary, ghost, danger, dashed
-  3 sizes: sm, md, lg
+  4 sizes: xs, sm, md, lg
   States: default, hover, active, disabled, loading, focus
 -->
 <script lang="ts">
@@ -13,7 +13,7 @@
 
   interface Props {
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'dashed';
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'xs' | 'sm' | 'md' | 'lg';
     disabled?: boolean;
     loading?: boolean;
     fullWidth?: boolean;
@@ -44,6 +44,7 @@
   };
 
   const sizeClasses: Record<string, string> = {
+    xs: 'px-4 py-0 min-h-[36px] text-[13px] font-semibold',
     sm: 'px-3 py-1.5 min-h-[36px] text-sm',
     md: 'px-4 py-2.5 min-h-[44px] text-sm font-medium',
     lg: 'px-6 py-3 min-h-[48px] text-base font-medium',

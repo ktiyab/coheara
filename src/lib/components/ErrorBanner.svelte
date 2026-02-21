@@ -1,7 +1,7 @@
 <!-- R.2+R.3: Reusable error banner with ARIA, severity, action guidance, and dismiss. -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { ExclamationCircleSolid, InfoCircleSolid, CloseOutline } from 'flowbite-svelte-icons';
+  import { WarningIcon, InfoIcon, CloseIcon } from '$lib/components/icons/md';
 
   type Severity = 'error' | 'warning' | 'info';
 
@@ -73,9 +73,9 @@
     <div class="flex items-start gap-3">
       <!-- Severity icon -->
       {#if severity === 'info'}
-        <InfoCircleSolid class="w-5 h-5 flex-shrink-0 mt-0.5 {iconColors[severity]}" />
+        <InfoIcon class="w-5 h-5 flex-shrink-0 mt-0.5 {iconColors[severity]}" />
       {:else}
-        <ExclamationCircleSolid class="w-5 h-5 flex-shrink-0 mt-0.5 {iconColors[severity]}" />
+        <WarningIcon class="w-5 h-5 flex-shrink-0 mt-0.5 {iconColors[severity]}" />
       {/if}
 
       <div class="flex-1 min-w-0">
@@ -110,7 +110,7 @@
           onclick={handleDismiss}
           aria-label={$t('common.dismiss')}
         >
-          <CloseOutline class="w-4 h-4" />
+          <CloseIcon class="w-4 h-4" />
         </button>
       {/if}
     </div>

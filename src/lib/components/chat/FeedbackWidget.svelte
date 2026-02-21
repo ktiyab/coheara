@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { setMessageFeedback } from '$lib/api/chat';
-  import { ThumbsUpSolid, ThumbsDownSolid } from 'flowbite-svelte-icons';
+  import { ThumbsUpIcon, ThumbsDownIcon } from '$lib/components/icons/md';
 
   interface Props {
     messageId: string;
@@ -51,7 +51,7 @@
     aria-pressed={feedback === 'Helpful'}
     disabled={saving}
   >
-    <ThumbsUpSolid class="w-4 h-4" />
+    <ThumbsUpIcon class="w-4 h-4" />
   </button>
 
   <button
@@ -67,7 +67,7 @@
     aria-pressed={feedback === 'NotHelpful'}
     disabled={saving}
   >
-    <ThumbsDownSolid class="w-4 h-4" />
+    <ThumbsDownIcon class="w-4 h-4" />
   </button>
 
   {#if showThankYou}

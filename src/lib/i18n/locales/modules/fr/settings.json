@@ -60,6 +60,11 @@
     "extraction_pending": "{count} éléments en attente",
     "extraction_view": "Voir",
     "section_privacy": "Confidentialité et appareils",
-    "section_about": "À propos"
+    "section_about": "À propos",
+    "section_ai_desc": "Configurer le modèle IA et le profil",
+    "section_prefs_desc": "Langue, thème et son",
+    "section_extraction_desc": "Paramètres d'extraction",
+    "section_privacy_desc": "Confidentialité, données et appareils",
+    "section_about_desc": "Version et informations"
   }
 }

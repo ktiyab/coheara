@@ -84,6 +84,9 @@
     "meds_recently_changed": "{count, plural, one {# kürzlich geändert} other {# kürzlich geändert}}",
     "feature_timeline_title": "Sehen Sie Ihren Gesundheitsverlauf",
     "feature_timeline_body": "Medikamente, Symptome, Termine und Laborergebnisse — alles auf einer Zeitachse. Erkennen Sie Muster, verfolgen Sie Fortschritte und verstehen Sie Ihre Geschichte.",
-    "feature_timeline_cta": "Zeitachse öffnen"
+    "feature_timeline_cta": "Zeitachse öffnen",
+    "feature_documents_status": "Bereit zum Importieren",
+    "feature_chat_status": "Bereit zum Fragen",
+    "feature_timeline_status": "Bereit zum Erkunden"
   }
 }

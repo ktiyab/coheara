@@ -29,7 +29,7 @@
   import type { RecommendedModel, ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize } from '$lib/types/ai';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CheckOutline, ExclamationCircleSolid } from 'flowbite-svelte-icons';
+  import { CheckIcon, WarningIcon } from '$lib/components/icons/md';
 
   // ── Wizard State ─────────────────────────────────────────
 
@@ -337,7 +337,7 @@
               aria-current={i === stepIndex ? 'step' : undefined}
             >
               {#if i < stepIndex}
-                <CheckOutline class="w-3.5 h-3.5" />
+                <CheckIcon class="w-3.5 h-3.5" />
               {:else}
                 {i + 1}
               {/if}
@@ -576,14 +576,14 @@
           <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.testing_model', { values: { name: ai.activeModel?.name ?? 'AI' } })}</p>
           <p class="text-sm text-stone-500 dark:text-gray-400">{$t('ai.first_run_note')}</p>
         {:else if error}
-          <div class="mb-4"><ExclamationCircleSolid class="w-10 h-10 text-[var(--color-warning)]" /></div>
+          <div class="mb-4"><WarningIcon class="w-10 h-10 text-[var(--color-warning)]" /></div>
           <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.verification_failed')}</p>
           <p class="text-sm text-[var(--color-danger)] mb-6">{error}</p>
           <Button variant="primary" onclick={runVerify}>
             {$t('common.retry')}
           </Button>
         {:else}
-          <div class="mb-4"><CheckOutline class="w-10 h-10 text-[var(--color-interactive)]" /></div>
+          <div class="mb-4"><CheckIcon class="w-10 h-10 text-[var(--color-interactive)]" /></div>
           <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.model_verified')}</p>
           <p class="text-sm text-stone-500 dark:text-gray-400">{$t('ai.continuing')}</p>
         {/if}
@@ -593,7 +593,7 @@
       <!-- ═══ DONE ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
         <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-full flex items-center justify-center text-[var(--color-interactive)] mb-6">
-          <CheckOutline class="w-8 h-8" />
+          <CheckIcon class="w-8 h-8" />
         </div>
         <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('ai.engine_ready_heading')}</h2>
         <p class="text-base text-stone-600 dark:text-gray-300 mb-2">
@@ -605,11 +605,11 @@
 
         <div class="space-y-3 w-full max-w-xs text-left bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm mb-8">
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-[var(--color-interactive)]"><CheckIcon class="w-3.5 h-3.5" /></span>
             <span class="text-sm text-stone-700 dark:text-gray-200">{$t('ai.ollama_running')}</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-[var(--color-interactive)]"><CheckIcon class="w-3.5 h-3.5" /></span>
             <span class="text-sm text-stone-700 dark:text-gray-200">
               {ai.activeModel?.name}
               {#if ai.activeModel?.quality === 'Medical'}
@@ -618,7 +618,7 @@
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-[var(--color-interactive)]"><CheckIcon class="w-3.5 h-3.5" /></span>
             <span class="text-sm text-stone-700 dark:text-gray-200">{$t('ai.ai_responding')}</span>
           </div>
         </div>

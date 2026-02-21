@@ -1,14 +1,15 @@
 <!-- LP-07: Rich display of non-critical coherence alerts, replacing ObservationsBanner. -->
 <script lang="ts">
+  import type { Component } from 'svelte';
   import { t } from 'svelte-i18n';
   import { dismissCoherenceAlert } from '$lib/api/coherence';
   import type { CoherenceAlert, AlertType } from '$lib/types/coherence';
   import {
-    ExclamationCircleOutline,
-    InfoCircleOutline,
-    ClockOutline,
-    CloseOutline,
-  } from 'flowbite-svelte-icons';
+    WarningIcon,
+    InfoIcon,
+    ClockIcon,
+    CloseIcon,
+  } from '$lib/components/icons/md';
 
   interface Props {
     alerts: CoherenceAlert[];
@@ -23,15 +24,15 @@
   let visible = $derived(expanded ? alerts : alerts.slice(0, COLLAPSE_THRESHOLD));
   let hiddenCount = $derived(Math.max(0, alerts.length - COLLAPSE_THRESHOLD));
 
-  const typeIcon: Record<AlertType, typeof ExclamationCircleOutline> = {
-    conflict: ExclamationCircleOutline,
-    duplicate: InfoCircleOutline,
-    gap: InfoCircleOutline,
-    drift: ExclamationCircleOutline,
-    temporal: ClockOutline,
-    allergy: ExclamationCircleOutline,
-    dose: ExclamationCircleOutline,
-    critical: ExclamationCircleOutline,
+  const typeIcon: Record<AlertType, Component<{ class?: string }>> = {
+    conflict: WarningIcon,
+    duplicate: InfoIcon,
+    gap: InfoIcon,
+    drift: WarningIcon,
+    temporal: ClockIcon,
+    allergy: WarningIcon,
+    dose: WarningIcon,
+    critical: WarningIcon,
   };
 
   const typeColor: Record<AlertType, string> = {
@@ -93,7 +94,7 @@
           disabled={dismissing === alert.id}
           aria-label={$t('common.dismiss')}
         >
-          <CloseOutline class="w-4 h-4" />
+          <CloseIcon class="w-4 h-4" />
         </button>
       </div>
     {/each}

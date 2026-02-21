@@ -22,6 +22,7 @@
     "pairing": "Paired Devices",
     "import": "Import",
     "transfer": "Transfer",
-    "breadcrumb": "Breadcrumb"
+    "breadcrumb": "Breadcrumb",
+    "profile_status_active": "Active profile"
   }
 }

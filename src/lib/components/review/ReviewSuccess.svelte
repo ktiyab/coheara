@@ -3,7 +3,7 @@
   import { t } from 'svelte-i18n';
   import type { EntitiesStoredSummary } from '$lib/types/review';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CheckCircleSolid } from 'flowbite-svelte-icons';
+  import { CheckIcon } from '$lib/components/icons/md';
 
   interface Props {
     documentType: string;
@@ -32,7 +32,7 @@
 <div class="flex flex-col items-center justify-center h-screen bg-stone-50 dark:bg-gray-950 px-6">
   <div class="max-w-md w-full text-center">
     <div class="mb-6" aria-hidden="true">
-      <CheckCircleSolid class="w-16 h-16 text-[var(--color-success)]" />
+      <CheckIcon class="w-16 h-16 text-[var(--color-success)]" />
     </div>
 
     <h1 class="text-2xl font-semibold text-stone-800 dark:text-gray-100 mb-2">

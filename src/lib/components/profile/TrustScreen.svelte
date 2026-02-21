@@ -3,7 +3,7 @@
   import { t, locale } from 'svelte-i18n';
   import { setUserPreference } from '$lib/api/ai';
   import CohearaLogo from '$lib/components/ui/CohearaLogo.svelte';
-  import { CheckOutline } from 'flowbite-svelte-icons';
+  import { CheckIcon } from '$lib/components/icons/md';
 
   interface Props {
     onContinue: () => void;
@@ -65,7 +65,7 @@
   <div class="flex flex-col gap-4 text-stone-700 dark:text-gray-300 text-base">
     {#each benefits as key}
       <div class="flex items-start gap-3">
-        <CheckOutline class="w-4 h-4 text-[var(--color-success)] mt-1 shrink-0" />
+        <CheckIcon class="w-4 h-4 text-[var(--color-success)] mt-1 shrink-0" />
         <p>{$t(key)}</p>
       </div>
     {/each}

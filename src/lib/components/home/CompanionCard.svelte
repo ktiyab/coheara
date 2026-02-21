@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { MobilePhoneOutline, ArrowRightOutline } from 'flowbite-svelte-icons';
+  import { PhoneIcon, ArrowForwardIcon } from '$lib/components/icons/md';
 
   interface Props {
     /** Hide this card when the user already has paired devices */
@@ -21,7 +21,7 @@
     >
       <!-- Icon -->
       <div class="w-10 h-10 rounded-lg bg-stone-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-        <MobilePhoneOutline class="w-5 h-5 text-stone-500 dark:text-gray-400" />
+        <PhoneIcon class="w-5 h-5 text-stone-500 dark:text-gray-400" />
       </div>
 
       <!-- Text -->
@@ -35,7 +35,7 @@
       </div>
 
       <!-- Arrow -->
-      <ArrowRightOutline class="w-4 h-4 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+      <ArrowForwardIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 flex-shrink-0" />
     </button>
   </div>
 {/if}

@@ -1,4 +1,4 @@
-// Custom medical icons — same API as flowbite-svelte-icons (class prop, currentColor, aria-hidden).
+// Custom medical icons — same API as MD icons (class prop, currentColor, aria-hidden).
 // Source: healthicons.org (MIT license).
 export { default as PillIcon } from './PillIcon.svelte';
 export { default as ThermometerIcon } from './ThermometerIcon.svelte';

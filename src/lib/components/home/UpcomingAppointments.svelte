@@ -3,7 +3,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { StoredAppointment } from '$lib/types/appointment';
-  import { CalendarMonthOutline } from 'flowbite-svelte-icons';
+  import { CalendarIcon } from '$lib/components/icons/md';
   import { navigation } from '$lib/stores/navigation.svelte';
 
   interface Props {
@@ -44,7 +44,7 @@
                  hover:border-[var(--color-primary)] hover:shadow-sm transition-colors cursor-pointer text-left"
         >
           <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-50)] flex items-center justify-center">
-            <CalendarMonthOutline class="w-5 h-5 text-[var(--color-primary)]" />
+            <CalendarIcon class="w-5 h-5 text-[var(--color-primary)]" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">

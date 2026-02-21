@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { ExtractedField } from '$lib/types/review';
-  import { EditOutline, CheckOutline } from 'flowbite-svelte-icons';
+  import { EditIcon, CheckIcon } from '$lib/components/icons/md';
 
   interface Props {
     field: ExtractedField;
@@ -73,17 +73,17 @@
         class="text-[var(--color-info)] shrink-0"
         title={$t('review.field_original_title', { values: { value: field.value } })}
       >
-        <EditOutline class="w-3.5 h-3.5" />
+        <EditIcon class="w-3.5 h-3.5" />
       </span>
     {:else}
       <span class="text-stone-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <EditOutline class="w-3.5 h-3.5" />
+        <EditIcon class="w-3.5 h-3.5" />
       </span>
     {/if}
 
     {#if field.confidence >= 0.90}
       <span class="text-[var(--color-success)] shrink-0" aria-label={$t('review.field_high_confidence')}>
-        <CheckOutline class="w-3.5 h-3.5" />
+        <CheckIcon class="w-3.5 h-3.5" />
       </span>
     {/if}
   </button>

@@ -31,7 +31,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CloseOutline } from 'flowbite-svelte-icons';
+  import { CloseIcon } from '$lib/components/icons/md';
 
   let recommended = $state<RecommendedModel[]>([]);
   let pullInput = $state('');
@@ -298,7 +298,7 @@
                     onclick={() => { deleteConfirm = model.name; }}
                     aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
                   >
-                    <CloseOutline class="w-4 h-4" />
+                    <CloseIcon class="w-4 h-4" />
                   </button>
                 </div>
               </div>

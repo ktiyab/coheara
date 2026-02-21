@@ -9,7 +9,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CloseOutline } from 'flowbite-svelte-icons';
+  import { CloseIcon } from '$lib/components/icons/md';
 
   interface Props {
     event: TimelineEvent;
@@ -125,7 +125,7 @@
       onclick={onClose}
       aria-label={$t('timeline.event_close_aria')}
     >
-      <CloseOutline class="w-4 h-4" />
+      <CloseIcon class="w-4 h-4" />
     </button>
   </div>
 

@@ -11,7 +11,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CheckOutline } from 'flowbite-svelte-icons';
+  import { CheckIcon } from '$lib/components/icons/md';
 
   let status: TransferStatus = $state('starting');
   let qrData: QrCodeData | null = $state(null);
@@ -112,7 +112,7 @@
         </h2>
         {#each receivedFiles as file}
           <div class="flex items-center gap-3 py-2 px-3 bg-[var(--color-success-50)] rounded-lg mb-1">
-            <span class="text-[var(--color-success)] text-sm"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-[var(--color-success)] text-sm"><CheckIcon class="w-3.5 h-3.5" /></span>
             <span class="text-sm text-stone-700 dark:text-gray-200 truncate">{file.filename}</span>
             <span class="text-xs text-stone-500 dark:text-gray-400 ml-auto">
               {Math.round(file.size_bytes / 1024)}KB

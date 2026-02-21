@@ -1,4 +1,4 @@
-<!-- V16: Settings hub — grouped rows with inline controls (macOS / Raycast pattern). -->
+<!-- V16 + AUDIT_01 §7: Settings hub — card sections with icon+title+desc headers. -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
@@ -13,12 +13,13 @@
   import { soundManager } from '$lib/utils/sound';
   import { theme, type Theme } from '$lib/stores/theme.svelte';
   import {
-    BrainSolid, UserSolid, MobilePhoneSolid, LockSolid,
-    PaletteSolid, VolumeUpSolid, InfoCircleSolid, SunSolid, MoonSolid,
-    GlobeSolid, ChevronRightOutline, ArrowRightToBracketOutline,
-    ClipboardCheckOutline, PlayOutline,
-  } from 'flowbite-svelte-icons';
+    BrainIcon, PersonIcon, PhoneIcon, LockIcon,
+    PaletteIcon, VolumeIcon, InfoIcon, SunIcon, MoonIcon,
+    GlobeIcon, ChevronRightIcon, ArrowForwardIcon,
+    ClipboardIcon, PlayIcon, SettingsIcon,
+  } from '$lib/components/icons/md';
   import { Toggle, Range, Select } from 'flowbite-svelte';
+  import type { Component } from 'svelte';
 
   const APP_VERSION = '0.2.0';
 
@@ -30,12 +31,12 @@
   let soundEnabled = $state(soundManager.isEnabled());
   let soundVolume = $state(soundManager.getVolume());
 
-  type ThemeOption = { value: Theme; labelKey: string; Icon: typeof SunSolid };
+  type ThemeOption = { value: Theme; labelKey: string; Icon: Component<{ class?: string }> };
 
   const themes: ThemeOption[] = [
-    { value: 'light', labelKey: 'settings.theme_light', Icon: SunSolid },
-    { value: 'dark', labelKey: 'settings.theme_dark', Icon: MoonSolid },
-    { value: 'colorful', labelKey: 'settings.theme_colorful', Icon: PaletteSolid },
+    { value: 'light', labelKey: 'settings.theme_light', Icon: SunIcon },
+    { value: 'dark', labelKey: 'settings.theme_dark', Icon: MoonIcon },
+    { value: 'colorful', labelKey: 'settings.theme_colorful', Icon: PaletteIcon },
   ];
 
   function selectTheme(value: Theme) {
@@ -101,21 +102,27 @@
 </script>
 
 <div class="flex flex-col bg-stone-50 dark:bg-gray-950 min-h-full">
-  <header class="px-6 pt-6 pb-4">
+  <header class="px-[var(--spacing-page-x)] pt-6 pb-4">
     <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('settings.heading')}</h1>
   </header>
 
-  <div class="px-6 pb-6 space-y-6">
+  <div class="px-[var(--spacing-page-x)] pb-6 space-y-6">
 
     <!-- ═══ Section: AI & Profile ═══ -->
     <section>
-      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
-        {$t('settings.section_ai_profile')}
-      </h2>
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
-        <!-- AI Settings → navigate (SC8-02: status badge) -->
+      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- Card header (AUDIT_01 §7A) -->
+        <div class="flex items-center gap-4 px-4 py-3">
+          <BrainIcon class="w-6 h-6 text-stone-500 dark:text-gray-400 flex-shrink-0" />
+          <div>
+            <p class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">{$t('settings.section_ai_profile')}</p>
+            <p class="text-[var(--text-caption)] text-stone-500 dark:text-gray-400">{$t('settings.section_ai_desc') ?? 'Configure AI model and profile'}</p>
+          </div>
+        </div>
+
+        <!-- AI Settings → navigate -->
         <button class={rowBtn} onclick={() => navigation.navigate('ai-settings')}>
-          <BrainSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <BrainIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_ai_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_ai_description')}</p>
@@ -125,35 +132,40 @@
           {:else}
             <span class="text-xs text-[var(--color-warning-800)] flex-shrink-0">{$t('settings.ai_not_configured')}</span>
           {/if}
-          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
 
-        <!-- Switch Profile → action (ST-12: no chevron — action, not navigation) -->
+        <!-- Switch Profile → action -->
         <button class={rowBtn} onclick={async () => { await lockProfile(); }}>
-          <UserSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <PersonIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_switch_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_switch_description')}</p>
           </div>
-          <ArrowRightToBracketOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ArrowForwardIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
       </div>
     </section>
 
     <!-- ═══ Section: Preferences ═══ -->
     <section>
-      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
-        {$t('settings.section_preferences')}
-      </h2>
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- Card header -->
+        <div class="flex items-center gap-4 px-4 py-3">
+          <SettingsIcon class="w-6 h-6 text-stone-500 dark:text-gray-400 flex-shrink-0" />
+          <div>
+            <p class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">{$t('settings.section_preferences')}</p>
+            <p class="text-[var(--text-caption)] text-stone-500 dark:text-gray-400">{$t('settings.section_prefs_desc') ?? 'Language, theme, and sound'}</p>
+          </div>
+        </div>
 
-        <!-- Language — inline pills (label clicks focus pill group) -->
+        <!-- Language — inline pills -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button
             class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
             onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
           >
-            <GlobeSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <GlobeIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
             <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.language_label')}</span>
           </button>
           <div class="flex-1 flex justify-end">
@@ -161,13 +173,13 @@
           </div>
         </div>
 
-        <!-- Theme — inline pills (label clicks focus pill group) -->
+        <!-- Theme — inline pills -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button
             class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
             onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
           >
-            <PaletteSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <PaletteIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
             <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.theme_heading')}</span>
           </button>
           <div class="flex-1 flex justify-end">
@@ -191,11 +203,11 @@
           </div>
         </div>
 
-        <!-- Sound — inline toggle + volume (icon+label clickable to toggle) -->
+        <!-- Sound — inline toggle + volume -->
         <div class="flex flex-col gap-2 px-4 py-3 min-h-[52px]">
           <div class="flex items-center gap-4">
             <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleSound}>
-              <VolumeUpSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+              <VolumeIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
               <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.sound_heading')}</span>
             </button>
             <Toggle checked={soundEnabled} color="primary" onchange={toggleSound} aria-label={$t('settings.sound_enabled')} />
@@ -220,15 +232,20 @@
 
     <!-- ═══ Section: Extraction (LP-01) ═══ -->
     <section>
-      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
-        {$t('settings.section_extraction')}
-      </h2>
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- Card header -->
+        <div class="flex items-center gap-4 px-4 py-3">
+          <ClipboardIcon class="w-6 h-6 text-stone-500 dark:text-gray-400 flex-shrink-0" />
+          <div>
+            <p class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">{$t('settings.section_extraction')}</p>
+            <p class="text-[var(--text-caption)] text-stone-500 dark:text-gray-400">{$t('settings.section_extraction_desc') ?? 'Batch extraction settings'}</p>
+          </div>
+        </div>
 
         <!-- Enable extraction — toggle -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleExtraction}>
-            <ClipboardCheckOutline class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <ClipboardIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_enabled')}</span>
               <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.extraction_enabled_desc')}</p>
@@ -256,7 +273,7 @@
 
         <!-- Manual trigger — action button -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
-          <PlayOutline class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <PlayIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_run_now')}</p>
             {#if batchResult}
@@ -296,43 +313,56 @@
 
     <!-- ═══ Section: Privacy & Devices ═══ -->
     <section>
-      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
-        {$t('settings.section_privacy')}
-      </h2>
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- Card header -->
+        <div class="flex items-center gap-4 px-4 py-3">
+          <LockIcon class="w-6 h-6 text-stone-500 dark:text-gray-400 flex-shrink-0" />
+          <div>
+            <p class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">{$t('settings.section_privacy')}</p>
+            <p class="text-[var(--text-caption)] text-stone-500 dark:text-gray-400">{$t('settings.section_privacy_desc') ?? 'Privacy, data, and devices'}</p>
+          </div>
+        </div>
+
         <!-- Privacy & Data → navigate -->
         <button class={rowBtn} onclick={() => navigation.navigate('privacy')}>
-          <LockSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <LockIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_privacy_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_privacy_description')}</p>
           </div>
-          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
 
         <!-- Paired Devices → navigate -->
         <button class={rowBtn} onclick={() => navigation.navigate('pairing')}>
-          <MobilePhoneSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <PhoneIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_devices_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_devices_description')}</p>
           </div>
-          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
       </div>
     </section>
 
     <!-- ═══ Section: About ═══ -->
     <section>
-      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
-        {$t('settings.section_about')}
-      </h2>
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm">
-        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
-          <InfoCircleSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_about_title')}</p>
-            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>
+      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm">
+        <!-- Card header -->
+        <div class="flex items-center gap-4 px-4 py-3">
+          <InfoIcon class="w-6 h-6 text-stone-500 dark:text-gray-400 flex-shrink-0" />
+          <div>
+            <p class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">{$t('settings.section_about')}</p>
+            <p class="text-[var(--text-caption)] text-stone-500 dark:text-gray-400">{$t('settings.section_about_desc') ?? 'Version and app info'}</p>
+          </div>
+        </div>
+        <div class="border-t border-stone-100 dark:border-gray-800">
+          <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+            <InfoIcon class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_about_title')}</p>
+              <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>
+            </div>
           </div>
         </div>
       </div>

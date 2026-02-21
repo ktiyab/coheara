@@ -2,7 +2,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { t } from 'svelte-i18n';
-  import { ArrowLeftOutline, CheckOutline } from 'flowbite-svelte-icons';
+  import { ChevronLeftIcon, CheckIcon } from '$lib/components/icons/md';
 
   interface Props {
     currentStep: number;
@@ -27,7 +27,7 @@
           onclick={onBack}
           aria-label={$t('common.go_back')}
         >
-          <ArrowLeftOutline class="w-4 h-4" />
+          <ChevronLeftIcon class="w-4 h-4" />
         </button>
       {/if}
     </div>
@@ -58,7 +58,7 @@
           aria-label={$t('profile.setup_step', { values: { current: step, total: totalSteps } })}
         >
           {#if isCompleted}
-            <CheckOutline class="w-4 h-4" />
+            <CheckIcon class="w-4 h-4" />
           {:else}
             {step}
           {/if}

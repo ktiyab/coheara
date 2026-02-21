@@ -8,7 +8,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { ArrowLeftOutline } from 'flowbite-svelte-icons';
+  import { ChevronLeftIcon } from '$lib/components/icons/md';
 
   interface Props {
     label?: string;
@@ -30,7 +30,7 @@
   onclick={onclick ?? (() => navigation.goBack())}
   aria-label={ariaLabel ?? $t('common.go_back')}
 >
-  <ArrowLeftOutline class="w-4 h-4" />
+  <ChevronLeftIcon class="w-4 h-4" />
   {#if label}
     <span class="text-sm">{label}</span>
   {/if}

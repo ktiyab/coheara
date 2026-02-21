@@ -60,6 +60,11 @@
     "extraction_pending": "{count} Elemente zur Pr\u00fcfung",
     "extraction_view": "Anzeigen",
     "section_privacy": "Datenschutz & Ger\u00e4te",
-    "section_about": "Info"
+    "section_about": "Info",
+    "section_ai_desc": "KI-Modell und Profil konfigurieren",
+    "section_prefs_desc": "Sprache, Design und Ton",
+    "section_extraction_desc": "Extraktionseinstellungen",
+    "section_privacy_desc": "Datenschutz, Daten und Geräte",
+    "section_about_desc": "Version und App-Informationen"
   }
 }

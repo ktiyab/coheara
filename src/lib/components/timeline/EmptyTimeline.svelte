@@ -4,12 +4,12 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import { CalendarMonthOutline } from 'flowbite-svelte-icons';
+  import { CalendarIcon } from '$lib/components/icons/md';
 </script>
 
 <div class="flex-1 flex flex-col items-center justify-center gap-3">
   <EmptyState
-    icon={CalendarMonthOutline}
+    icon={CalendarIcon}
     title={$t('timeline.empty_title')}
     description={$t('timeline.empty_description')}
     actionLabel={$t('timeline.empty_load_document')}

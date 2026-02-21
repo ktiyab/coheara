@@ -1,0 +1,6 @@
+<!-- MD: WarningIcon -->
+<script lang="ts">
+  import MdIcon from '../MdIcon.svelte';
+  let { class: className = 'w-5 h-5' }: { class?: string } = $props();
+</script>
+<MdIcon d="M109.23-160 480-800l370.77 640H109.23Zm53.23-30.77h635.08L480-738.46 162.46-190.77Zm333.42-69.15q5.81-6 5.81-14.19 0-8.2-5.99-14.01-6-5.8-14.2-5.8-8.19 0-14 5.99-5.81 6-5.81 14.2 0 8.19 6 14 6 5.81 14.19 5.81 8.2 0 14-6Zm-29.57-78.85h30.77v-211.69h-30.77v211.69ZM480-464.62Z" class={className} />

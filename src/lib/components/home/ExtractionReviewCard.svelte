@@ -5,14 +5,15 @@
 	import { t } from 'svelte-i18n';
 	import type { PendingReviewItem, ExtractionDomain } from '$lib/types/extraction';
 	import { DOMAIN_LABELS, SYMPTOM_CATEGORIES, MEDICATION_ROUTES, SEVERITY_COLORS } from '$lib/types/extraction';
+	import type { Component } from 'svelte';
 	import {
-		ClipboardCheckOutline,
-		HeartOutline,
-		CalendarMonthOutline,
-		EditOutline,
-		CloseOutline,
-		ExclamationCircleOutline,
-	} from 'flowbite-svelte-icons';
+		ClipboardIcon,
+		HeartIcon,
+		CalendarIcon,
+		EditIcon,
+		CloseIcon,
+		WarningIcon,
+	} from '$lib/components/icons/md';
 
 	interface Props {
 		item: PendingReviewItem;
@@ -23,10 +24,10 @@
 
 	let { item, onConfirm, onConfirmWithEdits, onDismiss }: Props = $props();
 
-	const domainIcon: Record<ExtractionDomain, typeof HeartOutline> = {
-		symptom: HeartOutline,
-		medication: ClipboardCheckOutline,
-		appointment: CalendarMonthOutline,
+	const domainIcon: Record<ExtractionDomain, Component<{ class?: string }>> = {
+		symptom: HeartIcon,
+		medication: ClipboardIcon,
+		appointment: CalendarIcon,
 	};
 
 	let Icon = $derived(domainIcon[item.domain]);
@@ -142,7 +143,7 @@
 	<!-- Duplicate warning banner -->
 	{#if duplicateWarning}
 		<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-			<ExclamationCircleOutline class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+			<WarningIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
 			<span class="text-xs text-amber-700 dark:text-amber-300">{duplicateWarning}</span>
 		</div>
 	{/if}
@@ -192,7 +193,7 @@
 				aria-label={$t('extraction.edit_btn')}
 				title={$t('extraction.edit_btn')}
 			>
-				<EditOutline class="w-4 h-4" />
+				<EditIcon class="w-4 h-4" />
 			</button>
 		{:else}
 			<button
@@ -200,7 +201,7 @@
 				onclick={cancelEdit}
 				aria-label={$t('extraction.cancel_edit')}
 			>
-				<CloseOutline class="w-4 h-4" />
+				<CloseIcon class="w-4 h-4" />
 			</button>
 		{/if}
 	</div>

@@ -25,7 +25,7 @@
   import PairingScreen from '$lib/components/settings/PairingScreen.svelte';
   import AiSettingsScreen from '$lib/components/settings/AiSettingsScreen.svelte';
   import AiSetupWizard from '$lib/components/settings/AiSetupWizard.svelte';
-  import { ArrowRightOutline } from 'flowbite-svelte-icons';
+  import { ArrowForwardIcon } from '$lib/components/icons/md';
 
   // Spec 45 [PU-02]: Active profile info (used by sidebar avatar)
   let activeProfileInfo: ProfileInfo | null = $state(null);
@@ -92,7 +92,7 @@
   >
     <span class="text-[var(--color-warning)]">!</span>
     <span class="flex-1">{ai.statusSummary || $t('ai.status_banner')}</span>
-    <span class="text-[var(--color-warning-200)] text-xs flex items-center gap-1">{$t('nav.settings')} <ArrowRightOutline class="w-3 h-3" /></span>
+    <span class="text-[var(--color-warning-200)] text-xs flex items-center gap-1">{$t('nav.settings')} <ArrowForwardIcon class="w-3 h-3" /></span>
   </button>
 {/if}
 

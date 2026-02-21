@@ -2,7 +2,7 @@
   import { t, locale } from 'svelte-i18n';
   import type { DocumentCard } from '$lib/types/home';
   import Badge from '$lib/components/ui/Badge.svelte';
-  import { ChevronRightOutline } from 'flowbite-svelte-icons';
+  import { ChevronRightIcon } from '$lib/components/icons/md';
 
   interface Props {
     card: DocumentCard;
@@ -63,6 +63,6 @@
         · {entityText}
       </p>
     </div>
-    <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 mt-1" />
+    <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 mt-1" />
   </div>
 </button>

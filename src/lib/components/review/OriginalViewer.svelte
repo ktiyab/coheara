@@ -1,7 +1,7 @@
 <!-- L3-04: Original document viewer with zoom, pan, rotate (image/PDF). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { RefreshOutline } from 'flowbite-svelte-icons';
+  import { RefreshIcon } from '$lib/components/icons/md';
 
   interface Props {
     fileBase64: string | null;
@@ -103,7 +103,7 @@
       onclick={rotate90}
       aria-label={$t('review.viewer_rotate')}
     >
-      <RefreshOutline class="w-4 h-4" />
+      <RefreshIcon class="w-4 h-4" />
     </button>
 
     {#if fileType === 'Pdf'}

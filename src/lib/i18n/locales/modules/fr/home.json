@@ -84,6 +84,9 @@
     "meds_recently_changed": "{count, plural, one {# changement récent} other {# changements récents}}",
     "feature_timeline_title": "Suivez votre parcours de santé",
     "feature_timeline_body": "Médicaments, symptômes, rendez-vous et résultats d'analyses — tout sur une seule chronologie. Repérez les tendances, suivez vos progrès et comprenez votre historique.",
-    "feature_timeline_cta": "Ouvrir la chronologie"
+    "feature_timeline_cta": "Ouvrir la chronologie",
+    "feature_documents_status": "Prêt à importer",
+    "feature_chat_status": "Prêt à demander",
+    "feature_timeline_status": "Prêt à explorer"
   }
 }

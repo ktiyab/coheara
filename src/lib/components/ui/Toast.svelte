@@ -7,7 +7,8 @@
 -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { CheckOutline, InfoCircleOutline, ExclamationCircleOutline, CloseOutline } from 'flowbite-svelte-icons';
+  import type { Component } from 'svelte';
+  import { CheckIcon, InfoIcon, WarningIcon, CloseIcon } from '$lib/components/icons/md';
 
   interface Props {
     message: string;
@@ -42,7 +43,7 @@
 
   let s = $derived(variantClasses[severity]);
 
-  const iconMap: Record<string, typeof CheckOutline> = { info: InfoCircleOutline, success: CheckOutline, warning: ExclamationCircleOutline, error: ExclamationCircleOutline };
+  const iconMap: Record<string, Component<{ class?: string }>> = { info: InfoIcon, success: CheckIcon, warning: WarningIcon, error: WarningIcon };
   let Icon = $derived(iconMap[severity]);
 </script>
 
@@ -60,6 +61,6 @@
     onclick={ondismiss}
     aria-label={$t('common.dismiss')}
   >
-    <CloseOutline class="w-4 h-4" />
+    <CloseIcon class="w-4 h-4" />
   </button>
 </div>

@@ -1,7 +1,7 @@
 <!-- Spec 45 [ON-02]: 3-slide welcome tour after recovery phrase -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { FileCirclePlusOutline, SearchOutline, CalendarEditOutline } from 'flowbite-svelte-icons';
+  import { DocsIcon, SearchIcon, CalendarIcon } from '$lib/components/icons/md';
   import type { Component } from 'svelte';
 
   interface Props {
@@ -13,9 +13,9 @@
 
   type Slide = { titleKey: string; descKey: string; Icon: Component<{class?: string}> };
   const slides: Slide[] = [
-    { titleKey: 'tour.slide1_title', descKey: 'tour.slide1_desc', Icon: FileCirclePlusOutline },
-    { titleKey: 'tour.slide2_title', descKey: 'tour.slide2_desc', Icon: SearchOutline },
-    { titleKey: 'tour.slide3_title', descKey: 'tour.slide3_desc', Icon: CalendarEditOutline },
+    { titleKey: 'tour.slide1_title', descKey: 'tour.slide1_desc', Icon: DocsIcon },
+    { titleKey: 'tour.slide2_title', descKey: 'tour.slide2_desc', Icon: SearchIcon },
+    { titleKey: 'tour.slide3_title', descKey: 'tour.slide3_desc', Icon: CalendarIcon },
   ];
 
   const btnPrimary = `inline-flex items-center justify-center gap-2 rounded-lg transition-colors

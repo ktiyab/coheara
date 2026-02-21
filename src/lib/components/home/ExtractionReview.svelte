@@ -3,7 +3,7 @@
 	import { t } from 'svelte-i18n';
 	import { extraction } from '$lib/stores/extraction.svelte';
 	import ExtractionReviewCard from './ExtractionReviewCard.svelte';
-	import { ClipboardCheckOutline } from 'flowbite-svelte-icons';
+	import { ClipboardIcon } from '$lib/components/icons/md';
 
 	let successMsg = $state<string | null>(null);
 	let errorMsg = $state<string | null>(null);
@@ -54,7 +54,7 @@
 		<!-- Section header -->
 		<div class="flex items-center justify-between mb-3">
 			<div class="flex items-center gap-2">
-				<ClipboardCheckOutline class="w-4 h-4 text-[var(--color-primary)]" />
+				<ClipboardIcon class="w-4 h-4 text-[var(--color-primary)]" />
 				<h2 class="text-sm font-semibold text-[var(--color-text-primary)]">
 					{$t('extraction.review_heading')}
 				</h2>

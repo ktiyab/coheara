@@ -1,7 +1,7 @@
 <!-- Spec 45 [ON-02]: First-class profile type choice before CreateProfile -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { UserSolid, UsersGroupSolid } from 'flowbite-svelte-icons';
+  import { PersonIcon, GroupIcon } from '$lib/components/icons/md';
 
   interface Props {
     onSelect: (isCaregiver: boolean) => void;
@@ -20,7 +20,7 @@
       onclick={() => onSelect(false)}
     >
       <div class="flex items-center gap-4">
-        <UserSolid class="w-12 h-12 flex-shrink-0 text-stone-500 dark:text-gray-400 transition-colors group-hover:text-[var(--color-interactive)]" />
+        <PersonIcon class="w-12 h-12 flex-shrink-0 text-stone-500 dark:text-gray-400 transition-colors group-hover:text-[var(--color-interactive)]" />
         <div>
           <p class="font-semibold text-stone-800 dark:text-gray-200">{$t('profile.type_self')}</p>
           <p class="text-sm text-stone-500 dark:text-gray-400 mt-1">{$t('profile.type_self_desc')}</p>
@@ -35,7 +35,7 @@
       onclick={() => onSelect(true)}
     >
       <div class="flex items-center gap-4">
-        <UsersGroupSolid class="w-12 h-12 flex-shrink-0 text-stone-500 dark:text-gray-400 transition-colors group-hover:text-[var(--color-interactive)]" />
+        <GroupIcon class="w-12 h-12 flex-shrink-0 text-stone-500 dark:text-gray-400 transition-colors group-hover:text-[var(--color-interactive)]" />
         <div>
           <p class="font-semibold text-stone-800 dark:text-gray-200">{$t('profile.type_caregiver')}</p>
           <p class="text-sm text-stone-500 dark:text-gray-400 mt-1">{$t('profile.type_caregiver_desc')}</p>

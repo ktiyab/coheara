@@ -4,7 +4,7 @@
   import { t } from 'svelte-i18n';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { ArrowDownOutline } from 'flowbite-svelte-icons';
+  import { ArrowDownIcon } from '$lib/components/icons/md';
 
   const SUPPORTED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'txt'];
 
@@ -51,7 +51,7 @@
     aria-live="assertive"
   >
     <div class="w-20 h-20 bg-white dark:bg-gray-900 rounded-2xl shadow-lg flex items-center justify-center mb-4">
-      <ArrowDownOutline class="w-10 h-10 text-[var(--color-primary)]" />
+      <ArrowDownIcon class="w-10 h-10 text-[var(--color-primary)]" />
     </div>
     <p class="text-lg font-semibold text-[var(--color-primary)]">
       {$t('import.drop_files_here')}
