@@ -14,7 +14,6 @@
 @plugin 'flowbite/plugin';
 @custom-variant dark (&:where(.dark, .dark *));
 @source "../node_modules/flowbite-svelte/dist";
-/* @source for flowbite-svelte-icons removed — replaced by MD icons */
 
 /* === SECTION 2: Theme Definition (@theme) ===
    Primary color scale + shadows + layout + motion.

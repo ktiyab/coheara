@@ -478,14 +478,6 @@ cmd_setup() {
         log_ok "flowbite-svelte@${flowbite_ver}"
     fi
 
-    local icons_ver
-    icons_ver=$(node -e "console.log(require('./node_modules/flowbite-svelte-icons/package.json').version)" 2>/dev/null || echo "MISSING")
-    if [[ "$icons_ver" == "MISSING" ]]; then
-        log_error "flowbite-svelte-icons not found — check package.json"
-    else
-        log_ok "flowbite-svelte-icons@${icons_ver}"
-    fi
-
     # 3. Build i18n locale files
     log_info "Building i18n locale files..."
     node src/lib/i18n/build-locales.js

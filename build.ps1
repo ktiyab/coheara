@@ -891,9 +891,6 @@ function Invoke-Setup {
     try {
         $fbVer = & node -e "console.log(require('./node_modules/flowbite-svelte/package.json').version)" 2>$null
         if ($fbVer) { Log-Ok "flowbite-svelte@$fbVer" } else { Log-Error "flowbite-svelte not found" }
-
-        $icVer = & node -e "console.log(require('./node_modules/flowbite-svelte-icons/package.json').version)" 2>$null
-        if ($icVer) { Log-Ok "flowbite-svelte-icons@$icVer" } else { Log-Error "flowbite-svelte-icons not found" }
     } finally { Pop-Location }
 
     # 3. Build i18n locale files
