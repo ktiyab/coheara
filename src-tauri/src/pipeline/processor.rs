@@ -7,6 +7,8 @@
 //! so the orchestrator remains fully testable with mock implementations.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -278,6 +280,38 @@ pub struct ProcessingOutput {
 }
 
 // ---------------------------------------------------------------------------
+// Stage tracking — shared between processor and command-layer heartbeat
+// ---------------------------------------------------------------------------
+
+/// Shared stage indicator for progress reporting.
+pub type StageTracker = Arc<AtomicU8>;
+
+/// Stage constants matching the frontend's expected stage names.
+pub const STAGE_IMPORTING: u8 = 0;
+pub const STAGE_EXTRACTING: u8 = 1;
+pub const STAGE_STRUCTURING: u8 = 2;
+
+/// Map stage constant to frontend-expected stage name.
+pub fn stage_name(stage: u8) -> &'static str {
+    match stage {
+        STAGE_IMPORTING => "importing",
+        STAGE_EXTRACTING => "extracting",
+        STAGE_STRUCTURING => "structuring",
+        _ => "importing",
+    }
+}
+
+/// Progress percentage range per stage (min, max).
+pub fn stage_pct_range(stage: u8) -> (u8, u8) {
+    match stage {
+        STAGE_IMPORTING => (5, 15),
+        STAGE_EXTRACTING => (15, 40),
+        STAGE_STRUCTURING => (40, 85),
+        _ => (5, 15),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -288,6 +322,7 @@ pub struct ProcessingOutput {
 pub struct DocumentProcessor {
     extractor: Box<dyn TextExtractor + Send + Sync>,
     structurer: Box<dyn MedicalStructurer + Send + Sync>,
+    stage_tracker: Option<StageTracker>,
 }
 
 impl DocumentProcessor {
@@ -298,7 +333,14 @@ impl DocumentProcessor {
         Self {
             extractor,
             structurer,
+            stage_tracker: None,
         }
+    }
+
+    /// Set a shared stage tracker for progress reporting.
+    /// The command layer reads this from the heartbeat thread.
+    pub fn set_stage_tracker(&mut self, tracker: StageTracker) {
+        self.stage_tracker = Some(tracker);
     }
 
     /// Full pipeline from a source file path.
@@ -429,6 +471,11 @@ impl DocumentProcessor {
     ) -> Result<(ExtractionSummary, StructuringSummary, StructuringResult), ProcessingError> {
         let staged_path = Path::new(&import.staged_path);
 
+        // Update stage tracker → Extracting
+        if let Some(ref tracker) = self.stage_tracker {
+            tracker.store(STAGE_EXTRACTING, Ordering::Relaxed);
+        }
+
         // O.5: Update pipeline status → Extracting
         if let Err(e) = repository::update_pipeline_status(
             conn,
@@ -467,6 +514,11 @@ impl DocumentProcessor {
                 error = %e,
                 "Failed to update OCR confidence — continuing"
             );
+        }
+
+        // Update stage tracker → Structuring
+        if let Some(ref tracker) = self.stage_tracker {
+            tracker.store(STAGE_STRUCTURING, Ordering::Relaxed);
         }
 
         // O.5: Update pipeline status → Structuring

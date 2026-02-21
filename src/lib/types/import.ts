@@ -77,7 +77,7 @@ export interface StructuringSummary {
  * On failure: failed (with error field populated)
  */
 export interface ProcessingProgressEvent {
-  stage: 'importing' | 'extracting' | 'structuring' | 'saving_review' | 'complete' | 'failed';
+  stage: 'importing' | 'extracting' | 'structuring' | 'saving_review' | 'complete' | 'failed' | 'reprocessing';
   file_name: string;
   document_id: string | null;
   progress_pct: number | null;

@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::core_state::CoreState;
 use crate::db::sqlite::open_database;
 use crate::pipeline::import::importer::{import_file, ImportResult, ImportStatus};
+use crate::pipeline::processor::{stage_name, stage_pct_range, StageTracker, STAGE_IMPORTING};
 
 /// Import a document from a local file path.
 ///
@@ -188,6 +189,68 @@ pub async fn import_documents_batch(
 // E2E-B02: Document Processing Commands
 // ---------------------------------------------------------------------------
 
+/// Spawn a heartbeat thread that emits stage-aware progress events.
+///
+/// Reads the current stage from the `StageTracker` and emits the correct
+/// stage name with progress percentage within the stage's range.
+fn spawn_heartbeat(
+    app: &AppHandle,
+    file_name: &str,
+    tracker: StageTracker,
+) -> (std::sync::Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<()>) {
+    let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let flag = active.clone();
+    let emit_app = app.clone();
+    let emit_name = file_name.to_string();
+
+    let handle = std::thread::spawn(move || {
+        let mut last_stage: u8 = u8::MAX; // force initial transition
+        let mut pct: u8 = 5;
+
+        while flag.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            if !flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
+            let current = tracker.load(std::sync::atomic::Ordering::Relaxed);
+            let (min_pct, max_pct) = stage_pct_range(current);
+
+            // Stage transition: jump to new stage's starting pct
+            if current != last_stage {
+                pct = min_pct;
+                last_stage = current;
+            }
+
+            let _ = emit_app.emit(
+                "processing-progress",
+                ProcessingProgressEvent {
+                    stage: stage_name(current).into(),
+                    file_name: emit_name.clone(),
+                    progress_pct: Some(pct),
+                    ..Default::default()
+                },
+            );
+
+            // Increment within range
+            if pct < max_pct {
+                pct = pct.saturating_add(3).min(max_pct);
+            }
+        }
+    });
+
+    (active, handle)
+}
+
+/// Stop a heartbeat thread.
+fn stop_heartbeat(
+    active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: std::thread::JoinHandle<()>,
+) {
+    active.store(false, std::sync::atomic::Ordering::Relaxed);
+    let _ = handle.join();
+}
+
 /// Process a document end-to-end: import → extract → structure → save pending review.
 ///
 /// This is the primary command for the file picker flow. The user selects a file,
@@ -228,59 +291,35 @@ pub async fn process_document(
         .resolve(&conn, &ollama)
         .map_err(|e| format!("No AI model available: {e}"))?;
 
-    // Build the document processor with the resolved model
-    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+    // Build the document processor with the resolved model + stage tracker
+    let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
         .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-    // O.4: Emit progress BEFORE the pipeline starts (import+extract+structure)
+    let tracker: StageTracker = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(STAGE_IMPORTING));
+    processor.set_stage_tracker(tracker.clone());
+
+    // Emit initial "importing" stage
     let _ = app.emit(
         "processing-progress",
         ProcessingProgressEvent {
-            stage: "processing".into(),
+            stage: "importing".into(),
             file_name: file_name.clone(),
-            progress_pct: Some(10),
+            progress_pct: Some(5),
             ..Default::default()
         },
     );
 
-    // Q.1: Start heartbeat thread to emit periodic progress during LLM call
-    let heartbeat_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let heartbeat_flag = heartbeat_active.clone();
-    let heartbeat_app = app.clone();
-    let heartbeat_file = file_name.clone();
-    let heartbeat_handle = std::thread::spawn(move || {
-        let mut pct: u8 = 15;
-        while heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            if !heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
-            let _ = heartbeat_app.emit(
-                "processing-progress",
-                ProcessingProgressEvent {
-                    stage: "processing".into(),
-                    file_name: heartbeat_file.clone(),
-                    progress_pct: Some(pct),
-                    ..Default::default()
-                },
-            );
-            // Slowly increment between 15-65%, never reaching 70
-            if pct < 65 {
-                pct += 5;
-            }
-        }
-    });
+    // Start stage-aware heartbeat thread
+    let (heartbeat_active, heartbeat_handle) = spawn_heartbeat(&app, &file_name, tracker);
 
     // Run the full pipeline (import → extract → structure)
     let output = match processor.process_file(path, session, &conn) {
         Ok(output) => {
-            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
-            let _ = heartbeat_handle.join();
+            stop_heartbeat(heartbeat_active, heartbeat_handle);
             output
         }
         Err(e) => {
-            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
-            let _ = heartbeat_handle.join();
+            stop_heartbeat(heartbeat_active, heartbeat_handle);
             // R.1+R.4: Emit failure event with patient-friendly error
             let patient_err = e.to_patient_error();
             let _ = app.emit(
@@ -298,18 +337,7 @@ pub async fn process_document(
         }
     };
 
-    // O.4: Emit accurate post-processing event with document_id
     let doc_id_str = output.outcome.document_id.to_string();
-    let _ = app.emit(
-        "processing-progress",
-        ProcessingProgressEvent {
-            stage: "processed".into(),
-            file_name: file_name.clone(),
-            document_id: Some(doc_id_str.clone()),
-            progress_pct: Some(70),
-            ..Default::default()
-        },
-    );
 
     // Save pending review if structuring succeeded
     if let Some(ref structuring) = output.structuring_result {
@@ -402,7 +430,7 @@ pub async fn process_documents_batch(
         .map_err(|e| format!("No AI model available: {e}"))?;
 
     // Build processor once for the batch
-    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+    let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
         .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
     let total = file_paths.len();
@@ -416,24 +444,43 @@ pub async fn process_documents_batch(
             .unwrap_or("unknown")
             .to_string();
 
-        // Emit batch progress
+        if !path.exists() || !path.is_file() {
+            tracing::warn!(path = %file_path, "Skipping non-existent or non-file path");
+            continue;
+        }
+
+        // Per-file stage tracker + heartbeat
+        let tracker: StageTracker = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(STAGE_IMPORTING));
+        processor.set_stage_tracker(tracker.clone());
+
+        // Emit batch progress with correct stage
         let _ = app.emit(
             "processing-batch-progress",
             ProcessingBatchProgressEvent {
                 current: i + 1,
                 total,
                 file_name: file_name.clone(),
-                stage: "processing".into(),
+                stage: "importing".into(),
             },
         );
 
-        if !path.exists() || !path.is_file() {
-            tracing::warn!(path = %file_path, "Skipping non-existent or non-file path");
-            continue;
-        }
+        // Emit initial per-file progress
+        let _ = app.emit(
+            "processing-progress",
+            ProcessingProgressEvent {
+                stage: "importing".into(),
+                file_name: file_name.clone(),
+                progress_pct: Some(5),
+                ..Default::default()
+            },
+        );
+
+        let (heartbeat_active, heartbeat_handle) = spawn_heartbeat(&app, &file_name, tracker);
 
         match processor.process_file(path, session, &conn) {
             Ok(output) => {
+                stop_heartbeat(heartbeat_active, heartbeat_handle);
+
                 // Save pending review
                 if let Some(ref structuring) = output.structuring_result {
                     if let Err(e) =
@@ -468,6 +515,7 @@ pub async fn process_documents_batch(
                 results.push(output.outcome);
             }
             Err(e) => {
+                stop_heartbeat(heartbeat_active, heartbeat_handle);
                 tracing::warn!(
                     path = %file_path,
                     error = %e,
@@ -601,7 +649,7 @@ pub async fn reprocess_document(
         .resolve(&conn, &ollama)
         .map_err(|e| format!("No AI model available: {e}"))?;
 
-    let processor = crate::pipeline::processor::build_processor(&resolved.name)
+    let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
         .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
     // Reset pipeline status to Imported before reprocessing
@@ -613,56 +661,34 @@ pub async fn reprocess_document(
         tracing::warn!(document_id = %doc_id, error = %e, "Failed to reset pipeline status");
     }
 
+    // Reprocessing skips import stage — starts at extracting
+    let tracker: StageTracker = std::sync::Arc::new(
+        std::sync::atomic::AtomicU8::new(crate::pipeline::processor::STAGE_EXTRACTING),
+    );
+    processor.set_stage_tracker(tracker.clone());
+
     let _ = app.emit(
         "processing-progress",
         ProcessingProgressEvent {
-            stage: "reprocessing".into(),
+            stage: "extracting".into(),
             file_name: doc.title.clone(),
             document_id: Some(doc_id.to_string()),
-            progress_pct: Some(10),
+            progress_pct: Some(15),
             ..Default::default()
         },
     );
 
-    // Q.1: Start heartbeat thread for reprocessing
-    let heartbeat_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let heartbeat_flag = heartbeat_active.clone();
-    let heartbeat_app = app.clone();
-    let heartbeat_file = doc.title.clone();
-    let heartbeat_doc_id = doc_id.to_string();
-    let heartbeat_handle = std::thread::spawn(move || {
-        let mut pct: u8 = 15;
-        while heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            if !heartbeat_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
-            let _ = heartbeat_app.emit(
-                "processing-progress",
-                ProcessingProgressEvent {
-                    stage: "reprocessing".into(),
-                    file_name: heartbeat_file.clone(),
-                    document_id: Some(heartbeat_doc_id.clone()),
-                    progress_pct: Some(pct),
-                    ..Default::default()
-                },
-            );
-            if pct < 65 {
-                pct += 5;
-            }
-        }
-    });
+    // Start stage-aware heartbeat thread
+    let (heartbeat_active, heartbeat_handle) = spawn_heartbeat(&app, &doc.title, tracker);
 
     // Process using the imported document path
     let output = match processor.process_imported(&import_result, session, &conn) {
         Ok(output) => {
-            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
-            let _ = heartbeat_handle.join();
+            stop_heartbeat(heartbeat_active, heartbeat_handle);
             output
         }
         Err(e) => {
-            heartbeat_active.store(false, std::sync::atomic::Ordering::Relaxed);
-            let _ = heartbeat_handle.join();
+            stop_heartbeat(heartbeat_active, heartbeat_handle);
             // R.1+R.4: Emit failure with patient-friendly error
             let patient_err = e.to_patient_error();
             let _ = app.emit(

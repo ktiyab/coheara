@@ -132,6 +132,7 @@
       case 'saving_review': return $t('import.stage_saving');
       case 'complete': return $t('import.stage_complete');
       case 'failed': return $t('import.stage_failed');
+      case 'reprocessing': return $t('import.stage_extracting');
       default: return stage;
     }
   }
