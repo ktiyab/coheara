@@ -14,11 +14,8 @@
   import AppShell from '$lib/components/navigation/AppShell.svelte';
   import HomeScreen from '$lib/components/home/HomeScreen.svelte';
   import ChatScreen from '$lib/components/chat/ChatScreen.svelte';
-  import JournalScreen from '$lib/components/journal/JournalScreen.svelte';
-  import MedicationListScreen from '$lib/components/medications/MedicationListScreen.svelte';
   import ReviewScreen from '$lib/components/review/ReviewScreen.svelte';
   import TimelineScreen from '$lib/components/timeline/TimelineScreen.svelte';
-  import AppointmentScreen from '$lib/components/appointment/AppointmentScreen.svelte';
   import TransferScreen from '$lib/components/transfer/TransferScreen.svelte';
   import ImportScreen from '$lib/components/import/ImportScreen.svelte';
   import DocumentListScreen from '$lib/components/documents/DocumentListScreen.svelte';
@@ -108,18 +105,12 @@
       initialConversationId={navigation.screenParams.conversationId}
       prefill={navigation.screenParams.prefill}
     />
-  {:else if navigation.activeScreen === 'journal'}
-    <JournalScreen />
-  {:else if navigation.activeScreen === 'medications'}
-    <MedicationListScreen />
   {:else if navigation.activeScreen === 'review' && navigation.screenParams.documentId}
     <ReviewScreen
       documentId={navigation.screenParams.documentId}
     />
   {:else if navigation.activeScreen === 'timeline'}
     <TimelineScreen />
-  {:else if navigation.activeScreen === 'appointments'}
-    <AppointmentScreen />
   {:else if navigation.activeScreen === 'transfer'}
     <TransferScreen />
   {:else if navigation.activeScreen === 'settings'}

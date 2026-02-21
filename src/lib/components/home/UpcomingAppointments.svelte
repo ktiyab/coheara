@@ -1,7 +1,7 @@
 <!-- Spec 49: Surface upcoming appointments on the home screen. -->
+<!-- LP-06: Display-only (no navigation to removed appointments screen). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { navigation } from '$lib/stores/navigation.svelte';
   import type { StoredAppointment } from '$lib/types/appointment';
   import { CalendarMonthOutline } from 'flowbite-svelte-icons';
 
@@ -37,10 +37,8 @@
     </h2>
     <div class="flex flex-col gap-2">
       {#each upcoming as appt (appt.id)}
-        <button
-          class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)]
-                 hover:bg-[var(--color-surface-hover)] transition-colors text-left w-full"
-          onclick={() => navigation.navigate('appointments')}
+        <div
+          class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)] w-full"
         >
           <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-50)] flex items-center justify-center">
             <CalendarMonthOutline class="w-5 h-5 text-[var(--color-primary)]" />
@@ -58,7 +56,7 @@
               {$t('home.upcoming_prep_needed')}
             </span>
           {/if}
-        </button>
+        </div>
       {/each}
     </div>
   </section>

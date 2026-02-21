@@ -1,8 +1,8 @@
-<!-- V8-B6: Feature teaching cards — replace QuickActions with substantive guidance -->
+<!-- V8-B6: Feature teaching cards — LP-06: 2 cards (Documents + Chat). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { FileSearchOutline, MessagesOutline, HeartOutline } from 'flowbite-svelte-icons';
+  import { FileSearchOutline, MessagesOutline } from 'flowbite-svelte-icons';
   import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
@@ -27,19 +27,11 @@
       action: 'chat',
       primary: false,
     },
-    {
-      icon: HeartOutline,
-      titleKey: 'home.feature_journal_title',
-      bodyKey: 'home.feature_journal_body',
-      ctaKey: 'home.feature_journal_cta',
-      action: 'journal',
-      primary: false,
-    },
   ];
 </script>
 
 <div class="px-6 mt-4">
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {#each cards as card}
       <div class="bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl p-6 flex flex-col">
         <!-- Icon -->

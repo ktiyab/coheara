@@ -1,22 +1,18 @@
-<!-- D6: Desktop sidebar — replaces TabBar. All 9 screens visible, grouped by section. -->
+<!-- D6: Desktop sidebar — LP-06: simplified 5-item nav (AI-first vision). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation, NAV_SECTIONS } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
-  import { extraction } from '$lib/stores/extraction.svelte';
   import { lockProfile } from '$lib/api/profile';
   import {
     HomeSolid, HomeOutline,
     MessagesSolid, MessagesOutline,
-    HeartSolid, HeartOutline,
     FileSolid, FileOutline,
     ClockSolid, ClockOutline,
-    ClipboardSolid, ClipboardOutline,
     CogSolid, CogOutline,
     ChevronDoubleLeftOutline, ChevronDoubleRightOutline,
-    LockSolid, UserSolid
+    LockSolid
   } from 'flowbite-svelte-icons';
-  import { PillIcon } from '$lib/components/icons';
 
   import type { Component } from 'svelte';
 
@@ -31,13 +27,10 @@
     main: [
       { id: 'home', key: 'nav.home', Active: HomeSolid, Inactive: HomeOutline },
       { id: 'chat', key: 'nav.chat', Active: MessagesSolid, Inactive: MessagesOutline },
-      { id: 'journal', key: 'nav.journal', Active: HeartSolid, Inactive: HeartOutline },
-      { id: 'medications', key: 'nav.medications', Active: PillIcon, Inactive: PillIcon },
     ],
     library: [
       { id: 'documents', key: 'nav.documents', Active: FileSolid, Inactive: FileOutline },
       { id: 'timeline', key: 'nav.timeline', Active: ClockSolid, Inactive: ClockOutline },
-      { id: 'appointments', key: 'nav.appointments', Active: ClipboardSolid, Inactive: ClipboardOutline },
     ],
     system: [
       { id: 'settings', key: 'nav.settings', Active: CogSolid, Inactive: CogOutline },
@@ -107,27 +100,15 @@
               aria-current={isActive ? 'page' : undefined}
               title={collapsed ? ($t(item.key) ?? item.id) : undefined}
             >
-              <span class="relative flex-shrink-0">
+              <span class="flex-shrink-0">
                 {#if isActive}
                   <item.Active class="w-5 h-5" />
                 {:else}
                   <item.Inactive class="w-5 h-5" />
                 {/if}
-                {#if collapsed && item.id === 'home' && extraction.count > 0}
-                  <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[var(--color-primary)] border-2 border-white dark:border-gray-900"></span>
-                {/if}
               </span>
               {#if !collapsed}
                 <span class="text-sm truncate flex-1">{$t(item.key)}</span>
-                {#if item.id === 'home' && extraction.count > 0}
-                  <span
-                    class="ml-auto text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center
-                           bg-[var(--color-primary)] text-white"
-                    aria-label="{extraction.count} pending"
-                  >
-                    {extraction.count > 99 ? '99+' : extraction.count}
-                  </span>
-                {/if}
               {/if}
             </button>
           </li>

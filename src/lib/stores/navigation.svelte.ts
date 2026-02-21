@@ -14,21 +14,25 @@ import { browser } from '$app/environment';
 const SIDEBAR_SCREENS = new Set([
 	'home',
 	'chat',
-	'journal',
-	'medications',
 	'documents',
 	'timeline',
-	'appointments',
 	'settings',
 	'ai-settings'
 ]);
 
 /** Navigation sections for sidebar grouping. */
 export const NAV_SECTIONS = {
-	main: ['home', 'chat', 'journal', 'medications'],
-	library: ['documents', 'timeline', 'appointments'],
+	main: ['home', 'chat'],
+	library: ['documents', 'timeline'],
 	system: ['settings'],
 } as const;
+
+/** Screens removed in LP-06 that redirect to home. */
+const REDIRECT_MAP: Record<string, string> = {
+	journal: 'home',
+	medications: 'home',
+	appointments: 'home',
+};
 
 class NavigationStore {
 	activeScreen = $state('home');
@@ -83,9 +87,10 @@ class NavigationStore {
 
 	private readFromHash(hash: string) {
 		const qIdx = hash.indexOf('?');
-		const screen = qIdx >= 0 ? hash.slice(0, qIdx) : hash;
+		let screen = qIdx >= 0 ? hash.slice(0, qIdx) : hash;
+		screen = REDIRECT_MAP[screen] ?? screen ?? 'home';
 		this.previousScreen = this.activeScreen;
-		this.activeScreen = screen || 'home';
+		this.activeScreen = screen;
 		if (qIdx >= 0) {
 			const params = new URLSearchParams(hash.slice(qIdx + 1));
 			this.screenParams = Object.fromEntries(params);

@@ -1,9 +1,10 @@
 <!-- V8-B2: Inline AI status indicator — replaces green dot + repeating toast -->
-<!-- LP-01: Extended with batch extraction progress display -->
+<!-- LP-01: Batch extraction progress | LP-06: Pending extraction count in header -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
   import { ChevronDownOutline } from 'flowbite-svelte-icons';
 
   let open = $state(false);
@@ -101,6 +102,15 @@
       {:else if shortModelName}
         <span class="hidden sm:inline">{shortModelName}</span>
       {/if}
+      {#if !extraction.batch.running && extraction.count > 0}
+        <span
+          class="text-[10px] font-bold min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center
+                 bg-[var(--color-primary)] text-white"
+          aria-label={$t('extraction.badge_count', { values: { count: extraction.count } })}
+        >
+          {extraction.count > 99 ? '99+' : extraction.count}
+        </span>
+      {/if}
       <ChevronDownOutline class="w-3 h-3 transition-transform {open ? 'rotate-180' : ''}" />
     </button>
 
@@ -139,6 +149,20 @@
           <p class="text-xs text-stone-500 dark:text-gray-400 leading-relaxed">
             {detailText}
           </p>
+        {/if}
+
+        {#if !extraction.batch.running && extraction.count > 0}
+          <div class="mt-2 pt-2 border-t border-stone-100 dark:border-gray-800 flex items-center justify-between">
+            <p class="text-xs text-stone-600 dark:text-gray-300">
+              {$t('extraction.badge_count', { values: { count: extraction.count } })}
+            </p>
+            <button
+              class="text-xs font-medium text-[var(--color-interactive)] hover:underline cursor-pointer"
+              onclick={() => { navigation.navigate('home'); open = false; }}
+            >
+              {$t('settings.extraction_view') ?? 'Review'}
+            </button>
+          </div>
         {/if}
       </div>
     {/if}

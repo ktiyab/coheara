@@ -11,8 +11,8 @@ vi.mock('$lib/stores/navigation.svelte', () => ({
     toggleSidebar: vi.fn(),
   },
   NAV_SECTIONS: {
-    main: ['home', 'chat', 'journal', 'medications'],
-    library: ['documents', 'timeline', 'appointments'],
+    main: ['home', 'chat'],
+    library: ['documents', 'timeline'],
     system: ['settings'],
   },
 }));
@@ -40,14 +40,11 @@ beforeEach(() => {
 describe('AppSidebar', () => {
   it('renders all navigation items with correct labels', () => {
     render(AppSidebar);
-    // i18n keys resolved from _generated/en.json: nav.medications = "Meds"
+    // LP-06: 5 nav items (journal, medications, appointments removed)
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();
-    expect(screen.getByText('Journal')).toBeInTheDocument();
-    expect(screen.getByText('Meds')).toBeInTheDocument();
     expect(screen.getByText('Documents')).toBeInTheDocument();
     expect(screen.getByText('Timeline')).toBeInTheDocument();
-    expect(screen.getByText('Appointments')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 
@@ -136,10 +133,10 @@ describe('AppSidebar', () => {
   });
 
   it('active screen applies distinct styling class', () => {
-    navigation.activeScreen = 'medications';
+    navigation.activeScreen = 'documents';
     render(AppSidebar);
-    const medButton = screen.getByText('Meds').closest('button')!;
-    expect(medButton.className).toContain('color-interactive');
+    const docsButton = screen.getByText('Documents').closest('button')!;
+    expect(docsButton.className).toContain('color-interactive');
   });
 
   it('inactive screen does not have active styling', () => {
