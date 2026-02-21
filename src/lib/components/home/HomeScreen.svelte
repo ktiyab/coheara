@@ -29,13 +29,16 @@
   import ActiveMedsSummary from './ActiveMedsSummary.svelte';
   import DropZoneOverlay from './DropZoneOverlay.svelte';
   import ExtractionReview from './ExtractionReview.svelte';
+  import NudgeCard from './NudgeCard.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { invoke } from '@tauri-apps/api/core';
 
   let homeData: HomeData | null = $state(null);
   let observations: CoherenceAlert[] = $state([]);
   let dependents: CaregiverSummary[] = $state([]);
   let appointments: StoredAppointment[] = $state([]);
   let activeMeds: MedicationCard[] = $state([]);
+  let nudge: { should_nudge: boolean; nudge_type: string | null; message: string | null; related_medication: string | null } | null = $state(null);
   let aiBannerDismissed = $state(false);
   let loading = $state(true);
   let error: string | null = $state(null);
@@ -61,6 +64,8 @@
       observations = alerts.filter(a => !a.dismissed && a.severity !== 'Critical');
       // LP-01: Refresh pending extraction items
       extraction.refresh().catch(() => {});
+      // LP-07: Check for journal nudge
+      invoke('check_journal_nudge').then((n) => { nudge = n as typeof nudge; }).catch(() => {});
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -166,6 +171,11 @@
         alerts={observations}
         onDismiss={refresh}
       />
+    {/if}
+
+    <!-- LP-07: Check-in nudge (Zone A — above extraction review) -->
+    {#if nudge}
+      <NudgeCard {nudge} />
     {/if}
 
     <!-- LP-01: Morning review of batch-extracted health data -->

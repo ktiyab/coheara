@@ -1,9 +1,10 @@
 <!-- Spec 49: Surface active medication summary on the home screen. -->
-<!-- LP-06: Display-only (no navigation to removed medications screen). -->
+<!-- LP-06: Tappable — navigates to timeline with medication filter. -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { MedicationCard } from '$lib/types/medication';
   import { PillIcon } from '$lib/components/icons';
+  import { navigation } from '$lib/stores/navigation.svelte';
 
   interface Props {
     medications: MedicationCard[];
@@ -19,8 +20,10 @@
     <h2 class="text-sm font-semibold text-[var(--color-text-secondary)] mb-2">
       {$t('home.meds_heading')}
     </h2>
-    <div
-      class="w-full flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)]"
+    <button
+      onclick={() => navigation.navigate('timeline', { filter: 'medication' })}
+      class="w-full flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)]
+             hover:border-[var(--color-primary)] hover:shadow-sm transition-colors cursor-pointer text-left"
     >
       <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-success-50)] flex items-center justify-center">
         <PillIcon class="w-5 h-5 text-[var(--color-success)]" />
@@ -36,6 +39,6 @@
           {/if}
         </p>
       </div>
-    </div>
+    </button>
   </section>
 {/if}

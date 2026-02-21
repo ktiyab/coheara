@@ -64,6 +64,12 @@
     "upcoming_prep_needed": "Prep requise",
     "meds_heading": "Medicaments actifs",
     "meds_active_count": "{count, plural, one {# medicament actif} other {# medicaments actifs}}",
-    "meds_and_more": " +{count} de plus"
+    "meds_and_more": " +{count} de plus",
+    "nudge_aria": "Suggestion de bilan de sante",
+    "nudge_medication_title": "Comment vous sentez-vous ?",
+    "nudge_medication_prefill": "J'ai recemment commence {med} et je me sens...",
+    "nudge_checkin_title": "C'est le moment d'un bilan",
+    "nudge_checkin_default": "Cela fait quelques jours — souhaitez-vous noter comment vous vous sentez ?",
+    "nudge_dismiss_aria": "Ignorer la suggestion de bilan"
   }
 }

@@ -65,6 +65,11 @@
     "event_related": "Verwandte Ereignisse ({count})",
     "event_view_document": "Dokument ansehen",
     "event_go_to_source": "Zur Quelle",
+    "event_mark_resolved": "Als gelöst markieren",
+    "event_delete_symptom": "Löschen",
+    "event_delete_confirm": "Löschen bestätigen?",
+    "event_prepare_visit": "Besuch vorbereiten",
+    "event_prepare_prefill": "Hilf mir, meinen bevorstehenden Besuch bei {name} vorzubereiten",
     "empty_title": "Ihr Zeitstrahl ist leer",
     "empty_description": "Laden Sie Ihr erstes medizinisches Dokument und Ihr Zeitstrahl wird automatisch aufgebaut.",
     "empty_load_document": "Dokument laden"

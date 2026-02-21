@@ -515,6 +515,12 @@ pub struct DispatchResult {
     pub success: bool,
     pub created_record_id: Option<String>,
     pub error: Option<String>,
+    /// Temporal correlations found after symptom dispatch (medication changes near onset date).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlations: Option<Vec<crate::journal::TemporalCorrelation>>,
+    /// Warning if a duplicate record was found for this item.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate_warning: Option<String>,
 }
 
 #[cfg(test)]
@@ -727,6 +733,8 @@ mod tests {
             success: true,
             created_record_id: Some("med-123".to_string()),
             error: None,
+            correlations: None,
+            duplicate_warning: None,
         };
         assert!(result.success);
         assert!(result.error.is_none());
@@ -740,6 +748,8 @@ mod tests {
             success: false,
             created_record_id: None,
             error: Some("Database constraint violation".to_string()),
+            correlations: None,
+            duplicate_warning: None,
         };
         assert!(!result.success);
         assert!(result.error.is_some());

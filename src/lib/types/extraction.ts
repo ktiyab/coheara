@@ -32,7 +32,41 @@ export interface DispatchResult {
 	success: boolean;
 	created_record_id: string | null;
 	error: string | null;
+	correlations?: TemporalCorrelation[] | null;
+	duplicate_warning?: string | null;
 }
+
+/** Temporal correlation between a symptom onset and a medication change. */
+export interface TemporalCorrelation {
+	medication_name: string;
+	medication_change_date: string;
+	days_since_change: number;
+	message: string;
+}
+
+/** Symptom categories matching backend CATEGORIES constant. */
+export const SYMPTOM_CATEGORIES = [
+	'Pain',
+	'Digestive',
+	'Respiratory',
+	'Neurological',
+	'General',
+	'Mood',
+	'Skin',
+	'Other',
+] as const;
+
+/** Medication route options. */
+export const MEDICATION_ROUTES = ['oral', 'topical', 'injection', 'inhaled', 'other'] as const;
+
+/** Severity color mappings (1-5). */
+export const SEVERITY_COLORS: Record<number, { bg: string; text: string; border: string }> = {
+	1: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-300 dark:border-green-700' },
+	2: { bg: 'bg-lime-100 dark:bg-lime-900/30', text: 'text-lime-700 dark:text-lime-400', border: 'border-lime-300 dark:border-lime-700' },
+	3: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-300 dark:border-amber-700' },
+	4: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-300 dark:border-orange-700' },
+	5: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-300 dark:border-red-700' },
+};
 
 /** Result of running a full extraction batch. */
 export interface BatchResult {

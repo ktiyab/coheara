@@ -6,6 +6,8 @@
 //! 3. Validates plausibility
 //! 4. Consolidates duplicates within a single conversation
 
+use tracing::warn;
+
 use super::error::ExtractionError;
 use super::traits::DomainExtractor;
 use super::types::*;
@@ -213,13 +215,28 @@ OUTPUT FORMAT:\n\
 
         for item in items {
             // Must have category and specific
-            let has_category = item.data.get("category").and_then(|v| v.as_str()).is_some();
+            let category = item.data.get("category").and_then(|v| v.as_str());
             let has_specific = item.data.get("specific").and_then(|v| v.as_str()).is_some();
 
-            if !has_category || !has_specific {
+            if category.is_none() || !has_specific {
                 warnings.push("Symptom missing category or specific name".to_string());
                 rejected += 1;
                 continue;
+            }
+
+            // Validate category against CATEGORIES whitelist
+            let cat = category.unwrap();
+            if !crate::journal::CATEGORIES.contains(&cat) {
+                warnings.push(format!("Symptom category '{cat}' not in allowed list, will be clamped to Other"));
+                // Don't reject — dispatch will clamp to "Other"
+            }
+
+            // Warn about body_region if not in whitelist (don't reject)
+            if let Some(br) = item.data.get("body_region").and_then(|v| v.as_str()) {
+                if !crate::journal::BODY_REGIONS.contains(&br) {
+                    warn!(body_region = br, "Extracted body_region not in BODY_REGIONS whitelist");
+                    warnings.push(format!("Body region '{br}' not in allowed list, will be discarded"));
+                }
             }
 
             // Severity must be 1-5 if present
@@ -374,15 +391,20 @@ OUTPUT FORMAT:\n\
         let mut rejected = 0;
 
         for item in items {
-            let has_name = item.data.get("name")
+            let name = item.data.get("name")
                 .and_then(|v| v.as_str())
-                .map(|s| !s.is_empty())
-                .unwrap_or(false);
+                .unwrap_or("");
 
-            if !has_name {
+            if name.is_empty() {
                 warnings.push("Medication missing name".to_string());
                 rejected += 1;
                 continue;
+            }
+
+            // Reject medication names that are excessively long (likely garbage)
+            if name.len() > 200 {
+                warnings.push(format!("Medication name too long ({} chars), will be truncated", name.len()));
+                // Don't reject — dispatch will truncate
             }
 
             valid.push(item.clone());
@@ -531,6 +553,13 @@ OUTPUT FORMAT:\n\
                 warnings.push("Appointment missing both date and professional name".to_string());
                 rejected += 1;
                 continue;
+            }
+
+            // Warn about invalid specialty (dispatch will normalize to "Other")
+            if let Some(spec) = item.data.get("specialty").and_then(|v| v.as_str()) {
+                if !crate::appointment::SPECIALTIES.contains(&spec) && spec != "Other" {
+                    warnings.push(format!("Specialty '{spec}' not in allowed list, will default to Other"));
+                }
             }
 
             valid.push(item.clone());
@@ -1021,5 +1050,56 @@ mod tests {
         let text = "No JSON here at all.";
         let result = extract_json_block(text);
         assert!(result.is_err());
+    }
+
+    // ── Validation tightening tests ──
+
+    #[test]
+    fn validate_symptom_warns_on_invalid_category() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::Symptom,
+            data: serde_json::json!({"category": "FakeCategory", "specific": "Something"}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = SymptomExtractor::new();
+        let result = extractor.validate(&items);
+        // Should still pass (dispatch will clamp), but with a warning
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.warnings.is_empty(), "Should warn about invalid category");
+    }
+
+    #[test]
+    fn validate_medication_warns_on_long_name() {
+        let long_name = "A".repeat(250);
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::Medication,
+            data: serde_json::json!({"name": long_name}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = MedicationExtractor::new();
+        let result = extractor.validate(&items);
+        // Should still pass (dispatch will truncate), but with a warning
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.warnings.is_empty(), "Should warn about long name");
+    }
+
+    #[test]
+    fn validate_appointment_warns_on_invalid_specialty() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::Appointment,
+            data: serde_json::json!({"professional_name": "Dr. Test", "specialty": "Podiatrist"}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = AppointmentExtractor::new();
+        let result = extractor.validate(&items);
+        // Should still pass (dispatch will normalize), but with a warning
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.warnings.is_empty(), "Should warn about invalid specialty");
     }
 }

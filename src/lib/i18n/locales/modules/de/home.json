@@ -64,6 +64,12 @@
     "upcoming_prep_needed": "Vorbereitung noetig",
     "meds_heading": "Aktive Medikamente",
     "meds_active_count": "{count, plural, one {# aktives Medikament} other {# aktive Medikamente}}",
-    "meds_and_more": " +{count} weitere"
+    "meds_and_more": " +{count} weitere",
+    "nudge_aria": "Gesundheits-Check-in Vorschlag",
+    "nudge_medication_title": "Wie fuehlen Sie sich?",
+    "nudge_medication_prefill": "Ich habe kuerzlich {med} angefangen und fuehle mich...",
+    "nudge_checkin_title": "Zeit fuer einen Check-in",
+    "nudge_checkin_default": "Es sind einige Tage vergangen — moechten Sie notieren, wie Sie sich fuehlen?",
+    "nudge_dismiss_aria": "Check-in Vorschlag verwerfen"
   }
 }

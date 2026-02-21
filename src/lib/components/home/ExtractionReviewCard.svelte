@@ -1,15 +1,17 @@
 <!-- LP-01: Single pending extraction item card for morning review. -->
 <!-- Supports view mode (confirm/dismiss) and inline edit mode (correct before confirming). -->
+<!-- LP-02/03/04: Enhanced with severity buttons, category dropdown, additional fields, duplicate warnings. -->
 <script lang="ts">
 	import { t } from 'svelte-i18n';
 	import type { PendingReviewItem, ExtractionDomain } from '$lib/types/extraction';
-	import { DOMAIN_LABELS } from '$lib/types/extraction';
+	import { DOMAIN_LABELS, SYMPTOM_CATEGORIES, MEDICATION_ROUTES, SEVERITY_COLORS } from '$lib/types/extraction';
 	import {
 		ClipboardCheckOutline,
 		HeartOutline,
 		CalendarMonthOutline,
 		EditOutline,
 		CloseOutline,
+		ExclamationCircleOutline,
 	} from 'flowbite-svelte-icons';
 
 	interface Props {
@@ -73,14 +75,23 @@
 		return 'text-red-600 dark:text-red-400';
 	});
 
+	// Duplicate warning from item data
+	let duplicateWarning = $derived(item.duplicate_of ? $t('extraction.duplicate_warning_text') : null);
+
 	// ── Edit mode state ──
 	let editing = $state(false);
 	let edits = $state<Record<string, unknown>>({});
 	let confirming = $state(false);
 	let dismissing = $state(false);
 
+	// Severity required: block confirm when severity is null and user hasn't picked one
+	let severityRequired = $derived(
+		item.domain === 'symptom' && editing && (edits.severity_hint == null || edits.severity_hint === undefined)
+	);
+
+	let canConfirm = $derived(!confirming && !severityRequired);
+
 	function startEdit() {
-		// Shallow-clone extracted_data as starting point for edits
 		edits = { ...data };
 		editing = true;
 	}
@@ -93,7 +104,6 @@
 	function handleConfirm() {
 		confirming = true;
 		if (editing) {
-			// Only send fields that actually changed
 			const changed: Record<string, unknown> = {};
 			for (const key of Object.keys(edits)) {
 				if (edits[key] !== data[key]) {
@@ -118,6 +128,10 @@
 	function updateField(key: string, value: unknown) {
 		edits = { ...edits, [key]: value };
 	}
+
+	function selectSeverity(level: number) {
+		updateField('severity_hint', level);
+	}
 </script>
 
 <div
@@ -125,6 +139,14 @@
 	role="article"
 	aria-label={title}
 >
+	<!-- Duplicate warning banner -->
+	{#if duplicateWarning}
+		<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+			<ExclamationCircleOutline class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+			<span class="text-xs text-amber-700 dark:text-amber-300">{duplicateWarning}</span>
+		</div>
+	{/if}
+
 	<!-- Header row -->
 	<div class="flex items-start gap-3">
 		<div
@@ -151,6 +173,14 @@
 					<p class="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">
 						{subtitle}
 					</p>
+				{/if}
+				<!-- Severity badge in view mode -->
+				{#if item.domain === 'symptom' && data.severity_hint != null}
+					{@const sev = data.severity_hint as number}
+					{@const colors = SEVERITY_COLORS[sev] || SEVERITY_COLORS[3]}
+					<span class="inline-block mt-1 text-xs px-2 py-0.5 rounded-full {colors.bg} {colors.text}">
+						{$t('extraction.field_severity')}: {sev}/5
+					</span>
 				{/if}
 			{/if}
 		</div>
@@ -179,6 +209,7 @@
 	{#if editing}
 		<div class="mt-3 space-y-2">
 			{#if item.domain === 'symptom'}
+				<!-- Specific name -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_specific')}</span>
 					<input
@@ -189,33 +220,45 @@
 						oninput={(e) => updateField('specific', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Category dropdown -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_category')}</span>
-					<input
-						type="text"
+					<select
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
 							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
-						value={edits.category as string ?? ''}
-						oninput={(e) => updateField('category', e.currentTarget.value)}
-					/>
+						value={edits.category as string ?? 'Other'}
+						onchange={(e) => updateField('category', e.currentTarget.value)}
+					>
+						{#each SYMPTOM_CATEGORIES as cat}
+							<option value={cat}>{cat}</option>
+						{/each}
+					</select>
 				</label>
-				<label class="block">
+				<!-- Severity buttons (1-5) -->
+				<div>
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_severity')}</span>
-					<div class="flex items-center gap-2 mt-0.5">
-						<input
-							type="range"
-							min="1"
-							max="5"
-							step="1"
-							class="flex-1 accent-[var(--color-primary)]"
-							value={edits.severity_hint as number ?? 3}
-							oninput={(e) => updateField('severity_hint', parseInt(e.currentTarget.value))}
-						/>
-						<span class="text-sm font-medium text-[var(--color-text-primary)] w-6 text-center">
-							{edits.severity_hint ?? 3}
-						</span>
+					{#if severityRequired}
+						<span class="text-xs text-amber-600 dark:text-amber-400 ml-1">{$t('extraction.severity_required_hint')}</span>
+					{/if}
+					<div class="flex gap-1.5 mt-1" role="radiogroup" aria-label={$t('extraction.field_severity')}>
+						{#each [1, 2, 3, 4, 5] as level}
+							{@const colors = SEVERITY_COLORS[level]}
+							{@const selected = (edits.severity_hint as number) === level}
+							<button
+								type="button"
+								class="flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all min-h-[32px]
+									   {selected ? `${colors.bg} ${colors.text} ${colors.border} ring-1 ring-current` : `border-[var(--color-border)] text-[var(--color-text-muted)] hover:${colors.bg}`}"
+								onclick={() => selectSeverity(level)}
+								role="radio"
+								aria-checked={selected}
+								aria-label="{level}/5"
+							>
+								{level}
+							</button>
+						{/each}
 					</div>
-				</label>
+				</div>
+				<!-- Body region -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_body_region')}</span>
 					<input
@@ -226,7 +269,19 @@
 						oninput={(e) => updateField('body_region', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Onset date -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_onset_date')}</span>
+					<input
+						type="date"
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.onset_hint as string ?? ''}
+						oninput={(e) => updateField('onset_hint', e.currentTarget.value)}
+					/>
+				</label>
 			{:else if item.domain === 'medication'}
+				<!-- Name -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_specific')}</span>
 					<input
@@ -237,6 +292,7 @@
 						oninput={(e) => updateField('name', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Dose -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_dose')}</span>
 					<input
@@ -247,6 +303,7 @@
 						oninput={(e) => updateField('dose', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Frequency -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_frequency')}</span>
 					<input
@@ -257,7 +314,44 @@
 						oninput={(e) => updateField('frequency', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Route -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_route')}</span>
+					<select
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.route as string ?? 'oral'}
+						onchange={(e) => updateField('route', e.currentTarget.value)}
+					>
+						{#each MEDICATION_ROUTES as route}
+							<option value={route}>{route}</option>
+						{/each}
+					</select>
+				</label>
+				<!-- Reason -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_reason')}</span>
+					<input
+						type="text"
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.reason as string ?? ''}
+						oninput={(e) => updateField('reason', e.currentTarget.value)}
+					/>
+				</label>
+				<!-- Start date -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_start_date')}</span>
+					<input
+						type="date"
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.start_date_hint as string ?? ''}
+						oninput={(e) => updateField('start_date_hint', e.currentTarget.value)}
+					/>
+				</label>
 			{:else if item.domain === 'appointment'}
+				<!-- Professional -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_professional')}</span>
 					<input
@@ -268,6 +362,7 @@
 						oninput={(e) => updateField('professional_name', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Specialty -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_specialty')}</span>
 					<input
@@ -278,6 +373,7 @@
 						oninput={(e) => updateField('specialty', e.currentTarget.value)}
 					/>
 				</label>
+				<!-- Date -->
 				<label class="block">
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_date')}</span>
 					<input
@@ -286,6 +382,28 @@
 							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
 						value={edits.date_hint as string ?? ''}
 						oninput={(e) => updateField('date_hint', e.currentTarget.value)}
+					/>
+				</label>
+				<!-- Time -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_time')}</span>
+					<input
+						type="time"
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.time_hint as string ?? ''}
+						oninput={(e) => updateField('time_hint', e.currentTarget.value)}
+					/>
+				</label>
+				<!-- Reason -->
+				<label class="block">
+					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_reason')}</span>
+					<input
+						type="text"
+						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+						value={edits.reason as string ?? ''}
+						oninput={(e) => updateField('reason', e.currentTarget.value)}
 					/>
 				</label>
 			{/if}
@@ -300,7 +418,7 @@
 				   hover:opacity-90 transition-opacity
 				   disabled:opacity-50"
 			onclick={handleConfirm}
-			disabled={confirming}
+			disabled={!canConfirm}
 		>
 			{confirming ? '...' : editing ? $t('extraction.save_btn') : $t('extraction.confirm_btn')}
 		</button>

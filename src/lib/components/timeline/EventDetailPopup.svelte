@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
+  import { invoke } from '@tauri-apps/api/core';
   import type { TimelineEvent, TimelineCorrelation } from '$lib/types/timeline';
   import { EVENT_COLORS, eventColorGroup } from '$lib/utils/timeline';
 
@@ -18,6 +19,9 @@
     onScrollToEvent: (eventId: string) => void;
   }
   let { event, correlations, anchor, onClose, onScrollToEvent }: Props = $props();
+
+  let confirmingDelete = $state(false);
+  let actionError = $state('');
 
   let popupEl: HTMLDivElement | undefined = $state(undefined);
 
@@ -58,6 +62,30 @@
     return new Date(dateStr).toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
+  }
+
+  async function handleResolveSymptom() {
+    actionError = '';
+    try {
+      await invoke('resolve_symptom', { symptomId: event.id });
+      onClose();
+    } catch (e) {
+      actionError = String(e);
+    }
+  }
+
+  async function handleDeleteSymptom() {
+    if (!confirmingDelete) {
+      confirmingDelete = true;
+      return;
+    }
+    actionError = '';
+    try {
+      await invoke('delete_symptom', { symptomId: event.id });
+      onClose();
+    } catch (e) {
+      actionError = String(e);
+    }
   }
 </script>
 
@@ -193,24 +221,52 @@
   {/if}
 
   <!-- Action buttons -->
-  <div class="flex gap-2 border-t border-stone-100 dark:border-gray-800 pt-2">
+  <div class="flex flex-wrap gap-2 border-t border-stone-100 dark:border-gray-800 pt-2">
     {#if event.document_id}
       <Button variant="secondary" size="sm"
         onclick={() => navigation.navigate('document-detail', { documentId: event.document_id! })}>
         {$t('timeline.event_view_document')}
       </Button>
     {/if}
-    <Button variant="secondary" size="sm"
-      onclick={() => {
-        const route = event.metadata.kind === 'Medication' || event.metadata.kind === 'DoseChange'
-          ? 'medications'
-          : event.metadata.kind === 'Lab' ? 'lab-detail'
-          : event.metadata.kind === 'Symptom' ? 'journal'
-          : event.metadata.kind === 'Appointment' ? 'appointments'
-          : 'documents';
-        navigation.navigate(route, { entityId: event.id });
-      }}>
-      {$t('timeline.event_go_to_source')}
-    </Button>
+
+    {#if event.metadata.kind === 'Symptom'}
+      <!-- Symptom: navigate to chat, resolve, delete -->
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('chat', { prefill: $t('chat.prefill_symptom') })}>
+        {$t('timeline.event_go_to_source')}
+      </Button>
+      {#if event.metadata.still_active}
+        <Button variant="secondary" size="sm" onclick={handleResolveSymptom}>
+          {$t('timeline.event_mark_resolved')}
+        </Button>
+      {/if}
+      <Button variant="danger" size="sm" onclick={handleDeleteSymptom}>
+        {confirmingDelete ? $t('timeline.event_delete_confirm') : $t('timeline.event_delete_symptom')}
+      </Button>
+    {:else if event.metadata.kind === 'Medication' || event.metadata.kind === 'DoseChange'}
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('timeline', { filter: 'medication' })}>
+        {$t('timeline.event_go_to_source')}
+      </Button>
+    {:else if event.metadata.kind === 'Appointment'}
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('timeline', { filter: 'appointment' })}>
+        {$t('timeline.event_go_to_source')}
+      </Button>
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('chat', { prefill: $t('timeline.event_prepare_prefill', { values: { name: event.professional_name ?? event.title } }) })}>
+        {$t('timeline.event_prepare_visit')}
+      </Button>
+    {:else}
+      <!-- Lab, Procedure, Document, Diagnosis: navigate to timeline filtered -->
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('timeline')}>
+        {$t('timeline.event_go_to_source')}
+      </Button>
+    {/if}
   </div>
+
+  {#if actionError}
+    <p class="text-xs text-red-600 dark:text-red-400 mt-1">{actionError}</p>
+  {/if}
 </div>

@@ -65,6 +65,11 @@
     "event_related": "Related events ({count})",
     "event_view_document": "View document",
     "event_go_to_source": "Go to source",
+    "event_mark_resolved": "Mark resolved",
+    "event_delete_symptom": "Delete",
+    "event_delete_confirm": "Confirm delete?",
+    "event_prepare_visit": "Prepare for visit",
+    "event_prepare_prefill": "Help me prepare for my upcoming visit with {name}",
     "empty_title": "Your timeline is empty",
     "empty_description": "Load your first medical document and your timeline will start building automatically.",
     "empty_load_document": "Load a document"

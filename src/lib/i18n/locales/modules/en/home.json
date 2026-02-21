@@ -64,6 +64,12 @@
     "upcoming_prep_needed": "Prep needed",
     "meds_heading": "Active Medications",
     "meds_active_count": "{count, plural, one {# active medication} other {# active medications}}",
-    "meds_and_more": " +{count} more"
+    "meds_and_more": " +{count} more",
+    "nudge_aria": "Health check-in suggestion",
+    "nudge_medication_title": "How are you feeling?",
+    "nudge_medication_prefill": "I recently started {med} and I'm feeling...",
+    "nudge_checkin_title": "Time for a check-in",
+    "nudge_checkin_default": "It's been a few days — would you like to note how you're feeling?",
+    "nudge_dismiss_aria": "Dismiss check-in suggestion"
   }
 }

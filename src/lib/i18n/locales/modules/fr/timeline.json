@@ -65,6 +65,11 @@
     "event_related": "Événements liés ({count})",
     "event_view_document": "Voir le document",
     "event_go_to_source": "Voir la source",
+    "event_mark_resolved": "Marquer résolu",
+    "event_delete_symptom": "Supprimer",
+    "event_delete_confirm": "Confirmer la suppression ?",
+    "event_prepare_visit": "Préparer la visite",
+    "event_prepare_prefill": "Aidez-moi à préparer ma prochaine visite avec {name}",
     "empty_title": "Votre chronologie est vide",
     "empty_description": "Importez votre premier document médical et votre chronologie se construira automatiquement.",
     "empty_load_document": "Importer un document"

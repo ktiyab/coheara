@@ -1,22 +1,24 @@
 //! Extraction Dispatcher — routes confirmed pending items to domain tables.
 //!
 //! Maps extracted JSON data to the appropriate domain-specific insert functions:
-//! - Symptoms → journal::record_symptom()
+//! - Symptoms → journal::record_symptom() + detect_temporal_correlation()
 //! - Medications → insert_medication() (with conversation-source document)
-//! - Appointments → create_professional() + create_appointment()
+//! - Appointments → create_professional() (with dedup) + create_appointment()
 
 use chrono::{Local, NaiveDate};
 use rusqlite::Connection;
+use tracing::warn;
 use uuid::Uuid;
 
+use super::duplicate::{check_duplicate};
 use super::error::ExtractionError;
-use super::types::{DispatchResult, ExtractionDomain, PendingReviewItem};
+use super::types::{DispatchResult, DuplicateStatus, ExtractionDomain, PendingReviewItem};
 use crate::db::DatabaseError;
 use crate::models::enums::{DoseType, FrequencyType, MedicationStatus};
 
 /// Dispatch a confirmed pending item to its domain table.
 ///
-/// Returns the ID of the created record.
+/// Returns the ID of the created record, plus optional correlations/warnings.
 pub fn dispatch_item(
     conn: &Connection,
     item: &PendingReviewItem,
@@ -29,13 +31,16 @@ pub fn dispatch_item(
 }
 
 /// Dispatch a symptom extraction to the symptoms table via journal::record_symptom.
+///
+/// Validates category against CATEGORIES whitelist, body_region against BODY_REGIONS,
+/// then calls detect_temporal_correlation for medication change correlations.
 fn dispatch_symptom(
     conn: &Connection,
     item: &PendingReviewItem,
 ) -> Result<DispatchResult, ExtractionError> {
     let data = &item.extracted_data;
 
-    let category = data
+    let raw_category = data
         .get("category")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ExtractionError::Validation("Symptom missing category".into()))?;
@@ -45,6 +50,33 @@ fn dispatch_symptom(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ExtractionError::Validation("Symptom missing specific".into()))?;
 
+    // Validate category against whitelist — clamp to "Other" if invalid
+    let category = if crate::journal::CATEGORIES.contains(&raw_category) {
+        raw_category.to_string()
+    } else {
+        warn!(
+            raw_category = raw_category,
+            "Extracted category not in CATEGORIES whitelist, clamping to Other"
+        );
+        "Other".to_string()
+    };
+
+    // Validate body_region against whitelist — set to None if invalid
+    let body_region = data
+        .get("body_region")
+        .and_then(|v| v.as_str())
+        .and_then(|br| {
+            if crate::journal::BODY_REGIONS.contains(&br) {
+                Some(br.to_string())
+            } else {
+                warn!(
+                    body_region = br,
+                    "Extracted body_region not in BODY_REGIONS whitelist, discarding"
+                );
+                None
+            }
+        });
+
     let severity = data
         .get("severity_hint")
         .and_then(|v| v.as_u64())
@@ -53,10 +85,7 @@ fn dispatch_symptom(
     let onset_date = data
         .get("onset_hint")
         .and_then(|v| v.as_str())
-        .unwrap_or_else(|| {
-            // Default to today if no onset hint
-            ""
-        });
+        .unwrap_or("");
 
     let onset_date = if onset_date.is_empty() {
         Local::now().naive_local().format("%Y-%m-%d").to_string()
@@ -65,12 +94,12 @@ fn dispatch_symptom(
     };
 
     let entry = crate::journal::SymptomEntry {
-        category: category.to_string(),
+        category,
         specific: specific.to_string(),
         severity: severity.clamp(1, 5),
-        onset_date,
+        onset_date: onset_date.clone(),
         onset_time: data.get("onset_time").and_then(|v| v.as_str()).map(String::from),
-        body_region: data.get("body_region").and_then(|v| v.as_str()).map(String::from),
+        body_region,
         duration: data.get("duration").and_then(|v| v.as_str()).map(String::from),
         character: data.get("character").and_then(|v| v.as_str()).map(String::from),
         aggravating: extract_string_array(data, "aggravating"),
@@ -80,7 +109,30 @@ fn dispatch_symptom(
     };
 
     let symptom_id = crate::journal::record_symptom(conn, &entry)
-        .map_err(|e| ExtractionError::Database(e))?;
+        .map_err(ExtractionError::Database)?;
+
+    // Detect temporal correlations with medication changes
+    let correlations = crate::journal::detect_temporal_correlation(conn, &onset_date)
+        .map_err(ExtractionError::Database)?;
+
+    let correlations_opt = if correlations.is_empty() {
+        None
+    } else {
+        Some(correlations)
+    };
+
+    // Check for duplicate warning
+    let duplicate_warning = match check_duplicate(
+        conn,
+        ExtractionDomain::Symptom,
+        data,
+        Local::now().naive_local().date(),
+    ) {
+        DuplicateStatus::PossibleDuplicate { .. } => {
+            Some("Similar symptom recently recorded".to_string())
+        }
+        _ => None,
+    };
 
     Ok(DispatchResult {
         item_id: item.id.clone(),
@@ -88,14 +140,16 @@ fn dispatch_symptom(
         success: true,
         created_record_id: Some(symptom_id.to_string()),
         error: None,
+        correlations: correlations_opt,
+        duplicate_warning,
     })
 }
 
 /// Dispatch a medication extraction to the medications table.
 ///
 /// Creates a conversation-source document record (type='other') to satisfy
-/// the NOT NULL document_id FK constraint, since conversation-extracted
-/// medications don't have a source document.
+/// the NOT NULL document_id FK constraint. Defaults is_otc to true for
+/// chat-extracted medications. Validates field lengths.
 fn dispatch_medication(
     conn: &Connection,
     item: &PendingReviewItem,
@@ -107,8 +161,15 @@ fn dispatch_medication(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ExtractionError::Validation("Medication missing name".into()))?;
 
+    // Truncate fields to max lengths (name: 200, dose: 100, frequency: 200)
+    let name = truncate_str(name, 200);
+    let dose = data.get("dose").and_then(|v| v.as_str()).unwrap_or("");
+    let dose = truncate_str(dose, 100);
+    let frequency = data.get("frequency").and_then(|v| v.as_str()).unwrap_or("");
+    let frequency = truncate_str(frequency, 200);
+
     // Create a conversation-source document for the FK constraint
-    let doc_id = create_conversation_source_document(conn, &item.conversation_id, name)?;
+    let doc_id = create_conversation_source_document(conn, &item.conversation_id, &name)?;
 
     let med_id = Uuid::new_v4();
     let start_date = data
@@ -116,12 +177,15 @@ fn dispatch_medication(
         .and_then(|v| v.as_str())
         .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
+    // Default is_otc to true for chat-extracted medications
+    let is_otc = data.get("is_otc").and_then(|v| v.as_bool()).unwrap_or(true);
+
     let medication = crate::models::Medication {
         id: med_id,
         generic_name: name.to_string(),
         brand_name: data.get("brand_name").and_then(|v| v.as_str()).map(String::from),
-        dose: data.get("dose").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        frequency: data.get("frequency").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        dose: dose.to_string(),
+        frequency: frequency.to_string(),
         frequency_type: FrequencyType::Scheduled,
         route: data.get("route").and_then(|v| v.as_str()).unwrap_or("oral").to_string(),
         prescriber_id: None,
@@ -129,7 +193,7 @@ fn dispatch_medication(
         end_date: None,
         reason_start: data.get("reason").and_then(|v| v.as_str()).map(String::from),
         reason_stop: None,
-        is_otc: data.get("is_otc").and_then(|v| v.as_bool()).unwrap_or(false),
+        is_otc,
         status: MedicationStatus::Active,
         administration_instructions: data
             .get("instructions")
@@ -144,7 +208,23 @@ fn dispatch_medication(
     };
 
     crate::db::insert_medication(conn, &medication)
-        .map_err(|e| ExtractionError::Database(e))?;
+        .map_err(ExtractionError::Database)?;
+
+    // Check for duplicate warning
+    let duplicate_warning = match check_duplicate(
+        conn,
+        ExtractionDomain::Medication,
+        data,
+        Local::now().naive_local().date(),
+    ) {
+        DuplicateStatus::AlreadyTracked { .. } => {
+            Some(format!("Medication '{}' already exists", name))
+        }
+        DuplicateStatus::PossibleDuplicate { .. } => {
+            Some(format!("Similar medication to '{}' found", name))
+        }
+        DuplicateStatus::New => None,
+    };
 
     Ok(DispatchResult {
         item_id: item.id.clone(),
@@ -152,12 +232,15 @@ fn dispatch_medication(
         success: true,
         created_record_id: Some(med_id.to_string()),
         error: None,
+        correlations: None,
+        duplicate_warning,
     })
 }
 
 /// Dispatch an appointment extraction.
 ///
-/// Creates a professional record if needed, then creates the appointment.
+/// Deduplicates professionals by name (case-insensitive) before creating.
+/// Validates specialty against SPECIALTIES whitelist.
 fn dispatch_appointment(
     conn: &Connection,
     item: &PendingReviewItem,
@@ -169,25 +252,41 @@ fn dispatch_appointment(
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown");
 
-    let specialty = data
+    let raw_specialty = data
         .get("specialty")
         .and_then(|v| v.as_str())
         .unwrap_or("General");
+
+    // Validate specialty against whitelist
+    let specialty = if crate::appointment::SPECIALTIES.contains(&raw_specialty) || raw_specialty == "Other" {
+        raw_specialty.to_string()
+    } else {
+        warn!(
+            raw_specialty = raw_specialty,
+            "Extracted specialty not in SPECIALTIES whitelist, defaulting to Other"
+        );
+        "Other".to_string()
+    };
 
     let institution = data
         .get("institution")
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    // Create professional
-    let prof = crate::appointment::NewProfessional {
-        name: professional_name.to_string(),
-        specialty: specialty.to_string(),
-        institution,
-    };
-
-    let prof_id = crate::appointment::create_professional(conn, &prof)
-        .map_err(|e| ExtractionError::Database(e))?;
+    // Deduplicate professional by case-insensitive name match
+    let prof_id = find_existing_professional(conn, professional_name)
+        .unwrap_or_else(|| {
+            let prof = crate::appointment::NewProfessional {
+                name: professional_name.to_string(),
+                specialty: specialty.clone(),
+                institution,
+            };
+            crate::appointment::create_professional(conn, &prof)
+                .unwrap_or_else(|e| {
+                    warn!(error = %e, "Failed to create professional, using placeholder");
+                    Uuid::new_v4().to_string()
+                })
+        });
 
     // Parse appointment date
     let date_str = data
@@ -199,7 +298,7 @@ fn dispatch_appointment(
         .map_err(|e| ExtractionError::Validation(format!("Invalid appointment date: {e}")))?;
 
     let appt_id = crate::appointment::create_appointment(conn, &prof_id, &date)
-        .map_err(|e| ExtractionError::Database(e))?;
+        .map_err(ExtractionError::Database)?;
 
     Ok(DispatchResult {
         item_id: item.id.clone(),
@@ -207,7 +306,20 @@ fn dispatch_appointment(
         success: true,
         created_record_id: Some(appt_id),
         error: None,
+        correlations: None,
+        duplicate_warning: None,
     })
+}
+
+/// Find an existing professional by case-insensitive name match.
+/// Returns the professional_id if found, None otherwise.
+fn find_existing_professional(conn: &Connection, name: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT id FROM professionals WHERE LOWER(name) = LOWER(?1) LIMIT 1",
+        rusqlite::params![name],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
 }
 
 /// Create a minimal document record as a source reference for conversation-extracted data.
@@ -234,6 +346,19 @@ fn create_conversation_source_document(
     .map_err(|e| ExtractionError::Database(DatabaseError::Sqlite(e)))?;
 
     Ok(doc_id)
+}
+
+/// Truncate a string to a maximum byte length, cutting at a char boundary.
+fn truncate_str(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        return s;
+    }
+    // Find char boundary at or before max_len
+    let mut end = max_len;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// Extract a JSON array of strings from a field, returning empty vec if missing.
@@ -269,7 +394,7 @@ mod tests {
                 "category": "Pain",
                 "specific": "Headache",
                 "severity_hint": 4,
-                "body_region": "right side",
+                "body_region": "head",
                 "duration": "3 days",
                 "character": "Throbbing",
                 "aggravating": ["light", "noise"],
@@ -290,7 +415,7 @@ mod tests {
             ExtractionDomain::Appointment,
             serde_json::json!({
                 "professional_name": "Dr. Martin",
-                "specialty": "Neurology",
+                "specialty": "Neurologist",
                 "institution": "City Hospital",
                 "date_hint": "2026-03-15"
             }),
@@ -430,7 +555,7 @@ mod tests {
             ExtractionDomain::Appointment,
             serde_json::json!({
                 "professional_name": "Dr. Smith",
-                "specialty": "General"
+                "specialty": "GP"
             }), // no date_hint
             0.8,
             Grounding::Grounded,
@@ -502,5 +627,246 @@ mod tests {
         let data = serde_json::json!({"items": ["a", "b", "c"]});
         let result = extract_string_array(&data, "items");
         assert_eq!(result, vec!["a", "b", "c"]);
+    }
+
+    // ── New validation tests ──
+
+    #[test]
+    fn symptom_category_clamped_to_other_when_invalid() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Symptom,
+            serde_json::json!({
+                "category": "InvalidCategory",
+                "specific": "Something",
+                "severity_hint": 3
+            }),
+            0.7,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let category: String = conn
+            .query_row(
+                "SELECT category FROM symptoms WHERE specific = 'Something'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(category, "Other");
+    }
+
+    #[test]
+    fn symptom_body_region_discarded_when_invalid() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Symptom,
+            serde_json::json!({
+                "category": "Pain",
+                "specific": "Headache",
+                "body_region": "left_eyebrow",
+                "severity_hint": 2
+            }),
+            0.7,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let region: Option<String> = conn
+            .query_row(
+                "SELECT body_region FROM symptoms WHERE specific = 'Headache'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(region.is_none(), "Invalid body_region should be discarded");
+    }
+
+    #[test]
+    fn symptom_dispatch_returns_correlations_when_medication_changed() {
+        let conn = setup_db();
+
+        // Seed a medication change near onset date
+        let doc_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO documents (id, type, title, ingestion_date, source_file)
+             VALUES (?1, 'prescription', 'Test Rx', '2026-02-01', '/test.pdf')",
+            rusqlite::params![doc_id],
+        ).unwrap();
+        let med_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, start_date, document_id)
+             VALUES (?1, 'Lisinopril', '10mg', 'daily', 'scheduled', 'active', '2026-02-18', ?2)",
+            rusqlite::params![med_id, doc_id],
+        ).unwrap();
+
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Symptom,
+            serde_json::json!({
+                "category": "Pain",
+                "specific": "Headache",
+                "severity_hint": 3,
+                "onset_hint": "2026-02-20"
+            }),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+        assert!(result.correlations.is_some(), "Should detect temporal correlation");
+        let correlations = result.correlations.unwrap();
+        assert!(!correlations.is_empty());
+        assert_eq!(correlations[0].medication_name, "Lisinopril");
+    }
+
+    #[test]
+    fn medication_defaults_is_otc_true() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Medication,
+            serde_json::json!({
+                "name": "Aspirin",
+                "dose": "100mg"
+                // no is_otc field
+            }),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let is_otc: bool = conn
+            .query_row(
+                "SELECT is_otc FROM medications WHERE generic_name = 'Aspirin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(is_otc, "Chat-extracted medications should default to OTC");
+    }
+
+    #[test]
+    fn medication_name_length_truncated() {
+        let conn = setup_db();
+        let long_name = "A".repeat(250);
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Medication,
+            serde_json::json!({
+                "name": long_name,
+                "dose": "100mg"
+            }),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let stored_name: String = conn
+            .query_row(
+                "SELECT generic_name FROM medications ORDER BY rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored_name.len() <= 200, "Name should be truncated to 200 chars");
+    }
+
+    #[test]
+    fn appointment_reuses_existing_professional() {
+        let conn = setup_db();
+
+        // Pre-create a professional
+        conn.execute(
+            "INSERT INTO professionals (id, name, specialty)
+             VALUES ('prof-existing', 'Dr. Martin', 'Neurologist')",
+            [],
+        ).unwrap();
+
+        let item = make_appointment_item(); // has "Dr. Martin"
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        // Should still have only 1 professional (reused existing)
+        let prof_count: u32 = conn
+            .query_row("SELECT COUNT(*) FROM professionals", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(prof_count, 1, "Should reuse existing professional, not create duplicate");
+    }
+
+    #[test]
+    fn appointment_specialty_defaults_to_other() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::Appointment,
+            serde_json::json!({
+                "professional_name": "Dr. New",
+                "specialty": "Podiatrist",
+                "date_hint": "2026-03-20"
+            }),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let specialty: String = conn
+            .query_row(
+                "SELECT specialty FROM professionals WHERE name = 'Dr. New'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(specialty, "Other", "Invalid specialty should default to Other");
+    }
+
+    #[test]
+    fn truncate_str_preserves_short_strings() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_str_truncates_long_strings() {
+        let s = "a".repeat(300);
+        assert_eq!(truncate_str(&s, 200).len(), 200);
+    }
+
+    #[test]
+    fn truncate_str_respects_char_boundaries() {
+        let s = "héllo world"; // é is 2 bytes
+        let result = truncate_str(s, 2);
+        assert_eq!(result, "h"); // Can't cut in middle of é
     }
 }
