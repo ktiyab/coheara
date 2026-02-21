@@ -1,10 +1,21 @@
 {
   "trust": {
-    "heading": "Welcome to Coheara",
+    "heading": "Your Personal Health Companion",
     "subheading": "Your personal medical document assistant.",
+    "value_proposition": "Understand your medical documents, track your medications, prepare for doctor visits — all private, all yours.",
+    "benefit_aggregate": "Import prescriptions, lab results, and medical letters in one place",
+    "benefit_intelligence": "Ask questions and get cited answers drawn from your own documents",
+    "benefit_safety": "Detect conflicts and gaps across doctors, medications, and lab results",
+    "benefit_portability": "Your smartphone carries your Vault to every appointment",
+    "benefit_privacy": "AI runs locally. Everything stays on your devices. Always.",
     "benefit_local": "Your medical documents are <b>never sent anywhere</b>.",
     "benefit_encrypted": "Everything is <b>encrypted</b> with your password.",
     "benefit_private": "No accounts, no tracking, no data collection.",
-    "continue": "I understand, let's begin"
+    "privacy_local": "Everything stays on your device — no cloud",
+    "privacy_encrypted": "Encrypted with your password — only you see it",
+    "privacy_ai": "AI runs locally — your questions never leave",
+    "cta": "Create your MedAI Vault",
+    "continue": "I understand, let's begin",
+    "get_started": "Get Started"
   }
 }

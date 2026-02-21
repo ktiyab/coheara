@@ -38,7 +38,7 @@
 
   async function handleCreateBackup() {
     if (!backupPath.trim()) {
-      error = $t('error.field_required', { values: { field: 'backup path' } });
+      error = $t('error.field_required', { values: { field: $t('backup.field_backup_path') } });
       return;
     }
     loading = true;
@@ -54,7 +54,7 @@
 
   async function handlePreviewRestore() {
     if (!restorePath.trim()) {
-      error = $t('error.field_required', { values: { field: 'backup file path' } });
+      error = $t('error.field_required', { values: { field: $t('backup.field_file_path') } });
       return;
     }
     loading = true;
@@ -71,7 +71,7 @@
 
   async function handleRestore() {
     if (!restorePassword) {
-      error = $t('error.field_required', { values: { field: 'password' } });
+      error = $t('error.field_required', { values: { field: $t('backup.field_password') } });
       return;
     }
     loading = true;
@@ -90,15 +90,14 @@
   }
 </script>
 
-<section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('backup.heading')}</h2>
+<section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+  <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('backup.heading')}</h2>
 
   {#if view === 'idle'}
     {#if backupResult}
       <div class="bg-[var(--color-success-50)] rounded-lg p-3 mb-3 border border-[var(--color-success-50)]">
         <p class="text-sm text-[var(--color-success)]">
-          Backup created: {backupResult.total_documents} documents,
-          {formatBytes(backupResult.total_size_bytes)}
+          {$t('backup.created_message', { values: { count: backupResult.total_documents, size: formatBytes(backupResult.total_size_bytes) } })}
         </p>
         <p class="text-xs text-[var(--color-success)] mt-1 font-mono truncate">
           {backupResult.backup_path}
@@ -118,8 +117,8 @@
         {$t('backup.create')}
       </button>
       <button
-        class="flex-1 px-4 py-3 bg-white border border-stone-200 rounded-xl
-               text-sm font-medium text-stone-700 min-h-[44px]"
+        class="flex-1 px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl
+               text-sm font-medium text-stone-700 dark:text-gray-200 min-h-[44px]"
         onclick={() => {
           view = 'restore-preview';
           restorePreview = null;
@@ -131,12 +130,12 @@
     </div>
 
   {:else if view === 'backup'}
-    <label for="backup-path" class="block text-sm text-stone-600 mb-1">{$t('backup.save_to')}</label>
+    <label for="backup-path" class="block text-sm text-stone-600 dark:text-gray-300 mb-1">{$t('backup.save_to')}</label>
     <input
       id="backup-path"
       type="text"
-      class="w-full px-4 py-3 rounded-lg border border-stone-200 text-stone-700
-             text-sm mb-3 min-h-[44px] font-mono"
+      class="w-full px-4 py-3 rounded-lg border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200
+             text-sm mb-3 min-h-[44px] font-mono dark:bg-gray-900"
       bind:value={backupPath}
       placeholder="/path/to/backup.coheara-backup"
     />
@@ -155,8 +154,8 @@
         {loading ? $t('common.creating') : $t('backup.create')}
       </button>
       <button
-        class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
-               text-stone-600 min-h-[44px]"
+        class="px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl text-sm
+               text-stone-600 dark:text-gray-300 min-h-[44px]"
         onclick={reset}
       >
         {$t('common.cancel')}
@@ -165,12 +164,12 @@
 
   {:else if view === 'restore-preview'}
     {#if !restorePreview}
-      <label for="restore-path" class="block text-sm text-stone-600 mb-1">{$t('backup.file_path')}</label>
+      <label for="restore-path" class="block text-sm text-stone-600 dark:text-gray-300 mb-1">{$t('backup.file_path')}</label>
       <input
         id="restore-path"
         type="text"
-        class="w-full px-4 py-3 rounded-lg border border-stone-200 text-stone-700
-               text-sm mb-3 min-h-[44px] font-mono"
+        class="w-full px-4 py-3 rounded-lg border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200
+               text-sm mb-3 min-h-[44px] font-mono dark:bg-gray-900"
         bind:value={restorePath}
         placeholder="/path/to/backup.coheara-backup"
       />
@@ -189,8 +188,8 @@
           {loading ? $t('common.loading') : $t('backup.preview')}
         </button>
         <button
-          class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
-                 text-stone-600 min-h-[44px]"
+          class="px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl text-sm
+                 text-stone-600 dark:text-gray-300 min-h-[44px]"
           onclick={reset}
         >
           {$t('common.cancel')}
@@ -199,31 +198,31 @@
     {:else}
       <div class="space-y-2 text-sm mb-4">
         <div class="flex justify-between">
-          <span class="text-stone-600">Profile</span>
-          <span class="text-stone-800">{restorePreview.metadata.profile_name}</span>
+          <span class="text-stone-600 dark:text-gray-300">{$t('backup.profile_label')}</span>
+          <span class="text-stone-800 dark:text-gray-100">{restorePreview.metadata.profile_name}</span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">{$t('settings.documents')}</span>
-          <span class="text-stone-800">{restorePreview.metadata.document_count}</span>
+          <span class="text-stone-600 dark:text-gray-300">{$t('settings.documents')}</span>
+          <span class="text-stone-800 dark:text-gray-100">{restorePreview.metadata.document_count}</span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">Created</span>
-          <span class="text-stone-800">
+          <span class="text-stone-600 dark:text-gray-300">{$t('backup.created_label')}</span>
+          <span class="text-stone-800 dark:text-gray-100">
             {new Date(restorePreview.metadata.created_at).toLocaleDateString()}
           </span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">{$t('settings.total_size')}</span>
-          <span class="text-stone-800">{formatBytes(restorePreview.total_size_bytes)}</span>
+          <span class="text-stone-600 dark:text-gray-300">{$t('settings.total_size')}</span>
+          <span class="text-stone-800 dark:text-gray-100">{formatBytes(restorePreview.total_size_bytes)}</span>
         </div>
         <div class="flex justify-between">
-          <span class="text-stone-600">Version</span>
-          <span class="text-stone-800">{restorePreview.metadata.coheara_version}</span>
+          <span class="text-stone-600 dark:text-gray-300">{$t('backup.version_label')}</span>
+          <span class="text-stone-800 dark:text-gray-100">{restorePreview.metadata.coheara_version}</span>
         </div>
         {#if !restorePreview.compatible}
           <div class="bg-[var(--color-warning-50)] rounded-lg p-3 border border-[var(--color-warning-200)]">
             <p class="text-sm text-[var(--color-warning-800)]">
-              {restorePreview.compatibility_message ?? 'This backup may not be fully compatible.'}
+              {restorePreview.compatibility_message ?? $t('backup.compatibility_warning')}
             </p>
           </div>
         {/if}
@@ -237,8 +236,8 @@
         {$t('backup.restore')}
       </button>
       <button
-        class="w-full px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
-               text-stone-600 min-h-[44px]"
+        class="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl text-sm
+               text-stone-600 dark:text-gray-300 min-h-[44px]"
         onclick={reset}
       >
         {$t('common.cancel')}
@@ -246,16 +245,17 @@
     {/if}
 
   {:else if view === 'restore-password'}
-    <p class="text-sm text-stone-600 mb-3">
+    <p class="text-sm text-stone-600 dark:text-gray-300 mb-3">
       {$t('backup.restore_password', { values: { name: restorePreview?.metadata.profile_name ?? '' } })}
     </p>
 
     <input
       type="password"
-      class="w-full px-4 py-3 rounded-lg border border-stone-200 text-stone-700
-             text-sm mb-3 min-h-[44px]"
+      class="w-full px-4 py-3 rounded-lg border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200
+             text-sm mb-3 min-h-[44px] dark:bg-gray-900"
       bind:value={restorePassword}
       placeholder={$t('backup.password_placeholder')}
+      aria-label={$t('backup.password_placeholder')}
     />
 
     {#if error}
@@ -279,8 +279,8 @@
         {loading ? $t('common.loading') : $t('backup.restore')}
       </button>
       <button
-        class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
-               text-stone-600 min-h-[44px]"
+        class="px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl text-sm
+               text-stone-600 dark:text-gray-300 min-h-[44px]"
         onclick={reset}
       >
         {$t('common.cancel')}

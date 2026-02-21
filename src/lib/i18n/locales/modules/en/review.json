@@ -55,6 +55,7 @@
     "success_added": "added to your profile.",
     "success_back_home": "Back to home",
     "success_view_document": "View document",
+    "success_ask_ai": "Ask AI About This Document",
     "success_medications": "{count, plural, one {# medication} other {# medications}}",
     "success_lab_results": "{count, plural, one {# lab result} other {# lab results}}",
     "success_diagnoses": "{count, plural, one {# diagnosis} other {# diagnoses}}",

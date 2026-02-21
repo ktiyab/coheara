@@ -10,6 +10,7 @@
     "not_yet": "Noch nicht",
     "confirm_addressed": "Bitte bestätigen: «Mein Arzt hat dieses Laborergebnis behandelt»",
     "dismiss_reason_placeholder": "z.B. Besprochen mit Dr. Schmidt am 15. Jan.",
-    "reason_required": "Bitte geben Sie einen Grund an"
+    "reason_required": "Bitte geben Sie einen Grund an",
+    "dismiss_reason_label": "Grund f\u00fcr das Schlie\u00dfen dieser Warnung"
   }
 }

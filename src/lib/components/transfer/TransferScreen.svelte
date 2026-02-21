@@ -11,6 +11,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { CheckOutline } from 'flowbite-svelte-icons';
 
   let status: TransferStatus = $state('starting');
   let qrData: QrCodeData | null = $state(null);
@@ -64,7 +65,7 @@
   }
 </script>
 
-<div class="flex flex-col items-center min-h-screen pb-20 bg-stone-50 px-6 py-8">
+<div class="flex flex-col items-center bg-stone-50 dark:bg-gray-950 px-6 py-8">
   {#if status === 'starting'}
     <LoadingState message={$t('transfer.starting_server')} />
 
@@ -76,21 +77,21 @@
     />
 
   {:else if status === 'active' && qrData}
-    <h1 class="text-xl font-semibold text-stone-800 mb-2">{$t('transfer.receive_heading')}</h1>
-    <p class="text-sm text-stone-500 mb-6 text-center">
+    <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('transfer.receive_heading')}</h1>
+    <p class="text-sm text-stone-500 dark:text-gray-400 mb-6 text-center">
       {$t('transfer.scan_instruction')}
     </p>
 
     <!-- QR Code -->
-    <div class="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 mb-6">
+    <div class="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-stone-100 dark:border-gray-800 mb-6">
       {@html qrData.svg}
     </div>
 
     <!-- PIN display -->
     <div class="mb-4 text-center">
-      <p class="text-xs text-stone-500 mb-1">{$t('transfer.enter_pin')}</p>
+      <p class="text-xs text-stone-500 dark:text-gray-400 mb-1">{$t('transfer.enter_pin')}</p>
       <p
-        class="text-4xl font-mono font-bold tracking-[0.3em] text-stone-800"
+        class="text-4xl font-mono font-bold tracking-[0.3em] text-stone-800 dark:text-gray-100"
         aria-label={$t('transfer.pin_aria', { values: { pin: qrData.pin } })}
       >
         {qrData.pin}
@@ -98,22 +99,22 @@
     </div>
 
     <!-- URL fallback -->
-    <p class="text-xs text-stone-500 mb-8 text-center">
+    <p class="text-xs text-stone-500 dark:text-gray-400 mb-8 text-center">
       {$t('transfer.url_fallback')}<br>
-      <span class="font-mono text-stone-500">{qrData.url}</span>
+      <span class="font-mono text-stone-500 dark:text-gray-400">{qrData.url}</span>
     </p>
 
     <!-- Received files -->
     {#if receivedFiles.length > 0}
       <div class="w-full max-w-sm mb-6">
-        <h2 class="text-sm font-medium text-stone-600 mb-2">
+        <h2 class="text-sm font-medium text-stone-600 dark:text-gray-300 mb-2">
           {$t('transfer.files_received', { values: { count: receivedFiles.length } })}
         </h2>
         {#each receivedFiles as file}
           <div class="flex items-center gap-3 py-2 px-3 bg-[var(--color-success-50)] rounded-lg mb-1">
-            <span class="text-[var(--color-success)] text-sm">&#x2713;</span>
-            <span class="text-sm text-stone-700 truncate">{file.filename}</span>
-            <span class="text-xs text-stone-500 ml-auto">
+            <span class="text-[var(--color-success)] text-sm"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-sm text-stone-700 dark:text-gray-200 truncate">{file.filename}</span>
+            <span class="text-xs text-stone-500 dark:text-gray-400 ml-auto">
               {Math.round(file.size_bytes / 1024)}KB
             </span>
           </div>
@@ -137,7 +138,7 @@
   {:else}
     <!-- idle / server stopped -->
     <div class="flex flex-col items-center justify-center flex-1">
-      <p class="text-stone-500 mb-4">{$t('transfer.session_ended')}</p>
+      <p class="text-stone-500 dark:text-gray-400 mb-4">{$t('transfer.session_ended')}</p>
       <Button variant="secondary" onclick={() => navigation.goBack()}>
         {$t('common.go_back')}
       </Button>

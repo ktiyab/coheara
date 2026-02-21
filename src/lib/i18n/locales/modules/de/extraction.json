@@ -1,0 +1,32 @@
+{
+	"extraction": {
+		"review_heading": "Gesundheitsdaten erkannt",
+		"review_subtitle": "Pr\u00fcfen Sie die aus Ihren Gespr\u00e4chen extrahierten Daten",
+		"domain_symptom": "Symptom",
+		"domain_medication": "Medikament",
+		"domain_appointment": "Termin",
+		"grounding_high": "Hohe Zuverl\u00e4ssigkeit",
+		"grounding_medium": "Mittlere Zuverl\u00e4ssigkeit",
+		"grounding_low": "Geringe Zuverl\u00e4ssigkeit",
+		"confidence_label": "Zuverl\u00e4ssigkeit",
+		"confirm_btn": "Zu Akten hinzuf\u00fcgen",
+		"dismiss_btn": "Verwerfen",
+		"dismiss_all_btn": "Alle verwerfen",
+		"confirmed_msg": "Zu Ihren Akten hinzugef\u00fcgt",
+		"dismissed_msg": "Verworfen",
+		"empty_title": "Keine ausstehenden Elemente",
+		"empty_subtitle": "Gesundheitsdaten aus Ihren Gespr\u00e4chen erscheinen hier zur Pr\u00fcfung",
+		"error_confirm": "Fehler bei der Best\u00e4tigung",
+		"error_dismiss": "Fehler beim Verwerfen",
+		"badge_count": "{count} neu",
+		"field_category": "Kategorie",
+		"field_specific": "Name",
+		"field_severity": "Schweregrad",
+		"field_body_region": "K\u00f6rperregion",
+		"field_dose": "Dosis",
+		"field_frequency": "H\u00e4ufigkeit",
+		"field_professional": "Fachperson",
+		"field_specialty": "Fachgebiet",
+		"field_date": "Datum"
+	}
+}

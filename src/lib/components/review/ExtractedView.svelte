@@ -86,14 +86,14 @@
       </h2>
 
       <div class="flex flex-col border border-t-0 rounded-b-lg {group.borderClass}
-                  divide-y divide-stone-100">
+                  divide-y divide-stone-100 dark:divide-gray-800">
         {#each group.fields as field (field.id)}
           {@const fieldWarnings = getWarningsForField(field.id)}
           {@const correctedValue = getCorrectedValue(field.id)}
 
           <div class="px-3 py-3">
             <div class="flex items-start gap-2">
-              <span class="text-xs text-stone-500 min-w-[100px] mt-1 shrink-0">
+              <span class="text-xs text-stone-500 dark:text-gray-400 min-w-[100px] mt-1 shrink-0">
                 {field.display_label}
               </span>
               <div class="flex-1">
@@ -135,7 +135,7 @@
   {/each}
 
   {#if fields.length === 0}
-    <div class="text-center py-12 text-stone-500">
+    <div class="text-center py-12 text-stone-500 dark:text-gray-400">
       <p>{$t('review.no_fields_title')}</p>
       <p class="text-sm mt-2">{$t('review.no_fields_description')}</p>
     </div>

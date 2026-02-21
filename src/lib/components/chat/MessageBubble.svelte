@@ -35,7 +35,7 @@
       <div class="bg-[var(--color-interactive)] text-white rounded-2xl rounded-br-md px-4 py-3">
         <p class="text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
       </div>
-      <span class="text-xs text-stone-500 mt-1 mr-1">{formatTime(message.timestamp)}</span>
+      <span class="text-xs text-stone-500 dark:text-gray-400 mt-1 mr-1">{formatTime(message.timestamp)}</span>
     </div>
   </div>
 {:else}
@@ -45,8 +45,8 @@
     </div>
     <div class="max-w-[85%] flex flex-col items-start">
       <!-- Spec 48 [CA-03]: Render AI messages with safe markdown -->
-      <div class="bg-white border border-stone-100 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm
-                  text-stone-800 text-base leading-relaxed">
+      <div class="bg-white dark:bg-gray-900 border border-stone-100 dark:border-gray-800 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm
+                  text-stone-800 dark:text-gray-100 text-base leading-relaxed">
         {@html renderSafeMarkdown(message.content)}
       </div>
 
@@ -73,7 +73,7 @@
         </div>
       {/if}
 
-      <span class="text-xs text-stone-500 mt-1 ml-1">{formatTime(message.timestamp)}</span>
+      <span class="text-xs text-stone-500 dark:text-gray-400 mt-1 ml-1">{formatTime(message.timestamp)}</span>
     </div>
   </div>
 {/if}

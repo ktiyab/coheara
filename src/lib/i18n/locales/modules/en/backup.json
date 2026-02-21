@@ -14,6 +14,9 @@
     "profile_label": "Profile",
     "created_label": "Created",
     "version_label": "Version",
-    "compatibility_warning": "This backup may not be fully compatible."
+    "compatibility_warning": "This backup may not be fully compatible.",
+    "field_backup_path": "a backup path",
+    "field_file_path": "a backup file path",
+    "field_password": "a password"
   }
 }

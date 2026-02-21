@@ -2,6 +2,12 @@
   "ai": {
     "status_banner": "Assistant IA non disponible",
     "status_error": "Impossible de vérifier le statut de l'IA",
+    "status_available": "IA disponible",
+    "status_running": "Actif",
+    "status_fallback": "Modèle de secours",
+    "status_offline": "Hors ligne",
+    "status_detail_fallback": "Le modèle préféré n'est pas disponible. Les performances ne sont pas affectées.",
+    "status_detail_offline": "L'assistant IA n'est pas disponible. Vérifiez qu'Ollama est en cours d'exécution.",
     "setup_step_detect": "Vérification du moteur IA",
     "setup_step_install": "Installation du moteur IA",
     "setup_step_pull": "Téléchargement du modèle IA",

@@ -10,6 +10,21 @@
     "appointments": "Rendez-vous",
     "settings": "Paramètres",
     "go_back": "Retour",
-    "skip_to_content": "Aller au contenu principal"
+    "skip_to_content": "Aller au contenu principal",
+    "sidebar": "Barre latérale",
+    "expand_sidebar": "Développer",
+    "collapse_sidebar": "Réduire",
+    "section_main": "Principal",
+    "section_library": "Bibliothèque",
+    "section_system": "Système",
+    "review": "Révision",
+    "document-detail": "Document",
+    "ai-settings": "Paramètres IA",
+    "ai-setup": "Configuration IA",
+    "privacy": "Confidentialité",
+    "pairing": "Appareils jumelés",
+    "import": "Importer",
+    "transfer": "Transfert",
+    "breadcrumb": "Fil d'Ariane"
   }
 }

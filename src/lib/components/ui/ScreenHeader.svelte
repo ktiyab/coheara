@@ -34,7 +34,7 @@
   {#if showBack}
     <BackButton onclick={onback} />
   {/if}
-  <h1 class="flex-1 text-xl font-bold text-stone-800 truncate">
+  <h1 class="flex-1 text-xl font-bold text-stone-800 dark:text-gray-100 truncate">
     {title}
   </h1>
   {#if actionLabel && onaction}

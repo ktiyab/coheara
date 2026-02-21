@@ -20,7 +20,7 @@
 
 {#if dependents.length > 0}
   <div class="px-6 py-4">
-    <h2 class="text-sm font-medium text-stone-500 uppercase tracking-wide mb-3">
+    <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 uppercase tracking-wide mb-3">
       {$t('caregiver.dependents_heading')}
     </h2>
     <div class="flex flex-col gap-3">

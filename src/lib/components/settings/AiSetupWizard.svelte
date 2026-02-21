@@ -29,6 +29,7 @@
   import type { RecommendedModel, ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize } from '$lib/types/ai';
   import Button from '$lib/components/ui/Button.svelte';
+  import { CheckOutline, ExclamationCircleSolid } from 'flowbite-svelte-icons';
 
   // ── Wizard State ─────────────────────────────────────────
 
@@ -311,10 +312,10 @@
   }
 </script>
 
-<div class="flex flex-col min-h-screen bg-stone-50">
+<div class="flex flex-col min-h-screen bg-stone-50 dark:bg-gray-950">
   <!-- Header with step indicator -->
   <header class="px-6 pt-6 pb-2">
-    <h1 class="text-2xl font-bold text-stone-800 mb-4">{$t('ai.setup_heading')}</h1>
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100 mb-4">{$t('ai.setup_heading')}</h1>
 
     {#if step !== 'done'}
       <!-- Step progress indicator -->
@@ -326,17 +327,17 @@
         {#each STEPS as s, i (s)}
           <div class="flex items-center gap-2">
             {#if i > 0}
-              <div class="w-8 h-0.5 {i <= stepIndex ? 'bg-[var(--color-interactive)]' : 'bg-stone-200'}"></div>
+              <div class="w-8 h-0.5 {i <= stepIndex ? 'bg-[var(--color-interactive)]' : 'bg-stone-200 dark:bg-gray-700'}"></div>
             {/if}
             <div
               class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
                      {i < stepIndex ? 'bg-[var(--color-interactive)] text-white' :
                       i === stepIndex ? 'bg-[var(--color-interactive)] text-white' :
-                      'bg-stone-200 text-stone-500'}"
+                      'bg-stone-200 dark:bg-gray-700 text-stone-500 dark:text-gray-400'}"
               aria-current={i === stepIndex ? 'step' : undefined}
             >
               {#if i < stepIndex}
-                &#10003;
+                <CheckOutline class="w-3.5 h-3.5" />
               {:else}
                 {i + 1}
               {/if}
@@ -359,15 +360,15 @@
       <!-- ═══ DETECT ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
         <div class="animate-spin w-8 h-8 border-3 border-[var(--color-interactive)] border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.checking_ollama')}></div>
-        <p class="text-lg text-stone-700 mb-2">{$t('ai.checking_engine')}</p>
-        <p class="text-sm text-stone-500">{$t('ai.looking_for_ollama')}</p>
+        <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.checking_engine')}</p>
+        <p class="text-sm text-stone-500 dark:text-gray-400">{$t('ai.looking_for_ollama')}</p>
       </div>
 
     {:else if step === 'install'}
       <!-- ═══ INSTALL ═══ -->
       <div class="space-y-4">
-        <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <p class="text-base text-stone-700 mb-4">
+        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+          <p class="text-base text-stone-700 dark:text-gray-200 mb-4">
             {@html $t('ai.ollama_local_description')}
           </p>
 
@@ -404,7 +405,7 @@
           </div>
         {/if}
 
-        <p class="text-sm text-stone-500 text-center">
+        <p class="text-sm text-stone-500 dark:text-gray-400 text-center">
           {$t('ai.waiting_for_ollama')}
         </p>
 
@@ -421,7 +422,7 @@
     {:else if step === 'pull'}
       <!-- ═══ PULL MODEL ═══ -->
       <div class="space-y-4">
-        <p class="text-base text-stone-700">
+        <p class="text-base text-stone-700 dark:text-gray-200">
           {$t('ai.choose_model')}
         </p>
 
@@ -433,10 +434,10 @@
 
         <!-- Pull progress (if active) -->
         {#if ai.isPulling && ai.pullProgress}
-          <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-            <p class="text-sm font-medium text-stone-800 mb-2">{$t('ai.downloading_model', { values: { name: ai.pullProgress.model_name } })}</p>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-100 mb-2">{$t('ai.downloading_model', { values: { name: ai.pullProgress.model_name } })}</p>
             <div
-              class="w-full bg-stone-200 rounded-full h-2.5 mb-2"
+              class="w-full bg-stone-200 dark:bg-gray-700 rounded-full h-2.5 mb-2"
               role="progressbar"
               aria-valuenow={Math.round(ai.pullProgress.progress_percent)}
               aria-valuemin={0}
@@ -449,7 +450,7 @@
               ></div>
             </div>
             <div class="flex justify-between items-center">
-              <span class="text-xs text-stone-500">
+              <span class="text-xs text-stone-500 dark:text-gray-400">
                 {formatModelSize(ai.pullProgress.bytes_completed)} / {formatModelSize(ai.pullProgress.bytes_total)}
                 &middot; {Math.round(ai.pullProgress.progress_percent)}%
               </span>
@@ -460,7 +461,7 @@
                 {$t('common.cancel')}
               </button>
             </div>
-            <p class="text-xs text-stone-500 mt-2">{$t('ai.download_note')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400 mt-2">{$t('ai.download_note')}</p>
           </div>
         {/if}
 
@@ -477,17 +478,17 @@
         {#if !ai.isPulling}
           <!-- Installed models (if user already had some) -->
           {#if ai.models.length > 0}
-            <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.already_installed')}</h2>
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+              <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.already_installed')}</h2>
               <div class="space-y-2">
                 {#each ai.models as model (model.name)}
-                  <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100">
+                  <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100 dark:border-gray-800">
                     <span aria-label={isMedicalModel(model.name) ? $t('ai.medical_model') : $t('ai.general_model')}>
                       {isMedicalModel(model.name) ? '\u2605' : '\u25CB'}
                     </span>
                     <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium text-stone-800 truncate">{model.name}</p>
-                      <p class="text-xs text-stone-500">{formatModelSize(model.size)}</p>
+                      <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{model.name}</p>
+                      <p class="text-xs text-stone-500 dark:text-gray-400">{formatModelSize(model.size)}</p>
                     </div>
                     <button
                       class="text-xs text-[var(--color-interactive)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
@@ -503,26 +504,26 @@
 
           <!-- Recommended models to download -->
           {#if recommended.length > 0}
-            <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-              <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.recommended_models')}</h2>
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+              <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.recommended_models')}</h2>
               <div class="space-y-3">
                 {#each recommended as rec, i (rec.name)}
                   {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
-                  <div class="p-4 rounded-xl border {i === 0 ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100'}">
+                  <div class="p-4 rounded-xl border {i === 0 ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100 dark:border-gray-800'}">
                     <div class="flex items-start gap-3">
                       <span class="text-lg" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
                       <div class="flex-1">
                         <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-stone-800">{rec.name}</p>
+                          <p class="text-sm font-medium text-stone-800 dark:text-gray-100">{rec.name}</p>
                           {#if i === 0}
                             <span class="text-xs bg-[var(--color-interactive-50)] text-[var(--color-interactive)] px-2 py-0.5 rounded-full">{$t('ai.recommended_badge')}</span>
                           {/if}
                         </div>
-                        <p class="text-xs text-stone-600 mt-1">{rec.description}</p>
-                        <p class="text-xs text-stone-500 mt-0.5">{$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}</p>
+                        <p class="text-xs text-stone-600 dark:text-gray-300 mt-1">{rec.description}</p>
+                        <p class="text-xs text-stone-500 dark:text-gray-400 mt-0.5">{$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}</p>
                       </div>
                       {#if alreadyInstalled}
-                        <span class="text-xs text-stone-500 mt-1">{$t('ai.installed_tag')}</span>
+                        <span class="text-xs text-stone-500 dark:text-gray-400 mt-1">{$t('ai.installed_tag')}</span>
                       {:else}
                         <button
                           class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] min-h-[44px]"
@@ -539,14 +540,15 @@
           {/if}
 
           <!-- Custom model input -->
-          <div class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-            <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.custom_model_heading')}</h2>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+            <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.custom_model_heading')}</h2>
             <div class="flex gap-2">
               <input
                 type="text"
                 bind:value={pullInput}
                 placeholder={$t('ai.model_placeholder')}
-                class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
+                aria-label={$t('ai.model_placeholder')}
+                class="flex-1 text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 text-stone-800 dark:text-gray-100 placeholder-stone-400 dark:placeholder-gray-500 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
               />
               <button
                 class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
@@ -571,44 +573,44 @@
       <div class="flex flex-col items-center justify-center py-16 text-center">
         {#if verifyRunning}
           <div class="animate-spin w-8 h-8 border-3 border-[var(--color-interactive)] border-t-transparent rounded-full mb-6" role="status" aria-label={$t('ai.verifying_model')}></div>
-          <p class="text-lg text-stone-700 mb-2">{$t('ai.testing_model', { values: { name: ai.activeModel?.name ?? 'AI' } })}</p>
-          <p class="text-sm text-stone-500">{$t('ai.first_run_note')}</p>
+          <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.testing_model', { values: { name: ai.activeModel?.name ?? 'AI' } })}</p>
+          <p class="text-sm text-stone-500 dark:text-gray-400">{$t('ai.first_run_note')}</p>
         {:else if error}
-          <div class="text-4xl mb-4">&#9888;</div>
-          <p class="text-lg text-stone-700 mb-2">{$t('ai.verification_failed')}</p>
+          <div class="mb-4"><ExclamationCircleSolid class="w-10 h-10 text-[var(--color-warning)]" /></div>
+          <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.verification_failed')}</p>
           <p class="text-sm text-[var(--color-danger)] mb-6">{error}</p>
           <Button variant="primary" onclick={runVerify}>
             {$t('common.retry')}
           </Button>
         {:else}
-          <div class="text-4xl mb-4">&#10003;</div>
-          <p class="text-lg text-stone-700 mb-2">{$t('ai.model_verified')}</p>
-          <p class="text-sm text-stone-500">{$t('ai.continuing')}</p>
+          <div class="mb-4"><CheckOutline class="w-10 h-10 text-[var(--color-interactive)]" /></div>
+          <p class="text-lg text-stone-700 dark:text-gray-200 mb-2">{$t('ai.model_verified')}</p>
+          <p class="text-sm text-stone-500 dark:text-gray-400">{$t('ai.continuing')}</p>
         {/if}
       </div>
 
     {:else if step === 'done'}
       <!-- ═══ DONE ═══ -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
-        <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-full flex items-center justify-center text-3xl text-[var(--color-interactive)] mb-6">
-          &#10003;
+        <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-full flex items-center justify-center text-[var(--color-interactive)] mb-6">
+          <CheckOutline class="w-8 h-8" />
         </div>
-        <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('ai.engine_ready_heading')}</h2>
-        <p class="text-base text-stone-600 mb-2">
+        <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('ai.engine_ready_heading')}</h2>
+        <p class="text-base text-stone-600 dark:text-gray-300 mb-2">
           {$t('ai.model_setup_complete', { values: { name: ai.activeModel?.name ?? 'AI' } })}
         </p>
-        <p class="text-sm text-stone-500 mb-8">
+        <p class="text-sm text-stone-500 dark:text-gray-400 mb-8">
           {$t('ai.change_model_hint')}
         </p>
 
-        <div class="space-y-3 w-full max-w-xs text-left bg-white rounded-xl p-5 border border-stone-100 shadow-sm mb-8">
+        <div class="space-y-3 w-full max-w-xs text-left bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm mb-8">
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]">&#10003;</span>
-            <span class="text-sm text-stone-700">{$t('ai.ollama_running')}</span>
+            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-sm text-stone-700 dark:text-gray-200">{$t('ai.ollama_running')}</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]">&#10003;</span>
-            <span class="text-sm text-stone-700">
+            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-sm text-stone-700 dark:text-gray-200">
               {ai.activeModel?.name}
               {#if ai.activeModel?.quality === 'Medical'}
                 <span class="text-xs text-[var(--color-interactive)] ml-1">{$t('ai.medical_quality')}</span>
@@ -616,8 +618,8 @@
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[var(--color-interactive)]">&#10003;</span>
-            <span class="text-sm text-stone-700">{$t('ai.ai_responding')}</span>
+            <span class="text-[var(--color-interactive)]"><CheckOutline class="w-3.5 h-3.5" /></span>
+            <span class="text-sm text-stone-700 dark:text-gray-200">{$t('ai.ai_responding')}</span>
           </div>
         </div>
 
@@ -631,8 +633,8 @@
   <!-- Graceful degradation info (shown on install and pull steps) -->
   {#if step === 'install' || step === 'pull'}
     <div class="px-6 pb-6">
-      <div class="bg-stone-100 rounded-xl p-4">
-        <p class="text-xs text-stone-500">
+      <div class="bg-stone-100 dark:bg-gray-800 rounded-xl p-4">
+        <p class="text-xs text-stone-500 dark:text-gray-400">
           {@html $t('ai.without_ai')}
         </p>
       </div>

@@ -42,6 +42,14 @@
     "hub_switch_description": "Lock and switch to another profile",
     "sound_heading": "Sound & Notifications",
     "sound_enabled": "Sound effects",
-    "sound_volume": "Volume"
+    "sound_volume": "Volume",
+    "theme_heading": "Theme",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_colorful": "Colorful",
+    "section_ai_profile": "AI & Profile",
+    "section_preferences": "Preferences",
+    "section_privacy": "Privacy & Devices",
+    "section_about": "About"
   }
 }

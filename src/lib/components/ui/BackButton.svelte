@@ -8,6 +8,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import { ArrowLeftOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     label?: string;
@@ -24,12 +25,12 @@
 
 <button
   class="min-h-[44px] min-w-[44px] flex items-center gap-1
-         text-stone-500 hover:text-stone-700 transition-colors
+         text-stone-500 dark:text-gray-400 hover:text-stone-700 dark:hover:text-gray-200 transition-colors
          focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
   onclick={onclick ?? (() => navigation.goBack())}
   aria-label={ariaLabel ?? $t('common.go_back')}
 >
-  <span aria-hidden="true">&larr;</span>
+  <ArrowLeftOutline class="w-4 h-4" />
   {#if label}
     <span class="text-sm">{label}</span>
   {/if}

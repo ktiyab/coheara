@@ -3,6 +3,7 @@
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { StoredAppointment } from '$lib/types/appointment';
+  import { CalendarMonthOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     appointments: StoredAppointment[];
@@ -37,12 +38,12 @@
     <div class="flex flex-col gap-2">
       {#each upcoming as appt (appt.id)}
         <button
-          class="flex items-center gap-3 p-3 rounded-xl bg-white border border-[var(--color-border)]
+          class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)]
                  hover:bg-[var(--color-surface-hover)] transition-colors text-left w-full"
           onclick={() => navigation.navigate('appointments')}
         >
-          <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-50)] flex items-center justify-center text-lg">
-            &#128197;
+          <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-50)] flex items-center justify-center">
+            <CalendarMonthOutline class="w-5 h-5 text-[var(--color-primary)]" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">

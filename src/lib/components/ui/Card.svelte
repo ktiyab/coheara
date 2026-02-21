@@ -30,12 +30,16 @@
   };
 
   let baseClasses = $derived(
-    `bg-white rounded-xl shadow-sm border border-stone-100 ${paddingClasses[padding]}
-     ${selected ? 'ring-2 ring-[var(--color-primary)] ring-offset-1' : ''}`
+    `bg-white dark:bg-gray-900 rounded-xl shadow-sm border
+     ${paddingClasses[padding]}
+     ${selected
+       ? 'ring-2 ring-[var(--color-primary)] ring-offset-1 border-transparent'
+       : 'border-stone-100 dark:border-gray-700'}`
   );
 
   let clickableClasses = $derived(
-    `${baseClasses} w-full text-left cursor-pointer hover:shadow-md transition-shadow min-h-[44px]
+    `${baseClasses} w-full text-left cursor-pointer
+     hover:shadow-md dark:hover:shadow-gray-800/50 transition-shadow min-h-[44px]
      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]`
   );
 </script>

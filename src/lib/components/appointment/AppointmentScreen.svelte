@@ -32,12 +32,12 @@
   onMount(() => { refresh(); });
 </script>
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <ScreenHeader
     title={$t('appointment.screen_title')}
     showBack={false}
-    actionLabel={view === 'history' ? $t('appointment.screen_prepare') : undefined}
-    onaction={view === 'history' ? () => { view = 'prep'; } : undefined}
+    actionLabel={view === 'history' && !loading && appointments.length > 0 ? $t('appointment.screen_prepare') : undefined}
+    onaction={view === 'history' && !loading && appointments.length > 0 ? () => { view = 'prep'; } : undefined}
   />
 
   {#if view === 'prep'}

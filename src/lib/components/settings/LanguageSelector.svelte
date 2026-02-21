@@ -1,6 +1,6 @@
-<!-- I18N-38 + 6.7: Language selector with endonym labels. -->
+<!-- I18N-38 + V16: Language selector — inline pill group, endonym labels. -->
 <script lang="ts">
-  import { locale } from 'svelte-i18n';
+  import { locale, t } from 'svelte-i18n';
   import { setUserPreference } from '$lib/api/ai';
 
   const languages = [
@@ -19,19 +19,19 @@
   }
 </script>
 
-<fieldset class="space-y-1">
-  <legend class="text-sm font-medium text-stone-500 mb-2">Language</legend>
-  {#each languages as lang}
-    <label class="flex items-center gap-3 py-2 min-h-[44px] cursor-pointer">
-      <input
-        type="radio"
-        name="language"
-        value={lang.code}
-        checked={$locale === lang.code}
-        onchange={() => changeLanguage(lang.code)}
-        class="w-4 h-4 text-[var(--color-interactive)] focus:ring-[var(--color-interactive)]"
-      />
-      <span class="text-sm text-stone-700">{lang.label}</span>
-    </label>
+<div class="flex gap-1 rounded-lg bg-stone-100 dark:bg-gray-800 p-0.5" role="radiogroup" aria-label={$t('settings.language_label')}>
+  {#each languages as lang (lang.code)}
+    <button
+      role="radio"
+      aria-checked={$locale === lang.code}
+      class="flex-1 px-3 py-2 rounded-md text-sm font-medium min-h-[44px] transition-colors
+             focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-interactive)]
+             {$locale === lang.code
+               ? 'bg-white dark:bg-gray-700 text-stone-800 dark:text-gray-100 shadow-sm'
+               : 'text-stone-500 dark:text-gray-400 hover:text-stone-700 dark:hover:text-gray-200'}"
+      onclick={() => changeLanguage(lang.code)}
+    >
+      {lang.label}
+    </button>
   {/each}
-</fieldset>
+</div>

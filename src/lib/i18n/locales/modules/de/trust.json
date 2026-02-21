@@ -1,10 +1,21 @@
 {
   "trust": {
-    "heading": "Willkommen bei Coheara",
-    "subheading": "Ihr persönlicher Assistent für medizinische Dokumente.",
+    "heading": "Ihr pers\u00f6nlicher Gesundheitsbegleiter",
+    "subheading": "Ihr pers\u00f6nlicher Assistent f\u00fcr medizinische Dokumente.",
+    "value_proposition": "Verstehen Sie Ihre medizinischen Dokumente, verfolgen Sie Ihre Medikamente, bereiten Sie Arztbesuche vor \u2014 alles privat, alles Ihres.",
+    "benefit_aggregate": "Importieren Sie Rezepte, Laborergebnisse und Arztbriefe an einem Ort",
+    "benefit_intelligence": "Stellen Sie Fragen und erhalten Sie belegte Antworten aus Ihren eigenen Dokumenten",
+    "benefit_safety": "Erkennen Sie Konflikte und L\u00fccken zwischen \u00c4rzten, Medikamenten und Laborergebnissen",
+    "benefit_portability": "Ihr Smartphone tr\u00e4gt Ihren Vault zu jedem Arzttermin",
+    "benefit_privacy": "KI l\u00e4uft lokal. Alles bleibt auf Ihren Ger\u00e4ten. Immer.",
     "benefit_local": "Ihre medizinischen Dokumente werden <b>niemals irgendwohin gesendet</b>.",
-    "benefit_encrypted": "Alles ist mit Ihrem Passwort <b>verschlüsselt</b>.",
+    "benefit_encrypted": "Alles ist mit Ihrem Passwort <b>verschl\u00fcsselt</b>.",
     "benefit_private": "Keine Konten, keine Nachverfolgung, keine Datenerhebung.",
-    "continue": "Ich verstehe, lassen Sie uns beginnen"
+    "privacy_local": "Alles bleibt auf Ihrem Ger\u00e4t \u2014 keine Cloud",
+    "privacy_encrypted": "Mit Ihrem Passwort verschl\u00fcsselt \u2014 nur Sie sehen es",
+    "privacy_ai": "KI l\u00e4uft lokal \u2014 Ihre Fragen verlassen nie das Ger\u00e4t",
+    "cta": "Ihren MedAI Vault erstellen",
+    "continue": "Ich verstehe, lassen Sie uns beginnen",
+    "get_started": "Loslegen"
   }
 }

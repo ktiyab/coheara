@@ -1,6 +1,7 @@
 <!-- L3-04: Original document viewer with zoom, pan, rotate (image/PDF). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
+  import { RefreshOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     fileBase64: string | null;
@@ -70,19 +71,19 @@
 
 <div class="flex flex-col h-full">
   <!-- Toolbar -->
-  <div class="flex items-center gap-2 px-3 py-2 bg-stone-100 border-b border-stone-200 shrink-0">
+  <div class="flex items-center gap-2 px-3 py-2 bg-stone-100 dark:bg-gray-800 border-b border-stone-200 dark:border-gray-700 shrink-0">
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 text-stone-600"
+             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300"
       onclick={zoomOut}
       aria-label={$t('review.viewer_zoom_out')}
     >
       &minus;
     </button>
-    <span class="text-sm text-stone-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
+    <span class="text-sm text-stone-500 dark:text-gray-400 w-12 text-center">{Math.round(zoom * 100)}%</span>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 text-stone-600"
+             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300"
       onclick={zoomIn}
       aria-label={$t('review.viewer_zoom_in')}
     >
@@ -90,7 +91,7 @@
     </button>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
+             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
       onclick={fitToWidth}
       aria-label={$t('review.viewer_fit_width')}
     >
@@ -98,28 +99,28 @@
     </button>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
+             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
       onclick={rotate90}
       aria-label={$t('review.viewer_rotate')}
     >
-      &#8635;
+      <RefreshOutline class="w-4 h-4" />
     </button>
 
     {#if fileType === 'Pdf'}
       <div class="ml-auto flex items-center gap-2">
         <button
           class="min-h-[44px] min-w-[44px] flex items-center justify-center
-                 rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
+                 rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
           onclick={() => currentPage = Math.max(1, currentPage - 1)}
           disabled={currentPage <= 1}
           aria-label={$t('review.viewer_prev_page')}
         >
           &lt;
         </button>
-        <span class="text-sm text-stone-500">{currentPage} / {totalPages}</span>
+        <span class="text-sm text-stone-500 dark:text-gray-400">{currentPage} / {totalPages}</span>
         <button
           class="min-h-[44px] min-w-[44px] flex items-center justify-center
-                 rounded-lg hover:bg-stone-200 text-stone-600 text-xs"
+                 rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
           onclick={() => currentPage = Math.min(totalPages, currentPage + 1)}
           disabled={currentPage >= totalPages}
           aria-label={$t('review.viewer_next_page')}
@@ -132,7 +133,7 @@
 
   <!-- Viewer area -->
   <div
-    class="flex-1 overflow-hidden bg-stone-200 flex items-center justify-center
+    class="flex-1 overflow-hidden bg-stone-200 dark:bg-gray-700 flex items-center justify-center
            {isDragging ? 'cursor-grabbing' : zoom > 1.0 ? 'cursor-grab' : 'cursor-default'}"
     onwheel={handleWheel}
     onmousedown={handleMouseDown}
@@ -143,7 +144,7 @@
     aria-label={$t('review.viewer_aria')}
   >
     {#if !dataUrl}
-      <p class="text-stone-500">{$t('review.viewer_loading')}</p>
+      <p class="text-stone-500 dark:text-gray-400">{$t('review.viewer_loading')}</p>
     {:else if fileType === 'Image'}
       <img
         src={dataUrl}

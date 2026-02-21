@@ -28,9 +28,9 @@
     <Avatar name={summary.managed_profile_name} color={color} size="md" />
 
     <div class="flex-1 min-w-0">
-      <h3 class="font-semibold text-stone-800 truncate">{summary.managed_profile_name}</h3>
+      <h3 class="font-semibold text-stone-800 dark:text-gray-100 truncate">{summary.managed_profile_name}</h3>
 
-      <div class="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-sm text-stone-500">
+      <div class="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-sm text-stone-500 dark:text-gray-400">
         {#if summary.critical_alert_count > 0}
           <span class="text-[var(--color-danger)] font-medium">
             {$t('caregiver.critical_alerts', { values: { count: summary.critical_alert_count } })}
@@ -51,7 +51,7 @@
       </div>
 
       {#if isStale()}
-        <p class="text-xs text-stone-400 mt-1">
+        <p class="text-xs text-stone-400 dark:text-gray-500 mt-1">
           {$t('caregiver.stale_summary')}
         </p>
       {/if}

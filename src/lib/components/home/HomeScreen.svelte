@@ -3,14 +3,15 @@
   import { t, locale } from 'svelte-i18n';
   import { getHomeData, getMoreDocuments } from '$lib/api/home';
   import { listen } from '@tauri-apps/api/event';
+  import { isTauriEnv } from '$lib/utils/tauri';
   import type { HomeData, DocumentCard } from '$lib/types/home';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { ai } from '$lib/stores/ai.svelte';
-  import QuickActions from './QuickActions.svelte';
   import DocumentCardView from './DocumentCardView.svelte';
-  import OnboardingMilestones from './OnboardingMilestones.svelte';
-  import EmptyState from './EmptyState.svelte';
+  import ProgressBlock from './ProgressBlock.svelte';
+  import FeatureCards from './FeatureCards.svelte';
+  import CompanionCard from './CompanionCard.svelte';
   import CriticalAlertBanner from './CriticalAlertBanner.svelte';
   import ObservationsBanner from './ObservationsBanner.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
@@ -27,6 +28,8 @@
   import UpcomingAppointments from './UpcomingAppointments.svelte';
   import ActiveMedsSummary from './ActiveMedsSummary.svelte';
   import DropZoneOverlay from './DropZoneOverlay.svelte';
+  import ExtractionReview from './ExtractionReview.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
 
   let homeData: HomeData | null = $state(null);
   let observations: CoherenceAlert[] = $state([]);
@@ -56,6 +59,8 @@
       activeMeds = medData.medications;
       // Show only non-dismissed, standard/info severity observations (exclude critical — handled by CriticalAlertBanner)
       observations = alerts.filter(a => !a.dismissed && a.severity !== 'Critical');
+      // LP-01: Refresh pending extraction items
+      extraction.refresh().catch(() => {});
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -85,6 +90,17 @@
   }
 
   onMount(() => {
+    if (!isTauriEnv()) {
+      // Browser-only dev preview: show empty state, no IPC calls
+      homeData = {
+        stats: { total_documents: 0, documents_pending_review: 0, total_medications: 0, total_lab_results: 0, last_document_date: null, extraction_accuracy: null },
+        recent_documents: [],
+        onboarding: { first_document_loaded: false, first_document_reviewed: false, first_question_asked: false, three_documents_loaded: false, first_symptom_recorded: false },
+        critical_alerts: [],
+      };
+      loading = false;
+      return;
+    }
     refresh();
     const unlisten = listen('document-imported', () => refresh());
     return () => { unlisten.then(fn => fn()); };
@@ -109,18 +125,22 @@
 <!-- Spec 49 [FE-04]: Global drop zone for file import -->
 <DropZoneOverlay />
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
   <header class="px-6 pt-6 pb-4">
-    <h1 class="text-2xl font-bold text-stone-800">
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">
       {$t('home.greeting', { values: { name: profile.name } })}
     </h1>
-    {#if homeData}
-      <p class="text-sm text-stone-500 mt-1">
+    {#if homeData && homeData.stats.total_documents > 0}
+      <p class="text-sm text-stone-500 dark:text-gray-400 mt-1">
         {$t('home.document_count', { values: { count: homeData.stats.total_documents } })}
         {#if homeData.stats.last_document_date}
           · {$t('home.last_updated', { values: { time: relativeTime(homeData.stats.last_document_date) } })}
         {/if}
+      </p>
+    {:else if homeData}
+      <p class="text-sm text-stone-500 dark:text-gray-400 mt-1">
+        {$t('home.greeting_empty_subtitle')}
       </p>
     {/if}
   </header>
@@ -148,15 +168,18 @@
       />
     {/if}
 
+    <!-- LP-01: Morning review of batch-extracted health data -->
+    <ExtractionReview />
+
     <!-- Spec 46 [CG-02]: Caregiver dashboard (above personal content) -->
     {#if dependents.length > 0}
       <CaregiverDashboard {dependents} />
     {/if}
 
-    <!-- Quick actions -->
-    <QuickActions
-      hasDocuments={homeData.stats.total_documents > 0}
-    />
+    <!-- V8-B5: Progress block (new users — replaces OnboardingMilestones + EmptyState) -->
+    {#if !homeData.onboarding.first_document_loaded || !homeData.onboarding.first_document_reviewed || !homeData.onboarding.first_question_asked}
+      <ProgressBlock progress={homeData.onboarding} />
+    {/if}
 
     <!-- Spec 47 [OB-03]: AI setup banner — only after first document, only when AI not configured -->
     {#if homeData.stats.total_documents > 0 && !ai.isAiAvailable && !aiBannerDismissed}
@@ -184,10 +207,8 @@
     <!-- Spec 49: Active medications surfacing -->
     <ActiveMedsSummary medications={activeMeds} />
 
-    <!-- Document feed or empty state -->
-    {#if homeData.stats.total_documents === 0}
-      <EmptyState />
-    {:else}
+    <!-- Document feed (populated state) -->
+    {#if homeData.stats.total_documents > 0}
       <div class="px-6 py-3 flex flex-col gap-3">
         {#each homeData.recent_documents as card (card.id)}
           <DocumentCardView {card} onTap={handleDocumentTap} />
@@ -201,11 +222,10 @@
       </div>
     {/if}
 
-    <!-- Onboarding milestones (new users) -->
-    {#if !homeData.onboarding.first_document_loaded || !homeData.onboarding.first_question_asked}
-      <OnboardingMilestones
-        progress={homeData.onboarding}
-      />
-    {/if}
+    <!-- V8-B6: Feature teaching cards -->
+    <FeatureCards hasDocuments={homeData.stats.total_documents > 0} />
+
+    <!-- V8-B7: Phone companion card -->
+    <CompanionCard />
   {/if}
 </div>

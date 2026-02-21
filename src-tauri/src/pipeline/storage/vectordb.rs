@@ -485,7 +485,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let (info, _phrase) =
-            profile::create_profile(dir.path(), "VecStoreTest", "test_pass_123", None, None).unwrap();
+            profile::create_profile(dir.path(), "VecStoreTest", "test_pass_123", None, None, None, None).unwrap();
         let session = profile::open_profile(dir.path(), &info.id, "test_pass_123").unwrap();
         (dir, session)
     }

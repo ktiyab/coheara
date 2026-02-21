@@ -10,7 +10,8 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import MedicationCardView from './MedicationCardView.svelte';
   import MedicationSearch from './MedicationSearch.svelte';
-  import EmptyMedicationState from './EmptyMedicationState.svelte';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import { PillIcon } from '$lib/components/icons';
   import InteractionCheckButton from './InteractionCheckButton.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -82,12 +83,12 @@
   });
 </script>
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
   <header class="px-6 pt-6 pb-4">
-    <h1 class="text-2xl font-bold text-stone-800">{$t('medications.list_title')}</h1>
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('medications.list_title')}</h1>
     {#if data}
-      <p class="text-sm text-stone-500 mt-1">
+      <p class="text-sm text-stone-500 dark:text-gray-400 mt-1">
         {data.total_active} {$t('medications.list_summary_active')}{data.total_paused > 0 ? ` \u00B7 ${data.total_paused} ${$t('medications.list_summary_paused')}` : ''}{data.total_stopped > 0 ? ` \u00B7 ${data.total_stopped} ${$t('medications.list_summary_stopped')}` : ''}
       </p>
     {/if}
@@ -102,8 +103,12 @@
       retryLabel={$t('medications.list_try_again')}
     />
   {:else if data && totalCount === 0 && !searchQuery}
-    <EmptyMedicationState
-      onAddOtc={() => navigation.navigate('otc-entry')}
+    <EmptyState
+      icon={PillIcon}
+      title={$t('medications.empty_title')}
+      description={$t('medications.empty_description')}
+      actionLabel={$t('medications.empty_add_otc')}
+      onaction={() => navigation.navigate('otc-entry')}
     />
   {:else if data}
     <!-- Spec 49 [FE-03]: Drug interaction check -->
@@ -137,7 +142,7 @@
           />
         </div>
       {:else}
-        <div class="text-center py-8 text-stone-500 text-sm">
+        <div class="text-center py-8 text-stone-500 dark:text-gray-400 text-sm">
           {$t('medications.list_no_results')}
         </div>
       {/each}

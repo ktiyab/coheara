@@ -7,8 +7,9 @@
 
   interface Props {
     onSelect: (category: string, specific: string) => void;
+    inline?: boolean;
   }
-  let { onSelect }: Props = $props();
+  let { onSelect, inline = false }: Props = $props();
 
   let selectedCategory: string | null = $state(null);
   let customText = $state('');
@@ -27,15 +28,15 @@
 
 {#if !selectedCategory}
   <!-- Category grid (2x4) -->
-  <div class="grid grid-cols-4 gap-3">
+  <div class={inline ? 'grid grid-cols-4 gap-2' : 'grid grid-cols-4 gap-3'}>
     {#each CATEGORIES as cat}
       <button
-        class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl
-               bg-white border border-stone-200 hover:border-[var(--color-primary)]
-               hover:bg-stone-50 transition-colors min-h-[80px]"
+        class="flex flex-col items-center justify-center gap-2 rounded-xl
+               bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 hover:border-[var(--color-primary)]
+               hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors {inline ? 'p-2 min-h-[56px]' : 'p-4 min-h-[80px]'}"
         onclick={() => { selectedCategory = cat; }}
       >
-        <span class="text-xs text-stone-600 font-medium text-center">
+        <span class="text-xs text-stone-600 dark:text-gray-300 font-medium text-center">
           {categoryKeys[cat] ? $t(categoryKeys[cat]) : cat}
         </span>
       </button>
@@ -54,9 +55,10 @@
         <div class="flex gap-2">
           <input
             type="text"
-            class="flex-1 px-4 py-3 rounded-xl border border-stone-200
-                   text-stone-700 focus:outline-none focus:border-[var(--color-primary)]"
+            class="flex-1 px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700
+                   bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]"
             placeholder={$t('journal.category_describe_placeholder')}
+            aria-label={$t('journal.category_describe_placeholder')}
             maxlength={200}
             bind:value={customText}
           />
@@ -70,9 +72,9 @@
         </div>
       {:else}
         <button
-          class="w-full text-left px-4 py-3 rounded-xl bg-white border border-stone-200
-                 hover:border-[var(--color-primary)] hover:bg-stone-50
-                 text-stone-700 transition-colors min-h-[44px]"
+          class="w-full text-left px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700
+                 hover:border-[var(--color-primary)] hover:bg-stone-50 dark:hover:bg-gray-800
+                 text-stone-700 dark:text-gray-200 transition-colors min-h-[44px]"
           onclick={() => onSelect(selectedCategory!, sub)}
         >
           {sub}

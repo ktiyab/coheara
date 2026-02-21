@@ -3,6 +3,7 @@
   import { t } from 'svelte-i18n';
   import type { EntitiesStoredSummary } from '$lib/types/review';
   import Button from '$lib/components/ui/Button.svelte';
+  import { CheckCircleSolid } from 'flowbite-svelte-icons';
 
   interface Props {
     documentType: string;
@@ -28,22 +29,24 @@
   });
 </script>
 
-<div class="flex flex-col items-center justify-center h-screen bg-stone-50 px-6">
+<div class="flex flex-col items-center justify-center h-screen bg-stone-50 dark:bg-gray-950 px-6">
   <div class="max-w-md w-full text-center">
-    <div class="text-5xl mb-6" aria-hidden="true">&#x2713;</div>
+    <div class="mb-6" aria-hidden="true">
+      <CheckCircleSolid class="w-16 h-16 text-[var(--color-success)]" />
+    </div>
 
-    <h1 class="text-2xl font-semibold text-stone-800 mb-2">
+    <h1 class="text-2xl font-semibold text-stone-800 dark:text-gray-100 mb-2">
       {$t('review.success_heading')}
     </h1>
 
-    <p class="text-stone-600 mb-2">
+    <p class="text-stone-600 dark:text-gray-300 mb-2">
       {documentType}
       {#if status === 'Corrected'}
         &middot; {$t('review.success_corrections', { values: { count: correctionsApplied } })}
       {/if}
     </p>
 
-    <p class="text-sm text-stone-500 mb-8">
+    <p class="text-sm text-stone-500 dark:text-gray-400 mb-8">
       {entitySummary} {$t('review.success_added')}
     </p>
 

@@ -5,19 +5,25 @@
 .DESCRIPTION
     Wraps Tauri dev mode, frontend-only mode, type checking, and test runs.
     No signing keys, no installer packaging — just code and see results.
+    Use -Rebuild to wipe all dev data and caches for a clean start.
 .EXAMPLE
-    .\dev.ps1                   # Full stack: Svelte HMR + Rust backend
-    .\dev.ps1 frontend          # Frontend only (no Rust)
-    .\dev.ps1 check             # Type-check everything
-    .\dev.ps1 test              # Run all tests
-    .\dev.ps1 test:watch        # Watch mode for frontend tests
+    .\dev.ps1                       # Full stack: Svelte HMR + Rust backend
+    .\dev.ps1 frontend              # Frontend only (no Rust)
+    .\dev.ps1 setup                 # First-time setup
+    .\dev.ps1 full -Rebuild         # Wipe everything, fresh start
+    .\dev.ps1 frontend -Rebuild     # Wipe + UI-only dev
+    .\dev.ps1 check                 # Type-check everything
+    .\dev.ps1 test                  # Run all tests
+    .\dev.ps1 test:watch            # Watch mode for frontend tests
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("full", "frontend", "check", "test", "test:watch", "help")]
-    [string]$Command = "full"
+    [ValidateSet("full", "frontend", "check", "test", "test:watch", "setup", "help")]
+    [string]$Command = "full",
+
+    [switch]$Rebuild
 )
 
 Set-StrictMode -Version Latest
@@ -52,9 +58,12 @@ function Show-Usage {
     Write-Host @"
 Coheara Development Server
 
-Usage: .\dev.ps1 [command]
+Usage: .\dev.ps1 [command] [options]
 
 Commands:
+  setup       First-time setup: install deps, verify toolchain, build i18n
+              Run this after cloning or when package.json changes.
+
   full        Full stack: Svelte HMR + Rust backend (default)
               Frontend changes: instant (<1s via HMR)
               Rust changes: ~10-30s (incremental compilation)
@@ -74,11 +83,74 @@ Commands:
 
   help        Show this help
 
+Options:
+  -Rebuild    Hard reset before starting: wipe ALL dev data, caches, and
+              node_modules. Use after deep changes (schema, migrations,
+              data model). Everything rebuilt fresh.
+              Deletes: ~/Coheara-dev, .svelte-kit, node_modules, i18n generated.
+
 Iteration speeds:
   Svelte component change  ->  <1 second (HMR)
   Rust code change         ->  10-30 seconds (incremental)
   Full production build    ->  5-30 minutes (use build.ps1 instead)
+
+Examples:
+  .\dev.ps1                      # Full stack (default)
+  .\dev.ps1 frontend             # UI-only dev
+  .\dev.ps1 full -Rebuild        # Wipe everything, fresh start
+  .\dev.ps1 frontend -Rebuild    # Wipe + UI-only dev
 "@
+}
+
+# ── Hard Reset (-Rebuild) ─────────────────────────────────────────────────
+function Invoke-Rebuild {
+    $devDataDir = Join-Path $env:USERPROFILE "Coheara-dev"
+    $svelteKitDir = Join-Path $ProjectRoot ".svelte-kit"
+    $nodeModulesDir = Join-Path $ProjectRoot "node_modules"
+    $generatedDir = Join-Path $ProjectRoot "src\lib\i18n\locales\_generated"
+
+    Log-Step "HARD RESET - wiping all dev data and caches"
+    Write-Host ""
+    Log-Warn "This will permanently delete:"
+    if (Test-Path $devDataDir) { Log-Warn "  * $devDataDir (profiles, databases, encrypted files)" }
+    if (Test-Path $svelteKitDir) { Log-Warn "  * .svelte-kit\ (SvelteKit cache)" }
+    if (Test-Path $nodeModulesDir) { Log-Warn "  * node_modules\ (npm packages)" }
+    if (Test-Path $generatedDir) { Log-Warn "  * i18n generated locales" }
+    Write-Host ""
+
+    $answer = Read-Host "  Proceed with hard reset? [y/N]"
+    if ($answer -notin @("y", "Y", "yes", "Yes")) {
+        Log-Info "Aborted."
+        exit 0
+    }
+
+    # 1. Dev app data (profiles, SQLite DBs, encrypted files, models)
+    if (Test-Path $devDataDir) {
+        Remove-Item $devDataDir -Recurse -Force
+        Log-Ok "Deleted $devDataDir"
+    }
+
+    # 2. SvelteKit cache
+    if (Test-Path $svelteKitDir) {
+        Remove-Item $svelteKitDir -Recurse -Force
+        Log-Ok "Deleted .svelte-kit\"
+    }
+
+    # 3. node_modules (forces fresh npm ci)
+    if (Test-Path $nodeModulesDir) {
+        Remove-Item $nodeModulesDir -Recurse -Force
+        Log-Ok "Deleted node_modules\"
+    }
+
+    # 4. Generated i18n locales (rebuilt by Ensure-Deps)
+    if (Test-Path $generatedDir) {
+        Remove-Item $generatedDir -Recurse -Force
+        Log-Ok "Deleted i18n generated locales"
+    }
+
+    Write-Host ""
+    Log-Ok "Hard reset complete - everything will be rebuilt fresh"
+    Write-Host ""
 }
 
 # ── Dependency bootstrap ──────────────────────────────────────────────────
@@ -246,9 +318,66 @@ function Invoke-TestWatch {
     try { & npx vitest } finally { Pop-Location }
 }
 
+function Invoke-Setup {
+    Log-Step "Setting up Coheara development environment"
+
+    # 1. Install npm dependencies
+    Log-Info "Installing npm dependencies..."
+    Push-Location $ProjectRoot
+    try {
+        & npm ci
+        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        Log-Ok "npm dependencies installed"
+    } finally { Pop-Location }
+
+    # 2. Verify key packages
+    Push-Location $ProjectRoot
+    try {
+        $fbVer = & node -e "console.log(require('./node_modules/flowbite-svelte/package.json').version)" 2>$null
+        if ($fbVer) { Log-Ok "flowbite-svelte@$fbVer" } else { Log-Error "flowbite-svelte not found" }
+
+        $icVer = & node -e "console.log(require('./node_modules/flowbite-svelte-icons/package.json').version)" 2>$null
+        if ($icVer) { Log-Ok "flowbite-svelte-icons@$icVer" } else { Log-Error "flowbite-svelte-icons not found" }
+    } finally { Pop-Location }
+
+    # 3. Build i18n locale files
+    Log-Info "Building i18n locale files..."
+    Push-Location $ProjectRoot
+    try {
+        & node src/lib/i18n/build-locales.js
+        Log-Ok "i18n locales built"
+    } finally { Pop-Location }
+
+    # 4. Check Rust toolchain
+    if ($CargoPath) {
+        $rustVer = & $CargoPath --version 2>$null | Select-Object -First 1
+        Log-Ok "Rust: $rustVer"
+    } else {
+        Log-Warn "Rust: not found (frontend-only mode will still work)"
+    }
+
+    # 5. npm audit summary
+    Log-Info "Running npm audit..."
+    Push-Location $ProjectRoot
+    try {
+        & npm audit 2>$null | Select-Object -Last 5 | ForEach-Object { Log-Info "  $_" }
+    } finally { Pop-Location }
+
+    Write-Host ""
+    Log-Ok "Setup complete. Run: .\dev.ps1 frontend  (UI dev) or .\dev.ps1 full (full stack)"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────
 Write-Host "Coheara Dev - $($Command.ToUpper()) mode" -ForegroundColor White
+if ($Rebuild) {
+    Write-Host "  -Rebuild active" -ForegroundColor Yellow
+}
 Write-Host ""
+
+# Execute rebuild before any command
+if ($Rebuild) {
+    Invoke-Rebuild
+}
 
 switch ($Command) {
     "full"       { Invoke-Full }
@@ -256,5 +385,6 @@ switch ($Command) {
     "check"      { Invoke-Check }
     "test"       { Invoke-Test }
     "test:watch" { Invoke-TestWatch }
+    "setup"      { Invoke-Setup }
     "help"       { Show-Usage }
 }

@@ -60,6 +60,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
         (7, include_str!("../../resources/migrations/007_model_preferences.sql")),
         (8, include_str!("../../resources/migrations/008_pipeline_status.sql")),
         (9, include_str!("../../resources/migrations/009_grounded_tables.sql")),
+        (10, include_str!("../../resources/migrations/010_batch_extraction.sql")),
     ];
 
     for (version, sql) in migrations {

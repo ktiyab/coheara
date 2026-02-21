@@ -10,6 +10,7 @@
     "not_yet": "Pas encore",
     "confirm_addressed": "Veuillez confirmer : « Mon médecin a traité ce résultat d'analyse »",
     "dismiss_reason_placeholder": "ex. Discuté avec le Dr. Martin le 15 janv.",
-    "reason_required": "Veuillez fournir une raison"
+    "reason_required": "Veuillez fournir une raison",
+    "dismiss_reason_label": "Raison de la fermeture de cette alerte"
   }
 }

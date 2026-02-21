@@ -1,17 +1,40 @@
-<!-- ST2: Settings hub — card navigation to sub-screens, ordered by trust gradient (CP6). -->
+<!-- V16: Settings hub — grouped rows with inline controls (macOS / Raycast pattern). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { lockProfile } from '$lib/api/profile';
-  import Card from '$lib/components/ui/Card.svelte';
   import LanguageSelector from './LanguageSelector.svelte';
   import { soundManager } from '$lib/utils/sound';
+  import { theme, type Theme } from '$lib/stores/theme.svelte';
+  import {
+    BrainSolid, UserSolid, MobilePhoneSolid, LockSolid,
+    PaletteSolid, VolumeUpSolid, InfoCircleSolid, SunSolid, MoonSolid,
+    GlobeSolid, ChevronRightOutline, ArrowRightToBracketOutline,
+  } from 'flowbite-svelte-icons';
+  import { Toggle, Range } from 'flowbite-svelte';
 
   const APP_VERSION = '0.2.0';
 
+  /** Shared row button class — focus-visible outline for keyboard a11y (LR-13). */
+  const rowBtn = `w-full flex items-center gap-4 px-4 py-3 min-h-[52px] text-left
+    hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors first:rounded-t-xl last:rounded-b-xl
+    focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-interactive)]`;
+
   let soundEnabled = $state(soundManager.isEnabled());
   let soundVolume = $state(soundManager.getVolume());
+
+  type ThemeOption = { value: Theme; labelKey: string; Icon: typeof SunSolid };
+
+  const themes: ThemeOption[] = [
+    { value: 'light', labelKey: 'settings.theme_light', Icon: SunSolid },
+    { value: 'dark', labelKey: 'settings.theme_dark', Icon: MoonSolid },
+    { value: 'colorful', labelKey: 'settings.theme_colorful', Icon: PaletteSolid },
+  ];
+
+  function selectTheme(value: Theme) {
+    theme.set(value);
+  }
 
   function toggleSound() {
     soundEnabled = !soundEnabled;
@@ -25,120 +48,167 @@
   }
 </script>
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950 min-h-full">
   <header class="px-6 pt-6 pb-4">
-    <h1 class="text-2xl font-bold text-stone-800">{$t('settings.heading')}</h1>
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('settings.heading')}</h1>
   </header>
 
-  <div class="px-6 space-y-3">
-    <!-- AI & Model Settings -->
-    <Card onclick={() => navigation.navigate('ai-settings')}>
-      <div class="flex items-center gap-4">
-        <span class="text-2xl" aria-hidden="true">&#x1F916;</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold text-stone-800">{$t('settings.hub_ai_title')}</p>
-          <p class="text-xs text-stone-500">{$t('settings.hub_ai_description')}</p>
-        </div>
-        {#if profile.isAiAvailable}
-          <span class="text-xs text-[var(--color-success)] font-medium">{$t('settings.ai_ready')}</span>
-        {:else}
-          <span class="text-xs text-[var(--color-warning-800)]">{$t('settings.ai_not_configured')}</span>
-        {/if}
-      </div>
-    </Card>
+  <div class="px-6 pb-6 space-y-6">
 
-    <!-- Spec 45 [PU-09]: Switch Profile card -->
-    <Card onclick={async () => { await lockProfile(); }}>
-      <div class="flex items-center gap-4">
-        <span class="text-2xl" aria-hidden="true">&#x1F464;</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold text-stone-800">{$t('settings.hub_switch_title')}</p>
-          <p class="text-xs text-stone-500">{$t('settings.hub_switch_description')}</p>
-        </div>
-      </div>
-    </Card>
-
-    <!-- Paired Devices -->
-    <Card onclick={() => navigation.navigate('pairing')}>
-      <div class="flex items-center gap-4">
-        <span class="text-2xl" aria-hidden="true">&#x1F4F1;</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold text-stone-800">{$t('settings.hub_devices_title')}</p>
-          <p class="text-xs text-stone-500">{$t('settings.hub_devices_description')}</p>
-        </div>
-      </div>
-    </Card>
-
-    <!-- Privacy & Data -->
-    <Card onclick={() => navigation.navigate('privacy')}>
-      <div class="flex items-center gap-4">
-        <span class="text-2xl" aria-hidden="true">&#x1F512;</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold text-stone-800">{$t('settings.hub_privacy_title')}</p>
-          <p class="text-xs text-stone-500">{$t('settings.hub_privacy_description')}</p>
-        </div>
-      </div>
-    </Card>
-
-    <!-- Language (inline) -->
-    <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-      <LanguageSelector />
-    </section>
-
-    <!-- Spec 50 [NF-02]: Sound & Notifications (inline) -->
-    <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-      <div class="flex items-center gap-4 mb-3">
-        <span class="text-2xl" aria-hidden="true">&#x1F50A;</span>
-        <p class="text-sm font-semibold text-stone-800">{$t('settings.sound_heading')}</p>
-      </div>
-
-      <div class="space-y-3">
-        <!-- Mute toggle -->
-        <label class="flex items-center justify-between cursor-pointer">
-          <span class="text-sm text-stone-700">{$t('settings.sound_enabled')}</span>
-          <button
-            role="switch"
-            aria-checked={soundEnabled}
-            class="relative w-11 h-6 rounded-full transition-colors
-                   {soundEnabled ? 'bg-[var(--color-primary)]' : 'bg-stone-300'}"
-            onclick={toggleSound}
-          >
-            <span
-              class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform
-                     {soundEnabled ? 'translate-x-5' : ''}"
-            ></span>
-          </button>
-        </label>
-
-        <!-- Volume slider -->
-        {#if soundEnabled}
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-stone-500 w-12">{$t('settings.sound_volume')}</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={soundVolume}
-              oninput={updateVolume}
-              class="flex-1 accent-[var(--color-primary)]"
-              aria-label={$t('settings.sound_volume')}
-            />
-            <span class="text-xs text-stone-500 w-8 text-right">{Math.round(soundVolume * 100)}%</span>
+    <!-- ═══ Section: AI & Profile ═══ -->
+    <section>
+      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
+        {$t('settings.section_ai_profile')}
+      </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- AI Settings → navigate (SC8-02: status badge) -->
+        <button class={rowBtn} onclick={() => navigation.navigate('ai-settings')}>
+          <BrainSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_ai_title')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_ai_description')}</p>
           </div>
-        {/if}
+          {#if profile.isAiAvailable}
+            <span class="text-xs text-[var(--color-success)] font-medium flex-shrink-0">{$t('settings.ai_ready')}</span>
+          {:else}
+            <span class="text-xs text-[var(--color-warning-800)] flex-shrink-0">{$t('settings.ai_not_configured')}</span>
+          {/if}
+          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+        </button>
+
+        <!-- Switch Profile → action (ST-12: no chevron — action, not navigation) -->
+        <button class={rowBtn} onclick={async () => { await lockProfile(); }}>
+          <UserSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_switch_title')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_switch_description')}</p>
+          </div>
+          <ArrowRightToBracketOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+        </button>
       </div>
     </section>
 
-    <!-- About Coheara -->
-    <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-      <div class="flex items-center gap-4">
-        <span class="text-2xl" aria-hidden="true">&#x2139;&#xFE0F;</span>
-        <div>
-          <p class="text-sm font-semibold text-stone-800">{$t('settings.hub_about_title')}</p>
-          <p class="text-xs text-stone-500">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>
+    <!-- ═══ Section: Preferences ═══ -->
+    <section>
+      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
+        {$t('settings.section_preferences')}
+      </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+
+        <!-- Language — inline pills (label clicks focus pill group) -->
+        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+          <button
+            class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
+            onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
+          >
+            <GlobeSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.language_label')}</span>
+          </button>
+          <div class="flex-1 flex justify-end">
+            <LanguageSelector />
+          </div>
+        </div>
+
+        <!-- Theme — inline pills (label clicks focus pill group) -->
+        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+          <button
+            class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
+            onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
+          >
+            <PaletteSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.theme_heading')}</span>
+          </button>
+          <div class="flex-1 flex justify-end">
+            <div class="flex gap-1 rounded-lg bg-stone-100 dark:bg-gray-800 p-0.5" role="radiogroup" aria-label={$t('settings.theme_heading')}>
+              {#each themes as opt (opt.value)}
+                <button
+                  role="radio"
+                  aria-checked={theme.current === opt.value}
+                  class="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium min-h-[44px] transition-colors
+                         focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-interactive)]
+                         {theme.current === opt.value
+                           ? 'bg-white dark:bg-gray-700 text-stone-800 dark:text-gray-100 shadow-sm'
+                           : 'text-stone-500 dark:text-gray-400 hover:text-stone-700 dark:hover:text-gray-200'}"
+                  onclick={() => selectTheme(opt.value)}
+                >
+                  <opt.Icon class="w-4 h-4" />
+                  <span>{$t(opt.labelKey)}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <!-- Sound — inline toggle + volume (icon+label clickable to toggle) -->
+        <div class="flex flex-col gap-2 px-4 py-3 min-h-[52px]">
+          <div class="flex items-center gap-4">
+            <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleSound}>
+              <VolumeUpSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+              <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.sound_heading')}</span>
+            </button>
+            <Toggle checked={soundEnabled} color="primary" onchange={toggleSound} aria-label={$t('settings.sound_enabled')} />
+          </div>
+          {#if soundEnabled}
+            <div class="flex items-center gap-3 pl-9">
+              <Range
+                value={soundVolume}
+                min={0}
+                max={1}
+                step={0.1}
+                size="md"
+                oninput={updateVolume}
+                aria-label={$t('settings.sound_volume')}
+              />
+              <span class="text-xs text-stone-500 dark:text-gray-400 w-8 text-right flex-shrink-0">{Math.round(soundVolume * 100)}%</span>
+            </div>
+          {/if}
         </div>
       </div>
     </section>
+
+    <!-- ═══ Section: Privacy & Devices ═══ -->
+    <section>
+      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
+        {$t('settings.section_privacy')}
+      </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+        <!-- Privacy & Data → navigate -->
+        <button class={rowBtn} onclick={() => navigation.navigate('privacy')}>
+          <LockSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_privacy_title')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_privacy_description')}</p>
+          </div>
+          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+        </button>
+
+        <!-- Paired Devices → navigate -->
+        <button class={rowBtn} onclick={() => navigation.navigate('pairing')}>
+          <MobilePhoneSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_devices_title')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_devices_description')}</p>
+          </div>
+          <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+        </button>
+      </div>
+    </section>
+
+    <!-- ═══ Section: About ═══ -->
+    <section>
+      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
+        {$t('settings.section_about')}
+      </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm">
+        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+          <InfoCircleSolid class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_about_title')}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </div>
 </div>

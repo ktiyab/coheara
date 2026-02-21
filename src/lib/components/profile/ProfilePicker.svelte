@@ -19,12 +19,12 @@
 </script>
 
 <div class="flex flex-col items-center justify-center min-h-screen px-8 gap-8 max-w-md mx-auto">
-  <h2 class="text-2xl font-bold text-stone-800">{$t('profile.picker_heading')}</h2>
+  <h2 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('profile.picker_heading')}</h2>
 
   <div class="flex flex-col gap-3 w-full">
     {#each profiles as profile}
       <button
-        class="w-full flex items-center gap-4 p-4 bg-white rounded-xl border border-stone-200
+        class="w-full flex items-center gap-4 p-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-200 dark:border-gray-700
                hover:border-[var(--color-primary)] hover:shadow-sm transition-all
                min-h-[44px] text-left"
         style:border-left="3px solid {getColor(profile)}"
@@ -32,9 +32,9 @@
       >
         <Avatar name={profile.name} variant="user" size="md" color={getColor(profile)} />
         <div class="flex flex-col">
-          <span class="text-stone-800 font-medium text-lg">{profile.name}</span>
+          <span class="text-stone-800 dark:text-gray-100 font-medium text-lg">{profile.name}</span>
           {#if profile.managed_by}
-            <span class="text-stone-500 text-sm">{$t('profile.managed_by_label', { values: { managedBy: profile.managed_by } })}</span>
+            <span class="text-stone-500 dark:text-gray-400 text-sm">{$t('profile.managed_by_label', { values: { managedBy: profile.managed_by } })}</span>
           {/if}
         </div>
       </button>

@@ -15,6 +15,8 @@
   import BackButton from '$lib/components/ui/BackButton.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Divider from '$lib/components/ui/Divider.svelte';
+  import { ArrowDownOutline, CheckOutline } from 'flowbite-svelte-icons';
+  import { ai } from '$lib/stores/ai.svelte';
 
   interface Props {
     droppedFiles?: string;
@@ -147,6 +149,7 @@
       }
       if (p.stage === 'failed' && p.error) {
         errorMessage = p.error;
+        ai.handleOperationFailure(new Error(p.error));
       }
     });
     unlistenProgress = u1;
@@ -215,6 +218,7 @@
       if (cancelled) return;
       screen = 'error';
       errorMessage = e instanceof Error ? e.message : String(e);
+      ai.handleOperationFailure(e);
     }
   }
 
@@ -245,11 +249,11 @@
   let failureCount = $derived(outcomes.length - successCount);
 </script>
 
-<div class="flex flex-col min-h-screen bg-stone-50">
+<div class="flex flex-col min-h-screen bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
+  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
     <BackButton />
-    <h1 class="text-lg font-semibold text-stone-800">{$t('import.heading')}</h1>
+    <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100">{$t('import.heading')}</h1>
   </header>
 
   <!-- Content -->
@@ -268,7 +272,7 @@
             aria-live="assertive"
           >
             <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-2xl flex items-center justify-center mb-4">
-              <span class="text-3xl text-[var(--color-interactive)]">&darr;</span>
+              <ArrowDownOutline class="w-8 h-8 text-[var(--color-interactive)]" />
             </div>
             <p class="text-lg font-semibold text-[var(--color-interactive-hover)]">{$t('import.drop_files_here')}</p>
             <p class="text-sm text-[var(--color-interactive)] mt-1">{$t('import.supported_formats')}</p>
@@ -279,8 +283,8 @@
           <div class="w-16 h-16 bg-[var(--color-interactive-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
             <span class="text-3xl text-[var(--color-interactive)]">+</span>
           </div>
-          <h2 class="text-xl font-semibold text-stone-800 mb-2">{$t('import.add_documents')}</h2>
-          <p class="text-sm text-stone-500">
+          <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('import.add_documents')}</h2>
+          <p class="text-sm text-stone-500 dark:text-gray-400">
             {$t('import.description')}
           </p>
         </div>
@@ -292,12 +296,12 @@
           </Button>
         </div>
 
-        <p class="text-xs text-stone-500 text-center mb-4">
+        <p class="text-xs text-stone-500 dark:text-gray-400 text-center mb-4">
           {$t('import.supported_formats')}
         </p>
 
         <!-- GAP-H01: Drop hint -->
-        <p class="text-xs text-stone-400 text-center mb-4">
+        <p class="text-xs text-stone-400 dark:text-gray-500 text-center mb-4">
           {$t('import.drag_drop_hint')}
         </p>
 
@@ -310,7 +314,7 @@
         <Button variant="secondary" fullWidth onclick={() => navigation.navigate('transfer')}>
           {$t('import.receive_from_phone')}
         </Button>
-        <p class="text-xs text-stone-500 text-center mt-2">
+        <p class="text-xs text-stone-500 dark:text-gray-400 text-center mt-2">
           {$t('import.receive_description')}
         </p>
       </div>
@@ -332,14 +336,14 @@
           {/if}
         </div>
 
-        <h2 class="text-lg font-semibold text-stone-800 mb-1">
+        <h2 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-1">
           {batchTotal > 1
             ? $t('import.processing_batch', { values: { current: batchCurrent, total: batchTotal } })
             : $t('import.processing_title')}
         </h2>
 
         {#if progressFileName}
-          <p class="text-sm text-stone-500 mb-4 truncate">
+          <p class="text-sm text-stone-500 dark:text-gray-400 mb-4 truncate">
             {progressFileName}
           </p>
         {/if}
@@ -350,26 +354,26 @@
 
         <!-- Q.4: Indeterminate bar during structuring, determinate otherwise -->
         {#if progressStage === 'structuring'}
-          <div class="w-full bg-stone-200 rounded-full h-2 mb-2 overflow-hidden">
+          <div class="w-full bg-stone-200 dark:bg-gray-700 rounded-full h-2 mb-2 overflow-hidden">
             <div class="h-2 bg-[var(--color-interactive)] rounded-full animate-indeterminate"></div>
           </div>
-          <p class="text-xs text-stone-500">{$t('import.analyzing_ai')}</p>
+          <p class="text-xs text-stone-500 dark:text-gray-400">{$t('import.analyzing_ai')}</p>
         {:else}
-          <div class="w-full bg-stone-200 rounded-full h-2 mb-2">
+          <div class="w-full bg-stone-200 dark:bg-gray-700 rounded-full h-2 mb-2">
             <div
               class="bg-[var(--color-interactive)] h-2 rounded-full transition-all duration-300"
               style="width: {progressPct}%"
             ></div>
           </div>
-          <p class="text-xs text-stone-500">{progressPct}%</p>
+          <p class="text-xs text-stone-500 dark:text-gray-400">{progressPct}%</p>
         {/if}
 
         <!-- Q.3: Elapsed timer -->
-        <p class="text-xs text-stone-500 mt-4 tabular-nums" aria-live="off">
+        <p class="text-xs text-stone-500 dark:text-gray-400 mt-4 tabular-nums" aria-live="off">
           {$t('import.elapsed', { values: { time: formatElapsed(elapsedSeconds) } })}
         </p>
 
-        <p class="text-xs text-stone-500 mt-2">
+        <p class="text-xs text-stone-500 dark:text-gray-400 mt-2">
           {$t('import.ai_analysis_note')}
         </p>
 
@@ -386,9 +390,9 @@
       <div class="w-full max-w-md">
         <div class="text-center mb-6">
           <div class="w-16 h-16 bg-[var(--color-success-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span class="text-3xl text-[var(--color-success)]">&#x2713;</span>
+            <CheckOutline class="w-8 h-8 text-[var(--color-success)]" />
           </div>
-          <h2 class="text-xl font-semibold text-stone-800 mb-1">
+          <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-1">
             {successCount === 1
               ? $t('import.success_single')
               : $t('import.success_plural', { values: { count: successCount } })}
@@ -413,9 +417,9 @@
                 {outcome.import_status === 'Staged' ? '\u2713' : '\u2717'}
               </span>
               <div class="flex-1 min-w-0">
-                <p class="text-sm text-stone-700 truncate">{outcome.original_filename}</p>
+                <p class="text-sm text-stone-700 dark:text-gray-200 truncate">{outcome.original_filename}</p>
                 {#if outcome.structuring}
-                  <p class="text-xs text-stone-500">
+                  <p class="text-xs text-stone-500 dark:text-gray-400">
                     {outcome.structuring.document_type}
                     {#if outcome.structuring.entities_count > 0}
                       &middot; {$t('import.entities_found', { values: { count: outcome.structuring.entities_count } })}
@@ -462,7 +466,7 @@
         <div class="w-16 h-16 bg-[var(--color-danger-50)] rounded-2xl flex items-center justify-center mx-auto mb-4">
           <span class="text-3xl text-[var(--color-danger)]">!</span>
         </div>
-        <h2 class="text-lg font-semibold text-stone-800 mb-2">{$t('import.error_heading')}</h2>
+        <h2 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('import.error_heading')}</h2>
         <p class="text-sm text-[var(--color-danger)] mb-6">{errorMessage}</p>
 
         <div class="flex flex-col gap-3">

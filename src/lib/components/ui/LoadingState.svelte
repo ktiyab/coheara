@@ -1,12 +1,14 @@
 <!--
   C3: LoadingState — Shared UI Primitive
-  Spec: 24-UX-COMPONENTS C3
+  Spec: 24-UX-COMPONENTS C3 + D4 Tier 2
   Replaces: 14 identical loading indicators
 
   3 variants: fullscreen, inline, skeleton
+  Uses Flowbite Spinner for smooth SVG animation.
 -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
+  import { Spinner } from 'flowbite-svelte';
 
   interface Props {
     message?: string;
@@ -23,14 +25,14 @@
 
 {#if variant === 'skeleton'}
   <div
-    class="space-y-3"
+    class="space-y-3 p-4"
     role="status"
     aria-live="polite"
     aria-label={message ?? $t('common.loading')}
   >
     {#each Array(lines) as _, i}
       <div
-        class="h-4 bg-stone-200 rounded animate-pulse"
+        class="h-3 bg-stone-200 dark:bg-gray-700 rounded animate-pulse"
         style="width: {i === lines - 1 ? '60%' : '100%'}"
       ></div>
     {/each}
@@ -42,13 +44,9 @@
     role="status"
     aria-live="polite"
   >
-    <div class="flex items-center gap-1" aria-hidden="true">
-      <span class="w-2 h-2 rounded-full bg-stone-400 animate-pulse"></span>
-      <span class="w-2 h-2 rounded-full bg-stone-400 animate-pulse [animation-delay:150ms]"></span>
-      <span class="w-2 h-2 rounded-full bg-stone-400 animate-pulse [animation-delay:300ms]"></span>
-    </div>
+    <Spinner size="5" color="gray" />
     {#if message}
-      <span class="text-sm text-stone-500">{message}</span>
+      <span class="text-sm text-stone-500 dark:text-gray-400">{message}</span>
     {/if}
   </div>
 {:else}
@@ -58,13 +56,11 @@
     role="status"
     aria-live="polite"
   >
-    <div class="flex items-center gap-1.5 mb-4" aria-hidden="true">
-      <span class="w-2.5 h-2.5 rounded-full bg-stone-400 animate-pulse"></span>
-      <span class="w-2.5 h-2.5 rounded-full bg-stone-400 animate-pulse [animation-delay:150ms]"></span>
-      <span class="w-2.5 h-2.5 rounded-full bg-stone-400 animate-pulse [animation-delay:300ms]"></span>
+    <div class="mb-4">
+      <Spinner size="8" color="gray" />
     </div>
     {#if message}
-      <p class="text-sm text-stone-500">{message}</p>
+      <p class="text-sm text-stone-500 dark:text-gray-400">{message}</p>
     {/if}
   </div>
 {/if}

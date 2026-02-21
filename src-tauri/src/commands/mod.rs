@@ -4,6 +4,7 @@ pub mod chat;
 pub mod coherence;
 pub mod devices;
 pub mod distribution;
+pub mod extraction;
 pub mod home;
 pub mod import;
 pub mod journal;

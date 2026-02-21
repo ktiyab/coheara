@@ -1,0 +1,32 @@
+{
+	"extraction": {
+		"review_heading": "Health insights found",
+		"review_subtitle": "Review data extracted from your conversations",
+		"domain_symptom": "Symptom",
+		"domain_medication": "Medication",
+		"domain_appointment": "Appointment",
+		"grounding_high": "High confidence",
+		"grounding_medium": "Medium confidence",
+		"grounding_low": "Low confidence",
+		"confidence_label": "Confidence",
+		"confirm_btn": "Add to records",
+		"dismiss_btn": "Dismiss",
+		"dismiss_all_btn": "Dismiss all",
+		"confirmed_msg": "Added to your records",
+		"dismissed_msg": "Dismissed",
+		"empty_title": "No pending items",
+		"empty_subtitle": "Health data from your conversations will appear here for review",
+		"error_confirm": "Failed to confirm item",
+		"error_dismiss": "Failed to dismiss item",
+		"badge_count": "{count} new",
+		"field_category": "Category",
+		"field_specific": "Name",
+		"field_severity": "Severity",
+		"field_body_region": "Body region",
+		"field_dose": "Dose",
+		"field_frequency": "Frequency",
+		"field_professional": "Professional",
+		"field_specialty": "Specialty",
+		"field_date": "Date"
+	}
+}

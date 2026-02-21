@@ -2,6 +2,12 @@
   "ai": {
     "status_banner": "KI-Assistent nicht verfügbar",
     "status_error": "KI-Status konnte nicht überprüft werden",
+    "status_available": "KI verfügbar",
+    "status_running": "Aktiv",
+    "status_fallback": "Ersatzmodell",
+    "status_offline": "Offline",
+    "status_detail_fallback": "Das bevorzugte Modell ist nicht verfügbar. Die Leistung ist nicht beeinträchtigt.",
+    "status_detail_offline": "Der KI-Assistent ist nicht verfügbar. Prüfen Sie, ob Ollama läuft.",
     "setup_step_detect": "KI-Engine wird geprüft",
     "setup_step_install": "KI-Engine installieren",
     "setup_step_pull": "KI-Modell herunterladen",

@@ -27,16 +27,16 @@
   );
 </script>
 
-<div class="px-4 py-3 bg-white border-t border-stone-200 shrink-0">
+<div class="px-4 py-3 bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 shrink-0">
   <div class="flex items-center gap-3">
     <div class="flex-1">
-      <p class="text-sm text-stone-600">{summaryText}</p>
-      <div class="mt-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+      <p class="text-sm text-stone-600 dark:text-gray-300">{summaryText}</p>
+      <div class="mt-1 h-1.5 bg-stone-100 dark:bg-gray-800 rounded-full overflow-hidden">
         <div class="h-full rounded-full transition-all duration-500 {barColor}"
              style="width: {fillPercent}%"></div>
       </div>
     </div>
-    <span class="text-xs text-stone-500">
+    <span class="text-xs text-stone-500 dark:text-gray-400">
       {$t('review.summary_overall')} {Math.round(overallConfidence * 100)}%
     </span>
   </div>

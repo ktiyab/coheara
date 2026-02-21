@@ -38,17 +38,17 @@
 </script>
 
 <button
-  class="w-full text-left bg-white rounded-xl p-4 shadow-sm border border-stone-100
+  class="w-full text-left bg-white dark:bg-gray-900 rounded-xl p-4 shadow-sm border border-stone-100 dark:border-gray-800
          hover:shadow-md transition-shadow min-h-[44px]"
   onclick={() => onTap(medication)}
   aria-label={$t('medications.card_aria', { values: { name: medication.generic_name, dose: medication.dose } })}
 >
   <!-- Row 1: Generic name + Dose -->
   <div class="flex items-baseline justify-between gap-3">
-    <span class="text-lg font-semibold text-stone-800 truncate">
+    <span class="text-lg font-semibold text-stone-800 dark:text-gray-100 truncate">
       {medication.generic_name}
     </span>
-    <span class="text-lg font-semibold text-stone-800 flex-shrink-0">
+    <span class="text-lg font-semibold text-stone-800 dark:text-gray-100 flex-shrink-0">
       {medication.dose}
     </span>
   </div>
@@ -56,20 +56,20 @@
   <!-- Row 2: Brand name + Frequency -->
   <div class="flex items-baseline justify-between gap-3 mt-0.5">
     {#if medication.brand_name}
-      <span class="text-sm text-stone-500 truncate">
+      <span class="text-sm text-stone-500 dark:text-gray-400 truncate">
         ({medication.brand_name})
       </span>
     {:else}
       <span></span>
     {/if}
-    <span class="text-sm text-stone-600 flex-shrink-0">
+    <span class="text-sm text-stone-600 dark:text-gray-300 flex-shrink-0">
       {frequencyDisplay}
     </span>
   </div>
 
   <!-- Row 3: Prescriber + Route + Status badge -->
   <div class="flex items-center justify-between gap-2 mt-2">
-    <div class="flex items-center gap-1 text-xs text-stone-500 truncate">
+    <div class="flex items-center gap-1 text-xs text-stone-500 dark:text-gray-400 truncate">
       <span>{prescriberDisplay}</span>
       <span aria-hidden="true">&middot;</span>
       <span>{formatRoute(medication.route)}</span>
@@ -89,7 +89,7 @@
 
   <!-- Row 4: Condition -->
   {#if medication.condition}
-    <p class="text-xs text-stone-500 italic mt-1">
+    <p class="text-xs text-stone-500 dark:text-gray-400 italic mt-1">
       {medication.condition}
     </p>
   {/if}
@@ -103,7 +103,7 @@
                  ? 'bg-[var(--color-warning-50)] text-[var(--color-warning-800)] border border-[var(--color-warning-200)]'
                  : alert.severity === 'Warning'
                    ? 'bg-[var(--color-info-50)] text-[var(--color-info-800)] border border-[var(--color-info-200)]'
-                   : 'bg-stone-50 text-stone-600 border border-stone-100'}"
+                   : 'bg-stone-50 dark:bg-gray-950 text-stone-600 dark:text-gray-300 border border-stone-100 dark:border-gray-800'}"
         role="status"
       >
         {alert.summary}

@@ -84,20 +84,20 @@
   ]);
 </script>
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <header class="px-6 pt-4 pb-2">
     <BackButton onclick={onBack} label={$t('medications.otc_back')} />
   </header>
 
   <div class="px-6 py-4">
-    <h2 class="text-xl font-bold text-stone-800 mb-6">
+    <h2 class="text-xl font-bold text-stone-800 dark:text-gray-100 mb-6">
       {$t('medications.otc_title')}
     </h2>
 
     <div class="flex flex-col gap-5">
       <!-- Medication name with autocomplete -->
       <label class="flex flex-col gap-1 relative">
-        <span class="text-stone-600 text-sm font-medium">
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">
           {$t('medications.otc_name_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
@@ -107,31 +107,31 @@
           onfocus={() => { if (suggestions.length > 0) showSuggestions = true; }}
           onblur={() => { setTimeout(() => { showSuggestions = false; }, 200); }}
           placeholder={$t('medications.otc_name_placeholder')}
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none"
           autocomplete="off"
           aria-label={$t('medications.otc_name_label')}
           aria-autocomplete="list"
         />
-        <span class="text-xs text-stone-500">{$t('medications.otc_name_hint')}</span>
+        <span class="text-xs text-stone-500 dark:text-gray-400">{$t('medications.otc_name_hint')}</span>
 
         {#if showSuggestions}
           <div
-            class="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg
-                   border border-stone-200 max-h-[200px] overflow-y-auto z-10"
+            class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 rounded-lg shadow-lg
+                   border border-stone-200 dark:border-gray-700 max-h-[200px] overflow-y-auto z-10"
             role="listbox"
           >
             {#each suggestions as result}
               <button
-                class="w-full text-left px-4 py-3 hover:bg-stone-50 text-sm
-                       min-h-[44px] border-b border-stone-50 last:border-0"
+                class="w-full text-left px-4 py-3 hover:bg-stone-50 dark:hover:bg-gray-800 text-sm
+                       min-h-[44px] border-b border-stone-50 dark:border-gray-950 last:border-0"
                 role="option"
                 aria-selected="false"
                 onmousedown={() => selectSuggestion(result)}
               >
-                <span class="font-medium text-stone-800">{result.generic_name}</span>
+                <span class="font-medium text-stone-800 dark:text-gray-100">{result.generic_name}</span>
                 {#if result.brand_names.length > 0}
-                  <span class="text-stone-500 ml-1">
+                  <span class="text-stone-500 dark:text-gray-400 ml-1">
                     ({result.brand_names.slice(0, 3).join(', ')})
                   </span>
                 {/if}
@@ -143,35 +143,35 @@
 
       <!-- Dose -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">
           {$t('medications.otc_dose_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
           type="text"
           bind:value={dose}
           placeholder={$t('medications.otc_dose_placeholder')}
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none"
         />
       </label>
 
       <!-- Frequency -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">
           {$t('medications.otc_frequency_label')} <span class="text-[var(--color-danger)]">*</span>
         </span>
         <input
           type="text"
           bind:value={frequency}
           placeholder={$t('medications.otc_frequency_placeholder')}
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none"
         />
       </label>
 
       <!-- Route -->
       <fieldset class="flex flex-col gap-1">
-        <legend class="text-stone-600 text-sm font-medium">{$t('medications.otc_route_label')}</legend>
+        <legend class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('medications.otc_route_label')}</legend>
         <div class="flex gap-3 mt-1">
           {#each routeOptions as option}
             <label
@@ -179,7 +179,7 @@
                      min-h-[44px] cursor-pointer transition-colors
                      {route === option.value
                        ? 'border-[var(--color-primary)] bg-[var(--color-info-50)] text-[var(--color-primary)]'
-                       : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}"
+                       : 'border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-stone-600 dark:text-gray-300 hover:bg-stone-50 dark:hover:bg-gray-800'}"
             >
               <input
                 type="radio"
@@ -196,37 +196,37 @@
 
       <!-- Reason -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_reason_label')}</span>
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('medications.otc_reason_label')}</span>
         <input
           type="text"
           bind:value={reason}
           placeholder={$t('medications.otc_reason_placeholder')}
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none"
         />
       </label>
 
       <!-- Start date -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_start_date_label')}</span>
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('medications.otc_start_date_label')}</span>
         <input
           type="date"
           bind:value={startDate}
           max={new Date().toISOString().split('T')[0]}
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none"
         />
       </label>
 
       <!-- Instructions -->
       <label class="flex flex-col gap-1">
-        <span class="text-stone-600 text-sm font-medium">{$t('medications.otc_instructions_label')}</span>
+        <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('medications.otc_instructions_label')}</span>
         <textarea
           bind:value={instructions}
           placeholder={$t('medications.otc_instructions_placeholder')}
           rows="2"
-          class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
-                 focus:border-[var(--color-primary)] focus:outline-none resize-none"
+          class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-700 text-base dark:text-gray-200 min-h-[44px]
+                 dark:bg-gray-900 focus:border-[var(--color-primary)] focus:outline-none resize-none"
         ></textarea>
       </label>
 

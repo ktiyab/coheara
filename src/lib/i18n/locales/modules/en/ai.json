@@ -2,6 +2,12 @@
   "ai": {
     "status_banner": "AI assistant not available",
     "status_error": "Could not check AI status",
+    "status_available": "AI available",
+    "status_running": "Running",
+    "status_fallback": "Fallback model",
+    "status_offline": "Offline",
+    "status_detail_fallback": "Preferred model unavailable. Performance is unaffected.",
+    "status_detail_offline": "AI assistant is not available. Check that Ollama is running.",
     "setup_step_detect": "Checking AI Engine",
     "setup_step_install": "Install AI Engine",
     "setup_step_pull": "Download AI Model",

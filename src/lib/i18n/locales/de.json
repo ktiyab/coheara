@@ -35,7 +35,23 @@
     "timeline": "Zeitstrahl",
     "appointments": "Termine",
     "settings": "Einstellungen",
-    "go_back": "Zur\u00fcck"
+    "go_back": "Zur\u00fcck",
+    "sidebar": "Seitenleiste",
+    "section_main": "Hauptmen\u00fc",
+    "section_library": "Bibliothek",
+    "section_system": "System",
+    "expand_sidebar": "Seitenleiste aufklappen",
+    "collapse_sidebar": "Seitenleiste zuklappen",
+    "skip_to_content": "Zum Hauptinhalt springen",
+    "review": "\u00dcberpr\u00fcfung",
+    "document-detail": "Dokument",
+    "ai-settings": "KI-Einstellungen",
+    "ai-setup": "KI-Einrichtung",
+    "privacy": "Datenschutz",
+    "pairing": "Gekoppelte Ger\u00e4te",
+    "import": "Importieren",
+    "transfer": "\u00dcbertragung",
+    "breadcrumb": "Brotkr\u00fcmel-Navigation"
   },
   "home": {
     "greeting": "Hallo, {name}!",
@@ -596,6 +612,7 @@
     "specialty_nurse": "Krankenpfleger/in",
     "specialty_specialist": "Facharzt",
     "specialty_other": "Sonstiges",
+    "specialty_select": "Fachgebiet",
     "prep_with": "Termin bei {name}",
     "prep_tab_questions": "Ihre Fragen",
     "prep_tab_summary": "Zusammenfassung f\u00fcr den Arzt",
@@ -793,7 +810,8 @@
     "not_yet": "Noch nicht",
     "confirm_addressed": "Bitte best\u00e4tigen: \u00abMein Arzt hat dieses Laborergebnis behandelt\u00bb",
     "dismiss_reason_placeholder": "z.B. Besprochen mit Dr. Schmidt am 15. Jan.",
-    "reason_required": "Bitte geben Sie einen Grund an"
+    "reason_required": "Bitte geben Sie einen Grund an",
+    "dismiss_reason_label": "Grund f\u00fcr das Schlie\u00dfen dieser Warnung"
   },
   "caregiver": {
     "dependents_heading": "Betreute Personen",
@@ -862,7 +880,11 @@
     "hub_switch_description": "Sperren und zu einem anderen Profil wechseln",
     "sound_heading": "Ton und Benachrichtigungen",
     "sound_enabled": "Soundeffekte",
-    "sound_volume": "Lautstärke"
+    "sound_volume": "Lautstärke",
+    "theme_heading": "Darstellung",
+    "theme_light": "Hell",
+    "theme_dark": "Dunkel",
+    "theme_colorful": "Farbenfroh"
   },
   "ai": {
     "status_banner": "KI-Assistent nicht verf\u00fcgbar",

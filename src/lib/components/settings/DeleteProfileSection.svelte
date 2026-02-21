@@ -1,5 +1,6 @@
 <!-- L5-01: Delete Profile — Danger zone with cryptographic erasure -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import { eraseProfile } from '$lib/api/trust';
 
   import { profile } from '$lib/stores/profile.svelte';
@@ -16,12 +17,12 @@
   let error: string | null = $state(null);
 
   async function handleDelete() {
-    if (confirmText !== 'DELETE MY DATA') {
-      error = 'Please type "DELETE MY DATA" exactly';
+    if (confirmText !== $t('delete_profile.confirm_phrase')) {
+      error = $t('delete_profile.confirm_mismatch', { values: { phrase: $t('delete_profile.confirm_phrase') } });
       return;
     }
     if (!password) {
-      error = 'Password required';
+      error = $t('delete_profile.password_required');
       return;
     }
 
@@ -43,40 +44,40 @@
 </script>
 
 <section class="mt-8 border-t border-[var(--color-danger-200)] pt-6">
-  <h2 class="text-sm font-medium text-[var(--color-danger)] mb-2">DANGER ZONE</h2>
+  <h2 class="text-sm font-medium text-[var(--color-danger)] mb-2">{$t('delete_profile.danger_zone')}</h2>
 
   {#if !showConfirm}
     <button
-      class="w-full px-4 py-3 bg-white border border-[var(--color-danger-200)] rounded-xl
+      class="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-[var(--color-danger-200)] rounded-xl
              text-sm text-[var(--color-danger)] min-h-[44px]"
       onclick={() => (showConfirm = true)}
     >
-      Delete profile and all data
+      {$t('delete_profile.delete_button')}
     </button>
   {:else}
     <div class="bg-[var(--color-danger-50)] rounded-xl p-5 border border-[var(--color-danger-200)]">
       <p class="text-sm text-[var(--color-danger-800)] mb-4">
-        This will permanently delete all of <strong>{profile.name}'s</strong> health data.
-        This cannot be undone.
+        {$t('delete_profile.permanent_warning', { values: { name: profile.name } })}
+        {$t('delete_profile.cannot_undo')}
       </p>
 
       <label for="delete-confirm" class="block text-sm text-[var(--color-danger)] mb-1">
-        Type "DELETE MY DATA" to confirm:
+        {$t('delete_profile.type_confirm_label', { values: { phrase: $t('delete_profile.confirm_phrase') } })}
       </label>
       <input
         id="delete-confirm"
         type="text"
-        class="w-full px-4 py-3 rounded-lg border border-[var(--color-danger-200)] text-stone-700
+        class="w-full px-4 py-3 rounded-lg border border-[var(--color-danger-200)] text-stone-700 dark:text-gray-200
                mb-3 min-h-[44px]"
         bind:value={confirmText}
-        placeholder="DELETE MY DATA"
+        placeholder={$t('delete_profile.confirm_placeholder')}
       />
 
-      <label for="delete-password" class="block text-sm text-[var(--color-danger)] mb-1">Enter your password:</label>
+      <label for="delete-password" class="block text-sm text-[var(--color-danger)] mb-1">{$t('delete_profile.password_label')}</label>
       <input
         id="delete-password"
         type="password"
-        class="w-full px-4 py-3 rounded-lg border border-[var(--color-danger-200)] text-stone-700
+        class="w-full px-4 py-3 rounded-lg border border-[var(--color-danger-200)] text-stone-700 dark:text-gray-200
                mb-4 min-h-[44px]"
         bind:value={password}
       />
@@ -89,14 +90,14 @@
         <button
           class="flex-1 px-4 py-3 bg-[var(--color-danger)] text-white rounded-xl text-sm
                  font-medium min-h-[44px] disabled:opacity-50"
-          disabled={deleting || confirmText !== 'DELETE MY DATA' || !password}
+          disabled={deleting || confirmText !== $t('delete_profile.confirm_phrase') || !password}
           onclick={handleDelete}
         >
-          {deleting ? 'Deleting...' : 'Delete everything'}
+          {deleting ? $t('delete_profile.deleting') : $t('delete_profile.delete_everything')}
         </button>
         <button
-          class="px-4 py-3 bg-white border border-stone-200 rounded-xl text-sm
-                 text-stone-600 min-h-[44px]"
+          class="px-4 py-3 bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl text-sm
+                 text-stone-600 dark:text-gray-300 min-h-[44px]"
           onclick={() => {
             showConfirm = false;
             confirmText = '';
@@ -104,7 +105,7 @@
             error = null;
           }}
         >
-          Cancel
+          {$t('common.cancel')}
         </button>
       </div>
     </div>

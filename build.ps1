@@ -17,7 +17,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("desktop", "android", "all", "clean", "help")]
+    [ValidateSet("desktop", "android", "all", "clean", "setup", "help")]
     [string]$Command,
 
     [switch]$NoSign,
@@ -71,6 +71,7 @@ Coheara Local Build System v$Version (Windows)
 Usage: .\build.ps1 <command> [options]
 
 Commands:
+  setup       First-time setup: install deps, verify toolchain, build i18n
   desktop     Build Windows installers (.msi + .exe via NSIS)
               Also builds mobile artifacts (bundled inside installer)
   android     Build standalone signed Android APK
@@ -869,6 +870,57 @@ function Invoke-Clean {
     Log-Ok "Clean complete"
 }
 
+# ── Setup ─────────────────────────────────────────────────────────────────
+
+function Invoke-Setup {
+    Log-Step "Setting up Coheara development environment"
+
+    # 1. Install npm dependencies
+    Log-Info "Installing npm dependencies..."
+    Push-Location $ProjectRoot
+    try {
+        & npm ci
+        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+        Log-Ok "npm dependencies installed"
+    } finally { Pop-Location }
+
+    # 2. Verify key packages
+    Push-Location $ProjectRoot
+    try {
+        $fbVer = & node -e "console.log(require('./node_modules/flowbite-svelte/package.json').version)" 2>$null
+        if ($fbVer) { Log-Ok "flowbite-svelte@$fbVer" } else { Log-Error "flowbite-svelte not found" }
+
+        $icVer = & node -e "console.log(require('./node_modules/flowbite-svelte-icons/package.json').version)" 2>$null
+        if ($icVer) { Log-Ok "flowbite-svelte-icons@$icVer" } else { Log-Error "flowbite-svelte-icons not found" }
+    } finally { Pop-Location }
+
+    # 3. Build i18n locale files
+    Log-Info "Building i18n locale files..."
+    Push-Location $ProjectRoot
+    try {
+        & node src/lib/i18n/build-locales.js
+        Log-Ok "i18n locales built"
+    } finally { Pop-Location }
+
+    # 4. Check Rust toolchain
+    if ($CargoPath) {
+        $rustVer = & $CargoPath --version 2>$null | Select-Object -First 1
+        Log-Ok "Rust: $rustVer"
+    } else {
+        Log-Warn "Rust: not found (frontend-only mode will still work)"
+    }
+
+    # 5. npm audit summary
+    Log-Info "Running npm audit..."
+    Push-Location $ProjectRoot
+    try {
+        & npm audit 2>$null | Select-Object -Last 5 | ForEach-Object { Log-Info "  $_" }
+    } finally { Pop-Location }
+
+    Write-Host ""
+    Log-Ok "Setup complete. Run: .\build.ps1 desktop -NoSign  (build) or use dev.sh in WSL2 (dev)"
+}
+
 # ── Orchestration ──────────────────────────────────────────────────────────
 
 function Invoke-Desktop {
@@ -918,6 +970,7 @@ Write-Host "Command: $Command  Signing: $Sign  Platform: Windows" -ForegroundCol
 Write-Host ""
 
 switch ($Command) {
+    "setup"   { Invoke-Setup }
     "desktop" { Invoke-Desktop }
     "android" { Invoke-Android }
     "all"     { Invoke-All }

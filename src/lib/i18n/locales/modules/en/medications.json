@@ -66,6 +66,7 @@
     "list_tab_stopped": "Stopped",
     "list_no_results": "No medications match your filters.",
     "list_add_otc": "+ Add an over-the-counter medication",
+    "check_interactions": "Check Drug Interactions",
     "detail_back_aria": "Back to medication list",
     "detail_back": "Back",
     "detail_loading": "Loading...",

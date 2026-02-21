@@ -10,6 +10,8 @@ import type { AiStatus } from '$lib/api/profile';
 
 class ProfileStore {
 	name = $state('');
+	/** Spec 45 [PU-04]: Profile color index from 8-color palette. */
+	colorIndex = $state<number | null>(null);
 	/** @deprecated S.5: Use ai store directly. Kept for backward compat in +page.svelte. */
 	aiStatus = $state<AiStatus | null>(null);
 

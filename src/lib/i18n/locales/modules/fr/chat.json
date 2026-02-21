@@ -4,6 +4,7 @@
     "description_1": "Je peux vous aider à comprendre vos documents médicaux.",
     "description_2": "Posez-moi vos questions sur vos ordonnances, résultats d'analyses ou dossiers de santé.",
     "suggestions_header": "Essayez de demander",
+    "ai_setup_prompt": "Configurez un mod\u00e8le d'IA local pour discuter de vos dossiers de sant\u00e9. Tout reste sur votre appareil.",
     "input_placeholder": "Posez une question sur vos documents...",
     "input_aria": "Saisissez votre question",
     "send_aria": "Envoyer le message",

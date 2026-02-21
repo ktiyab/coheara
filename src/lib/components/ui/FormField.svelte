@@ -42,17 +42,19 @@
   let hasDescription = $derived(!!error || !!hint);
 
   let inputClasses = $derived(
-    `w-full px-4 py-3 rounded-lg border text-base min-h-[44px] bg-white
+    `w-full px-4 py-3 rounded-lg border text-base min-h-[44px]
+     bg-white dark:bg-gray-900 text-stone-800 dark:text-gray-100
+     placeholder:text-stone-400 dark:placeholder:text-gray-500
      focus:outline-none transition-colors
      ${error
-       ? 'border-red-300 focus:border-red-500'
-       : 'border-stone-300 focus:border-[var(--color-primary)]'}
-     ${disabled ? 'bg-stone-100 text-stone-400 cursor-not-allowed' : ''}`
+       ? 'border-red-300 dark:border-red-500 focus:border-red-500 dark:focus:border-red-400'
+       : 'border-stone-300 dark:border-gray-600 focus:border-[var(--color-primary)]'}
+     ${disabled ? 'bg-stone-100 dark:bg-gray-800 text-stone-400 dark:text-gray-500 cursor-not-allowed' : ''}`
   );
 </script>
 
 <div class="space-y-1">
-  <label for={inputId} class="block text-sm font-medium text-stone-600">
+  <label for={inputId} class="block text-sm font-medium text-stone-600 dark:text-gray-400">
     {label}
     {#if required}
       <span class="text-red-500" aria-hidden="true">*</span>
@@ -76,11 +78,11 @@
   />
 
   {#if error}
-    <p id={descriptionId} class="text-sm text-red-600 mt-1" role="alert">
+    <p id={descriptionId} class="text-sm text-red-600 dark:text-red-400 mt-1" role="alert">
       {error}
     </p>
   {:else if hint}
-    <p id={descriptionId} class="text-sm text-stone-400 mt-1">
+    <p id={descriptionId} class="text-sm text-stone-400 dark:text-gray-500 mt-1">
       {hint}
     </p>
   {/if}

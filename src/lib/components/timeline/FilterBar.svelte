@@ -59,7 +59,7 @@
   let showFiltersExpanded = $state(false);
 </script>
 
-<div class="px-4 pb-2 border-b border-stone-200 bg-white">
+<div class="px-4 pb-2 border-b border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900">
   <!-- Type filter chips (scrollable row) -->
   <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
     {#each chipDefs as chip}
@@ -70,8 +70,8 @@
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm whitespace-nowrap
                min-h-[36px] transition-colors border
                {active
-                 ? 'border-transparent text-stone-800'
-                 : 'border-stone-200 text-stone-500 bg-white'}"
+                 ? 'border-transparent text-stone-800 dark:text-gray-100'
+                 : 'border-stone-200 dark:border-gray-700 text-stone-500 dark:text-gray-400 bg-white dark:bg-gray-900'}"
         style={active ? `background-color: ${colors.fill}; border-color: ${colors.stroke}40` : ''}
         onclick={() => toggleChip(chip.types)}
         aria-pressed={active}
@@ -87,7 +87,7 @@
 
   <!-- Expandable filters row -->
   <button
-    class="text-xs text-stone-500 py-1 min-h-[44px] w-full text-left"
+    class="text-xs text-stone-500 dark:text-gray-400 py-1 min-h-[44px] w-full text-left"
     onclick={() => { showFiltersExpanded = !showFiltersExpanded; }}
     aria-expanded={showFiltersExpanded}
     aria-controls="timeline-filters-expanded"
@@ -99,11 +99,11 @@
     <div id="timeline-filters-expanded" class="flex flex-wrap gap-3 py-2">
       <!-- Professional dropdown -->
       <div class="flex flex-col gap-1">
-        <label for="prof-filter" class="text-xs text-stone-500">{$t('timeline.filter_professional')}</label>
+        <label for="prof-filter" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_professional')}</label>
         <select
           id="prof-filter"
-          class="text-sm border border-stone-200 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white text-stone-700"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
           value={selectedProfessionalId ?? ''}
           onchange={(e) => onProfessionalChange(
             (e.target as HTMLSelectElement).value || null
@@ -120,11 +120,11 @@
 
       <!-- Since last visit dropdown -->
       <div class="flex flex-col gap-1">
-        <label for="since-visit" class="text-xs text-stone-500">{$t('timeline.filter_since_last_visit')}</label>
+        <label for="since-visit" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_since_last_visit')}</label>
         <select
           id="since-visit"
-          class="text-sm border border-stone-200 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white text-stone-700"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
           value={sinceAppointment ?? ''}
           onchange={(e) => onSinceVisitChange(
             (e.target as HTMLSelectElement).value || null
@@ -141,12 +141,12 @@
 
       <!-- Date range -->
       <div class="flex flex-col gap-1">
-        <label for="date-from" class="text-xs text-stone-500">{$t('timeline.filter_from')}</label>
+        <label for="date-from" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_from')}</label>
         <input
           id="date-from"
           type="date"
-          class="text-sm border border-stone-200 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white text-stone-700"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
           onchange={(e) => onDateRangeChange(
             (e.target as HTMLInputElement).value || null,
             null
@@ -154,12 +154,12 @@
         />
       </div>
       <div class="flex flex-col gap-1">
-        <label for="date-to" class="text-xs text-stone-500">{$t('timeline.filter_to')}</label>
+        <label for="date-to" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_to')}</label>
         <input
           id="date-to"
           type="date"
-          class="text-sm border border-stone-200 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white text-stone-700"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
           onchange={(e) => onDateRangeChange(
             null,
             (e.target as HTMLInputElement).value || null

@@ -4,6 +4,7 @@
     "description_1": "I can help you understand your medical documents.",
     "description_2": "Ask me anything about your prescriptions, lab results, or health records.",
     "suggestions_header": "Try asking",
+    "ai_setup_prompt": "Set up a local AI model to chat about your health records. Everything stays on your device.",
     "input_placeholder": "Ask about your documents...",
     "input_aria": "Type your question",
     "send_aria": "Send message",

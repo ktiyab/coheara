@@ -12,7 +12,7 @@
     } else if (confidence >= 0.5) {
       return { label: $t('chat.confidence_partially_supported'), color: 'text-[var(--color-warning)]', icon: '\u25D0' };
     } else {
-      return { label: $t('chat.confidence_limited_info'), color: 'text-stone-500', icon: '\u25CB' };
+      return { label: $t('chat.confidence_limited_info'), color: 'text-stone-500 dark:text-gray-400', icon: '\u25CB' };
     }
   });
 </script>

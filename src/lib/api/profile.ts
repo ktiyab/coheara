@@ -10,12 +10,16 @@ export async function createProfile(
   password: string,
   managedBy: string | null,
   dateOfBirth: string | null = null,
+  country: string | null = null,
+  address: string | null = null,
 ): Promise<ProfileCreateResult> {
   return invoke<ProfileCreateResult>('create_profile', {
     name,
     password,
     managedBy,
     dateOfBirth,
+    country,
+    address,
   });
 }
 

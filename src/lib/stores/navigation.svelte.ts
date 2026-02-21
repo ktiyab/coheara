@@ -1,15 +1,17 @@
 /**
- * E2E-F06 + E2E-F03: Global navigation store with URL hash state.
+ * E2E-F06 + E2E-F03 + D6: Global navigation store with URL hash state.
  *
  * Replaces prop-drilled `onNavigate` callbacks with a singleton
  * reactive store. Syncs activeScreen with `window.location.hash`
  * for URL state, deep linking, and browser back/forward support.
+ *
+ * D6 migration: TabBar → Sidebar. Navigation sections for grouping.
  */
 
 import { browser } from '$app/environment';
 
-/** Screens that display the tab bar. */
-const TAB_SCREENS = new Set([
+/** Screens that display the sidebar (all main screens). */
+const SIDEBAR_SCREENS = new Set([
 	'home',
 	'chat',
 	'journal',
@@ -21,13 +23,18 @@ const TAB_SCREENS = new Set([
 	'ai-settings'
 ]);
 
-/** Main tab IDs (non-"more" screens). */
-const MAIN_TABS = new Set(['home', 'chat', 'journal', 'medications']);
+/** Navigation sections for sidebar grouping. */
+export const NAV_SECTIONS = {
+	main: ['home', 'chat', 'journal', 'medications'],
+	library: ['documents', 'timeline', 'appointments'],
+	system: ['settings'],
+} as const;
 
 class NavigationStore {
 	activeScreen = $state('home');
 	previousScreen = $state('home');
 	screenParams = $state<Record<string, string>>({});
+	sidebarCollapsed = $state(false);
 
 	constructor() {
 		if (browser) {
@@ -42,18 +49,19 @@ class NavigationStore {
 		}
 	}
 
-	get activeTab(): string {
-		if (MAIN_TABS.has(this.activeScreen)) {
-			return this.activeScreen;
-		}
-		if (TAB_SCREENS.has(this.activeScreen)) {
-			return 'more';
+	get activeSection(): string {
+		for (const [section, screens] of Object.entries(NAV_SECTIONS)) {
+			if ((screens as readonly string[]).includes(this.activeScreen)) return section;
 		}
 		return '';
 	}
 
-	get showTabBar(): boolean {
-		return TAB_SCREENS.has(this.activeScreen);
+	get showSidebar(): boolean {
+		return SIDEBAR_SCREENS.has(this.activeScreen);
+	}
+
+	toggleSidebar() {
+		this.sidebarCollapsed = !this.sidebarCollapsed;
 	}
 
 	navigate(screen: string, params?: Record<string, string>) {

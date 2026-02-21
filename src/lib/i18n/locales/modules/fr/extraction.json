@@ -1,0 +1,32 @@
+{
+	"extraction": {
+		"review_heading": "Informations de sant\u00e9 d\u00e9tect\u00e9es",
+		"review_subtitle": "V\u00e9rifiez les donn\u00e9es extraites de vos conversations",
+		"domain_symptom": "Sympt\u00f4me",
+		"domain_medication": "M\u00e9dicament",
+		"domain_appointment": "Rendez-vous",
+		"grounding_high": "Confiance \u00e9lev\u00e9e",
+		"grounding_medium": "Confiance moyenne",
+		"grounding_low": "Confiance faible",
+		"confidence_label": "Confiance",
+		"confirm_btn": "Ajouter aux dossiers",
+		"dismiss_btn": "Ignorer",
+		"dismiss_all_btn": "Tout ignorer",
+		"confirmed_msg": "Ajout\u00e9 \u00e0 vos dossiers",
+		"dismissed_msg": "Ignor\u00e9",
+		"empty_title": "Aucun \u00e9l\u00e9ment en attente",
+		"empty_subtitle": "Les donn\u00e9es de sant\u00e9 de vos conversations appara\u00eetront ici",
+		"error_confirm": "\u00c9chec de la confirmation",
+		"error_dismiss": "\u00c9chec de l'ignorement",
+		"badge_count": "{count} nouveau(x)",
+		"field_category": "Cat\u00e9gorie",
+		"field_specific": "Nom",
+		"field_severity": "S\u00e9v\u00e9rit\u00e9",
+		"field_body_region": "R\u00e9gion du corps",
+		"field_dose": "Dose",
+		"field_frequency": "Fr\u00e9quence",
+		"field_professional": "Professionnel",
+		"field_specialty": "Sp\u00e9cialit\u00e9",
+		"field_date": "Date"
+	}
+}

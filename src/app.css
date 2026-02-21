@@ -1,27 +1,39 @@
-@import 'tailwindcss';
-
 /* =============================================================================
-   COHEARA TOKEN SYSTEM — 22-UX-TOKENS Implementation
+   COHEARA DESIGN SYSTEM — D2 (Spec 63)
 
-   3-level architecture:
-     L1 Primitive  → Raw values (Tailwind built-ins + custom additions)
-     L2 Semantic   → Purpose-driven aliases (components consume THESE)
-     L3 Component  → Scoped overrides (in component <style> blocks)
+   2-layer architecture (replaces former 3-layer):
+     L1 Theme Definition → CSS custom properties (@theme + :root + .dark + .colorful)
+     L2 Tailwind Utilities → Components consume bg-*, text-*, border-* + dark:* variants
 
-   Source: Specs/components/22-UX-TOKENS.md
+   Source: Specs/components/63-FB-DESIGN-SYSTEM.md
    ============================================================================= */
 
+/* === SECTION 1: Tailwind + Flowbite Integration (D1 — Spec 62) === */
+@import 'tailwindcss';
+
+@plugin 'flowbite/plugin';
+@custom-variant dark (&:where(.dark, .dark *));
+@source "../node_modules/flowbite-svelte/dist";
+@source "../node_modules/flowbite-svelte-icons/dist";
+
+/* === SECTION 2: Theme Definition (@theme) ===
+   Primary color scale + shadows + layout + motion.
+   Flowbite reads --color-primary-* for color="primary" prop. */
 @theme {
-  /* === PRIMARY ACTION (T3) === */
-  /* Calm blue: professional authority without clinical coldness (CP3) */
+  /* Primary action scale — calm blue (CP3: professional without clinical) */
   --color-primary: #4A6FA5;
-  --color-primary-hover: #3D5F91;
-  --color-primary-active: #345280;
   --color-primary-50: #EDF2F8;
   --color-primary-100: #D4E0F0;
+  --color-primary-200: #B0C8E4;
+  --color-primary-300: #8CAFD7;
+  --color-primary-400: #7DA0CC;
+  --color-primary-500: #5F87B8;
+  --color-primary-600: #4A6FA5;
+  --color-primary-700: #3D5F91;
+  --color-primary-800: #345280;
+  --color-primary-900: #2A4369;
 
-  /* === WARM SHADOWS (T10) === */
-  /* Stone-900 based shadows — warm, not cold gray */
+  /* Warm shadows — stone-900 based (T10) */
   --shadow-warm-sm: 0 1px 2px 0 rgb(28 25 23 / 0.05);
   --shadow-warm-md: 0 4px 6px -1px rgb(28 25 23 / 0.07),
                     0 2px 4px -2px rgb(28 25 23 / 0.05);
@@ -30,12 +42,12 @@
   --shadow-warm-xl: 0 20px 25px -5px rgb(28 25 23 / 0.10),
                     0 8px 10px -6px rgb(28 25 23 / 0.05);
 
-  /* === LAYOUT CONSTANTS (T8) === */
+  /* Layout constants (T8) */
   --width-content-reading: 48rem;
   --width-content-data: 56rem;
   --width-content-full: 64rem;
 
-  /* === MOTION (T11) === */
+  /* Motion (T11) */
   --duration-instant: 75ms;
   --duration-fast: 150ms;
   --duration-normal: 250ms;
@@ -46,47 +58,23 @@
   --ease-out: cubic-bezier(0, 0, 0.58, 1);
 }
 
-/* === SEMANTIC TOKENS (T1-T5) ===
-   Defined as CSS custom properties on :root.
-   Components reference these via var(), not raw Tailwind colors. */
+/* === SECTION 3: Light Theme Tokens (:root) ===
+   Status, medical, layout, z-index.
+   Surface/text/border tokens kept for backward compat (17 existing usages).
+   Will be removed during Phase B component migration. */
 :root {
-  /* Surface system (T1) */
-  --surface-base: var(--color-stone-50, #fafaf9);
-  --surface-raised: #ffffff;
-  --surface-overlay: #ffffff;
-  --surface-input: #ffffff;
-  --surface-hover: var(--color-stone-100, #f5f5f4);
-  --surface-active: var(--color-stone-200, #e7e5e3);
-  --surface-selected: var(--color-stone-100, #f5f5f4);
-  --surface-muted: var(--color-stone-100, #f5f5f4);
-
-  /* Text system (T2) */
-  --text-primary: var(--color-stone-900, #1c1917);
-  --text-secondary: var(--color-stone-700, #44403c);
-  --text-muted: var(--color-stone-500, #78716c);
-  --text-placeholder: var(--color-stone-400, #a8a29e);
-  --text-disabled: var(--color-stone-300, #d6d3d1);
-  --text-inverse: #ffffff;
-
-  /* Structural (T5) */
-  --border-default: var(--color-stone-200, #e7e5e3);
-  --border-subtle: var(--color-stone-100, #f5f5f4);
-  --border-strong: var(--color-stone-300, #d6d3d1);
-  --border-focus: var(--color-primary);
-  --border-input: var(--color-stone-300, #d6d3d1);
-  --border-input-focus: var(--color-primary);
-
   /* Typography (T6) */
   --font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
 
   /* Layout (T8) */
-  --tab-bar-height: 4rem;
+  --sidebar-width: 16rem;
+  --sidebar-collapsed-width: 4.5rem;
   --header-height: 3.5rem;
   --input-min-height: 2.75rem;
   --touch-target: 2.75rem;
 
-  /* Interactive colors (T3) */
+  /* Interactive (teal) — no Flowbite equivalent (T3) */
   --color-interactive: var(--color-teal-600, #0d9488);
   --color-interactive-hover: var(--color-teal-700, #0f766e);
   --color-interactive-active: var(--color-teal-800, #115e59);
@@ -113,7 +101,7 @@
   --color-info-200: var(--color-blue-200, #bfdbfe);
   --color-info-800: var(--color-blue-800, #1e40af);
 
-  /* Confidence level colors (T4) */
+  /* Confidence indicators (T4) — medical domain */
   --confidence-high-bg: var(--color-success-50);
   --confidence-high-border: var(--color-success-200);
   --confidence-high-text: var(--color-success-800);
@@ -126,7 +114,7 @@
   --confidence-low-border: var(--color-danger-200);
   --confidence-low-text: var(--color-danger-800);
 
-  /* Medication status colors (T4) */
+  /* Medication status (T4) — medical domain */
   --med-active: var(--color-success);
   --med-active-bg: var(--color-success-50);
   --med-paused: var(--color-warning);
@@ -136,28 +124,176 @@
   --med-prn: var(--color-info);
   --med-prn-bg: var(--color-info-50);
 
-  /* Severity scale colors (T4) */
+  /* Severity scale (T4) — medical domain */
   --severity-none: var(--color-stone-300, #d6d3d1);
   --severity-mild: var(--color-green-400, #4ade80);
   --severity-moderate: var(--color-amber-400, #fbbf24);
   --severity-severe: var(--color-orange-500, #f97316);
   --severity-critical: var(--color-red-500, #ef4444);
 
-  /* Z-Index protocol (T12) */
+  /* Safety banner (Spec 44) */
+  --safety-critical-bg: var(--color-warning-50);
+  --safety-critical-border: var(--color-warning-200);
+  --safety-critical-text: var(--color-warning-800);
+
+  /* Z-index protocol (T12) */
   --z-base: 0;
   --z-sticky: 10;
   --z-dropdown: 20;
+  --z-sidebar: 25;
   --z-modal: 30;
   --z-toast: 40;
-  --z-tab-bar: 50;
+
+  /* === Legacy semantic tokens (Phase B removal target) ===
+     17 usages across 5 files. Kept for backward compat until component migration. */
+  --surface-base: var(--color-stone-50, #fafaf9);
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+  --surface-input: #ffffff;
+  --surface-hover: var(--color-stone-100, #f5f5f4);
+  --surface-active: var(--color-stone-200, #e7e5e3);
+  --surface-selected: var(--color-stone-100, #f5f5f4);
+  --surface-muted: var(--color-stone-100, #f5f5f4);
+
+  --text-primary: var(--color-stone-900, #1c1917);
+  --text-secondary: var(--color-stone-700, #44403c);
+  --text-muted: var(--color-stone-500, #78716c);
+  --text-placeholder: var(--color-stone-400, #a8a29e);
+  --text-disabled: var(--color-stone-300, #d6d3d1);
+  --text-inverse: #ffffff;
+
+  --border-default: var(--color-stone-200, #e7e5e3);
+  --border-subtle: var(--color-stone-100, #f5f5f4);
+  --border-strong: var(--color-stone-300, #d6d3d1);
+  --border-focus: var(--color-primary);
+  --border-input: var(--color-stone-300, #d6d3d1);
+  --border-input-focus: var(--color-primary);
 }
 
-/* === BASE STYLES === */
+/* === SECTION 4: Dark Theme Overrides ===
+   Applied via .dark class on <html>. Flowbite dark: variants auto-activate.
+   Medical domain tokens need explicit overrides for contrast on dark bg. */
+.dark {
+  /* Interactive */
+  --color-interactive: #2dd4bf;       /* teal-400 */
+  --color-interactive-hover: #14b8a6; /* teal-500 */
+  --color-interactive-active: #0d9488;/* teal-600 */
+  --color-interactive-50: rgba(13, 148, 136, 0.1);
+
+  /* Status — lighter values for dark background contrast */
+  --color-success: #4ade80;           /* green-400 */
+  --color-success-50: rgba(22, 163, 74, 0.15);
+  --color-success-200: rgba(22, 163, 74, 0.3);
+  --color-success-800: #86efac;       /* green-300 */
+
+  --color-warning: #fbbf24;           /* amber-400 */
+  --color-warning-50: rgba(245, 158, 11, 0.15);
+  --color-warning-200: rgba(245, 158, 11, 0.3);
+  --color-warning-800: #fcd34d;       /* amber-300 */
+
+  --color-danger: #f87171;            /* red-400 */
+  --color-danger-50: rgba(220, 38, 38, 0.15);
+  --color-danger-200: rgba(220, 38, 38, 0.3);
+  --color-danger-800: #fca5a5;        /* red-300 */
+
+  --color-info: #60a5fa;              /* blue-400 */
+  --color-info-50: rgba(59, 130, 246, 0.15);
+  --color-info-200: rgba(59, 130, 246, 0.3);
+  --color-info-800: #93c5fd;          /* blue-300 */
+
+  /* Confidence — dark mode overrides */
+  --confidence-high-bg: rgba(22, 163, 74, 0.15);
+  --confidence-high-border: rgba(22, 163, 74, 0.3);
+  --confidence-high-text: #86efac;    /* green-300 */
+
+  --confidence-medium-bg: rgba(245, 158, 11, 0.15);
+  --confidence-medium-border: rgba(245, 158, 11, 0.3);
+  --confidence-medium-text: #fcd34d;  /* amber-300 */
+
+  --confidence-low-bg: rgba(220, 38, 38, 0.15);
+  --confidence-low-border: rgba(220, 38, 38, 0.3);
+  --confidence-low-text: #fca5a5;     /* red-300 */
+
+  /* Medication status — dark mode overrides */
+  --med-active: var(--color-success);
+  --med-active-bg: rgba(22, 163, 74, 0.15);
+  --med-paused: var(--color-warning);
+  --med-paused-bg: rgba(245, 158, 11, 0.15);
+  --med-stopped: var(--color-danger);
+  --med-stopped-bg: rgba(220, 38, 38, 0.15);
+  --med-prn: var(--color-info);
+  --med-prn-bg: rgba(59, 130, 246, 0.15);
+
+  /* Severity — lighter for dark bg */
+  --severity-none: #6b7280;           /* gray-500 */
+  --severity-mild: #86efac;           /* green-300 */
+  --severity-moderate: #fcd34d;       /* amber-300 */
+  --severity-severe: #fb923c;         /* orange-400 */
+  --severity-critical: #f87171;       /* red-400 */
+
+  /* Safety banner — dark mode */
+  --safety-critical-bg: rgba(245, 158, 11, 0.2);
+  --safety-critical-border: #b45309;  /* amber-700 */
+  --safety-critical-text: #fde68a;    /* amber-200 */
+
+  /* Legacy semantic tokens — dark overrides */
+  --surface-base: #030712;            /* gray-950 */
+  --surface-raised: #111827;          /* gray-900 */
+  --surface-overlay: #1f2937;         /* gray-800 */
+  --surface-input: #111827;
+  --surface-hover: #1f2937;
+  --surface-active: #374151;          /* gray-700 */
+  --surface-selected: #1f2937;
+  --surface-muted: #1f2937;
+
+  --text-primary: #f3f4f6;            /* gray-100 */
+  --text-secondary: #9ca3af;          /* gray-400 */
+  --text-muted: #6b7280;             /* gray-500 */
+  --text-placeholder: #6b7280;
+  --text-disabled: #4b5563;           /* gray-600 */
+  --text-inverse: #111827;
+
+  --border-default: #374151;          /* gray-700 */
+  --border-subtle: #1f2937;           /* gray-800 */
+  --border-strong: #4b5563;           /* gray-600 */
+  --border-focus: var(--color-primary-400);
+  --border-input: #4b5563;
+  --border-input-focus: var(--color-primary-400);
+}
+
+/* === SECTION 5: Colorful Theme Overrides ===
+   Applied via .colorful class on <html>. Overrides primary scale to indigo. */
+html.colorful {
+  --color-primary: #4f46e5;
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+}
+html.colorful body {
+  background-color: #eef2ff;
+}
+
+/* === SECTION 6: Base Styles === */
 
 html {
   font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.6;
+  transition: background-color var(--duration-normal) var(--ease-default),
+              color var(--duration-normal) var(--ease-default);
+}
+
+/* Dark mode base background */
+html.dark {
+  background-color: #030712;
+  color: #f3f4f6;
 }
 
 /* Focus visible for keyboard navigation (T5) */
@@ -171,7 +307,7 @@ button, a, input, select, textarea, [role="button"] {
   min-height: 44px;
 }
 
-/* === REDUCED MOTION (T11) === */
+/* === SECTION 7: Reduced Motion (T11) === */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -180,9 +316,9 @@ button, a, input, select, textarea, [role="button"] {
   }
 }
 
-/* === CUSTOM ANIMATIONS === */
+/* === SECTION 8: Custom Animations === */
 
-/* Q.4: Indeterminate progress bar */
+/* Indeterminate progress bar */
 @keyframes indeterminate {
   0% { transform: translateX(-100%); width: 40%; }
   50% { transform: translateX(100%); width: 60%; }
@@ -201,10 +337,8 @@ button, a, input, select, textarea, [role="button"] {
   animation: slide-down var(--duration-normal) var(--ease-out);
 }
 
-/* =============================================================================
-   MARKDOWN RENDERING — Spec 48 [CA-03]
-   Safe markdown styles for AI response content in chat bubbles.
-   ============================================================================= */
+/* === SECTION 9: Markdown Rendering — Spec 48 [CA-03] ===
+   Theme-aware markdown styles for AI response content in chat bubbles. */
 .md-code {
   font-family: ui-monospace, monospace;
   font-size: 0.875em;
@@ -212,11 +346,17 @@ button, a, input, select, textarea, [role="button"] {
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;
 }
+.dark .md-code {
+  background: rgba(74, 111, 165, 0.15);
+}
 .md-heading {
   font-weight: 600;
   margin-top: 0.75rem;
   margin-bottom: 0.25rem;
-  color: var(--color-stone-800, #1c1917);
+  color: #1c1917;
+}
+.dark .md-heading {
+  color: #e5e7eb;
 }
 h3.md-heading { font-size: 1rem; }
 h4.md-heading { font-size: 0.9375rem; }
@@ -233,8 +373,11 @@ ul.md-list { list-style: disc; }
 ol.md-list { list-style: decimal; }
 .md-hr {
   border: 0;
-  border-top: 1px solid var(--color-stone-200, #e7e5e4);
+  border-top: 1px solid #e7e5e4;
   margin: 0.75rem 0;
+}
+.dark .md-hr {
+  border-top-color: #374151;
 }
 .md-table-wrap {
   overflow-x: auto;
@@ -248,10 +391,17 @@ ol.md-list { list-style: decimal; }
 .md-table th,
 .md-table td {
   padding: 0.375rem 0.625rem;
-  border: 1px solid var(--color-stone-200, #e7e5e4);
+  border: 1px solid #e7e5e4;
   text-align: left;
 }
+.dark .md-table th,
+.dark .md-table td {
+  border-color: #374151;
+}
 .md-table th {
-  background: var(--color-stone-50, #fafaf9);
+  background: #fafaf9;
   font-weight: 600;
+}
+.dark .md-table th {
+  background: #1f2937;
 }

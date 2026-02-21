@@ -14,6 +14,9 @@
     "profile_label": "Profil",
     "created_label": "Erstellt",
     "version_label": "Version",
-    "compatibility_warning": "Diese Sicherung ist möglicherweise nicht vollständig kompatibel."
+    "compatibility_warning": "Diese Sicherung ist möglicherweise nicht vollständig kompatibel.",
+    "field_backup_path": "einen Sicherungspfad",
+    "field_file_path": "einen Sicherungsdateipfad",
+    "field_password": "ein Passwort"
   }
 }

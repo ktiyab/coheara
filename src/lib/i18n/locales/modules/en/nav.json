@@ -10,6 +10,21 @@
     "appointments": "Appointments",
     "settings": "Settings",
     "go_back": "Go back",
-    "skip_to_content": "Skip to main content"
+    "skip_to_content": "Skip to main content",
+    "sidebar": "Sidebar",
+    "expand_sidebar": "Expand sidebar",
+    "collapse_sidebar": "Collapse sidebar",
+    "section_main": "Main",
+    "section_library": "Library",
+    "section_system": "System",
+    "review": "Review",
+    "document-detail": "Document",
+    "ai-settings": "AI Settings",
+    "ai-setup": "AI Setup",
+    "privacy": "Privacy",
+    "pairing": "Paired Devices",
+    "import": "Import",
+    "transfer": "Transfer",
+    "breadcrumb": "Breadcrumb"
   }
 }

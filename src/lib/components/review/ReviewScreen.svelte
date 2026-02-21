@@ -99,16 +99,16 @@
     }}
   />
 {:else}
-  <div class="flex flex-col h-screen bg-stone-50">
+  <div class="flex flex-col h-screen bg-stone-50 dark:bg-gray-950">
     <!-- Header -->
-    <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
+    <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
       <BackButton />
       <div class="flex-1 min-w-0">
-        <h1 class="text-lg font-semibold text-stone-800 truncate">
+        <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100 truncate">
           {$t('review.heading_prefix')} {reviewData?.document_type ?? $t('review.document_fallback')}
         </h1>
         {#if reviewData?.professional_name}
-          <p class="text-sm text-stone-500 truncate">
+          <p class="text-sm text-stone-500 dark:text-gray-400 truncate">
             {reviewData.professional_name}
             {#if reviewData.professional_specialty}
               &middot; {reviewData.professional_specialty}
@@ -132,12 +132,12 @@
     {:else if reviewData}
       <!-- Tab switcher for narrow screens -->
       {#if isNarrow}
-        <div class="flex bg-white border-b border-stone-200 shrink-0">
+        <div class="flex bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
           <button
             class="flex-1 py-3 text-sm font-medium min-h-[44px]
                    {activeTab === 'original'
                      ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]'
-                     : 'text-stone-500'}"
+                     : 'text-stone-500 dark:text-gray-400'}"
             onclick={() => activeTab = 'original'}
           >
             {$t('review.tab_original')}
@@ -146,7 +146,7 @@
             class="flex-1 py-3 text-sm font-medium min-h-[44px]
                    {activeTab === 'extracted'
                      ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]'
-                     : 'text-stone-500'}"
+                     : 'text-stone-500 dark:text-gray-400'}"
             onclick={() => activeTab = 'extracted'}
           >
             {$t('review.tab_extracted')} ({corrections.length > 0 ? $t('review.tab_corrected_count', { values: { count: corrections.length } }) : $t('review.tab_review_suffix')})
@@ -157,7 +157,7 @@
       <!-- Side-by-side / tabbed content -->
       <div class="flex-1 overflow-hidden {isNarrow ? '' : 'flex'}">
         {#if !isNarrow || activeTab === 'original'}
-          <div class="{isNarrow ? 'h-full' : 'w-[45%] min-w-[300px]'} border-r border-stone-200 overflow-auto">
+          <div class="{isNarrow ? 'h-full' : 'w-[45%] min-w-[300px]'} border-r border-stone-200 dark:border-gray-700 overflow-auto">
             <OriginalViewer
               fileBase64={originalFileBase64}
               fileType={reviewData.original_file_type}

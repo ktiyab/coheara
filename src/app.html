@@ -6,6 +6,68 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<script>
+			// Tauri API stub for browser-only dev preview.
+			// Prevents crashes when components call invoke()/listen()/etc.
+			// All calls reject gracefully so existing try/catch blocks handle them.
+			if (!window.__TAURI_INTERNALS__) {
+				window.__TAURI_INTERNALS__ = {
+					invoke: function() { return Promise.reject(new Error('Tauri IPC not available in browser mode')); },
+					transformCallback: function() { return 0; },
+					convertFileSrc: function(path) { return path; },
+					metadata: { currentWebview: { windowLabel: 'main', label: 'main' }, currentWindow: { label: 'main' } }
+				};
+				window.__TAURI_STUB__ = true;
+			}
+		</script>
 		<div style="display: contents">%sveltekit.body%</div>
+
+		<!-- DEV DIAGNOSTICS: Visible error surface when JS fails silently -->
+		<div id="boot-fallback" style="display:none; position:fixed; inset:0; z-index:99999;
+			background:#fff; padding:2rem; font-family:system-ui,sans-serif; overflow:auto;">
+			<h1 style="color:#dc2626; margin:0 0 1rem">Coheara failed to start</h1>
+			<pre id="boot-error" style="background:#fef2f2; border:1px solid #fecaca;
+				padding:1rem; border-radius:0.5rem; white-space:pre-wrap; word-break:break-word;
+				font-size:0.875rem; max-height:60vh; overflow:auto;"></pre>
+			<p style="margin-top:1rem; color:#78716c; font-size:0.875rem;">
+				Check the browser console (F12) for the full stack trace.
+			</p>
+		</div>
+		<script>
+			// Surface JS errors visibly — no more silent white screens
+			(function() {
+				var fallback = document.getElementById('boot-fallback');
+				var errorPre = document.getElementById('boot-error');
+				var errors = [];
+
+				function show(msg) {
+					errors.push(msg);
+					errorPre.textContent = errors.join('\n\n');
+					fallback.style.display = 'block';
+				}
+
+				window.addEventListener('error', function(e) {
+					show('[ERROR] ' + e.message + '\n  at ' + (e.filename || '?') + ':' + e.lineno + ':' + e.colno);
+				});
+
+				window.addEventListener('unhandledrejection', function(e) {
+					var reason = e.reason;
+					var msg = reason instanceof Error
+						? reason.message + '\n' + (reason.stack || '')
+						: String(reason);
+					show('[UNHANDLED PROMISE] ' + msg);
+				});
+
+				// If SvelteKit mounts successfully, hide the fallback
+				// SvelteKit replaces %sveltekit.body% content on hydration
+				var observer = new MutationObserver(function() {
+					if (document.querySelector('[data-sveltekit-hydrated]') || document.querySelector('main')) {
+						fallback.style.display = 'none';
+						observer.disconnect();
+					}
+				});
+				observer.observe(document.body, { childList: true, subtree: true });
+			})();
+		</script>
 	</body>
 </html>

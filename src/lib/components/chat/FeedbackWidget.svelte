@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { setMessageFeedback } from '$lib/api/chat';
+  import { ThumbsUpSolid, ThumbsDownSolid } from 'flowbite-svelte-icons';
 
   interface Props {
     messageId: string;
@@ -35,7 +36,7 @@
 </script>
 
 <div class="flex items-center gap-2">
-  <span class="text-xs text-stone-500">{$t('chat.feedback_question')}</span>
+  <span class="text-xs text-stone-500 dark:text-gray-400">{$t('chat.feedback_question')}</span>
 
   <button
     class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-full
@@ -43,34 +44,34 @@
            {feedback === 'Helpful'
              ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
              : feedback === 'NotHelpful'
-               ? 'opacity-30 text-stone-500'
-               : 'text-stone-500 hover:bg-stone-100'}"
+               ? 'opacity-30 text-stone-500 dark:text-gray-400'
+               : 'text-stone-500 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-700'}"
     onclick={() => handleFeedback('Helpful')}
     aria-label={$t('chat.feedback_helpful')}
     aria-pressed={feedback === 'Helpful'}
     disabled={saving}
   >
-    <span class="text-sm" aria-hidden="true">&#128077;</span>
+    <ThumbsUpSolid class="w-4 h-4" />
   </button>
 
   <button
     class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-full
            transition-all
            {feedback === 'NotHelpful'
-             ? 'bg-stone-100 text-stone-600'
+             ? 'bg-stone-100 dark:bg-gray-700 text-stone-600 dark:text-gray-300'
              : feedback === 'Helpful'
-               ? 'opacity-30 text-stone-500'
-               : 'text-stone-500 hover:bg-stone-100'}"
+               ? 'opacity-30 text-stone-500 dark:text-gray-400'
+               : 'text-stone-500 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-700'}"
     onclick={() => handleFeedback('NotHelpful')}
     aria-label={$t('chat.feedback_not_helpful')}
     aria-pressed={feedback === 'NotHelpful'}
     disabled={saving}
   >
-    <span class="text-sm" aria-hidden="true">&#128078;</span>
+    <ThumbsDownSolid class="w-4 h-4" />
   </button>
 
   {#if showThankYou}
-    <span class="text-xs text-stone-500 animate-fade-out">
+    <span class="text-xs text-stone-500 dark:text-gray-400 animate-fade-out">
       {feedback === 'Helpful' ? $t('chat.feedback_thanks_positive') : $t('chat.feedback_thanks_negative')}
     </span>
   {/if}

@@ -18,25 +18,25 @@
 </script>
 
 <div>
-  <h3 class="text-sm font-medium text-stone-500 mb-3">{$t('medications.tapering_heading')}</h3>
+  <h3 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('medications.tapering_heading')}</h3>
   <div class="flex flex-col gap-2">
     {#each steps as step}
       <div
         class="flex items-center gap-3 px-3 py-2 rounded-lg
                {step.is_current
                  ? 'bg-[var(--color-info-50)] border border-[var(--color-info-200)]'
-                 : 'bg-white border border-stone-100'}"
+                 : 'bg-white dark:bg-gray-900 border border-stone-100 dark:border-gray-800'}"
         aria-current={step.is_current ? 'step' : undefined}
       >
-        <span class="text-xs text-stone-500 w-12 flex-shrink-0">
+        <span class="text-xs text-stone-500 dark:text-gray-400 w-12 flex-shrink-0">
           {$t('medications.tapering_step', { values: { number: step.step_number } })}
         </span>
         <div class="flex-1">
-          <p class="text-sm font-medium text-stone-800">
+          <p class="text-sm font-medium text-stone-800 dark:text-gray-100">
             {step.dose}
-            <span class="text-stone-500 font-normal">{$t('medications.tapering_duration', { values: { days: step.duration_days } })}</span>
+            <span class="text-stone-500 dark:text-gray-400 font-normal">{$t('medications.tapering_duration', { values: { days: step.duration_days } })}</span>
           </p>
-          <p class="text-xs text-stone-500">{formatDateRange(step)}</p>
+          <p class="text-xs text-stone-500 dark:text-gray-400">{formatDateRange(step)}</p>
         </div>
         {#if step.is_current}
           <span class="text-xs text-[var(--color-info)] font-medium flex-shrink-0">{$t('medications.tapering_current')}</span>

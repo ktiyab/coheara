@@ -75,23 +75,23 @@
       case 'life_threatening': return 'text-[var(--color-danger-800)] bg-[var(--color-danger-200)]';
       case 'severe': return 'text-[var(--color-danger)] bg-[var(--color-danger-50)]';
       case 'moderate': return 'text-[var(--color-warning)] bg-[var(--color-warning-50)]';
-      default: return 'text-stone-600 bg-stone-100';
+      default: return 'text-stone-600 dark:text-gray-300 bg-stone-100 dark:bg-gray-800';
     }
   }
 
   onMount(() => { loadDetail(); });
 </script>
 
-<div class="flex flex-col min-h-screen bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200 shrink-0">
+  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
     <BackButton />
     <div class="flex-1 min-w-0">
-      <h1 class="text-lg font-semibold text-stone-800 truncate">
+      <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100 truncate">
         {detail?.document_type ?? $t('documents.detail_fallback')}
       </h1>
       {#if detail?.professional_name}
-        <p class="text-sm text-stone-500 truncate">
+        <p class="text-sm text-stone-500 dark:text-gray-400 truncate">
           {detail.professional_name}
           {#if detail.professional_specialty}
             &middot; {detail.professional_specialty}
@@ -118,13 +118,13 @@
 
   {:else if detail}
     <!-- Section tabs -->
-    <div class="flex bg-white border-b border-stone-200 overflow-x-auto shrink-0">
+    <div class="flex bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 overflow-x-auto shrink-0">
       {#each sections as section}
         <button
           class="shrink-0 px-4 py-3 text-sm font-medium min-h-[44px] whitespace-nowrap
                  {activeSection === section.id
                    ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]'
-                   : 'text-stone-500'}"
+                   : 'text-stone-500 dark:text-gray-400'}"
           onclick={() => activeSection = section.id}
         >
           {section.label}
@@ -136,30 +136,30 @@
     </div>
 
     <!-- Content -->
-    <div class="flex-1 overflow-auto px-4 py-4 pb-20">
+    <div class="flex-1 overflow-auto px-4 py-4">
 
       {#if activeSection === 'overview'}
         <!-- Document metadata -->
-        <div class="bg-white rounded-xl p-4 border border-stone-100 mb-4">
+        <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800 mb-4">
           <dl class="space-y-3">
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_type')}</dt>
-              <dd class="text-sm font-medium text-stone-800">{detail.document_type}</dd>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_type')}</dt>
+              <dd class="text-sm font-medium text-stone-800 dark:text-gray-100">{detail.document_type}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_date')}</dt>
-              <dd class="text-sm text-stone-800">{formatDate(detail.document_date)}</dd>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_date')}</dt>
+              <dd class="text-sm text-stone-800 dark:text-gray-100">{formatDate(detail.document_date)}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_imported')}</dt>
-              <dd class="text-sm text-stone-800">{formatDate(detail.imported_at)}</dd>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_imported')}</dt>
+              <dd class="text-sm text-stone-800 dark:text-gray-100">{formatDate(detail.imported_at)}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_file')}</dt>
-              <dd class="text-sm text-stone-800 truncate ml-4">{detail.source_filename}</dd>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_file')}</dt>
+              <dd class="text-sm text-stone-800 dark:text-gray-100 truncate ml-4">{detail.source_filename}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_status')}</dt>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_status')}</dt>
               <dd class="text-sm">
                 <Badge variant={detail.status === 'Confirmed' ? 'success' : 'warning'} size="sm">
                   {detail.status === 'Confirmed' ? $t('documents.detail_confirmed') : $t('documents.detail_pending')}
@@ -168,47 +168,47 @@
             </div>
             {#if detail.ocr_confidence !== null}
               <div class="flex justify-between">
-                <dt class="text-sm text-stone-500">{$t('documents.detail_ocr_confidence')}</dt>
-                <dd class="text-sm text-stone-800">{Math.round(detail.ocr_confidence * 100)}%</dd>
+                <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_ocr_confidence')}</dt>
+                <dd class="text-sm text-stone-800 dark:text-gray-100">{Math.round(detail.ocr_confidence * 100)}%</dd>
               </div>
             {/if}
             <div class="flex justify-between">
-              <dt class="text-sm text-stone-500">{$t('documents.detail_entities_found')}</dt>
-              <dd class="text-sm font-medium text-stone-800">{totalEntities}</dd>
+              <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_entities_found')}</dt>
+              <dd class="text-sm font-medium text-stone-800 dark:text-gray-100">{totalEntities}</dd>
             </div>
           </dl>
         </div>
 
         {#if detail.notes}
-          <div class="bg-white rounded-xl p-4 border border-stone-100">
-            <h3 class="text-sm font-medium text-stone-700 mb-2">{$t('documents.detail_notes')}</h3>
-            <p class="text-sm text-stone-600">{detail.notes}</p>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
+            <h3 class="text-sm font-medium text-stone-700 dark:text-gray-200 mb-2">{$t('documents.detail_notes')}</h3>
+            <p class="text-sm text-stone-600 dark:text-gray-300">{detail.notes}</p>
           </div>
         {/if}
 
       {:else if activeSection === 'medications'}
         <div class="space-y-3">
           {#each detail.medications as med}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
               <div class="flex items-start justify-between">
                 <div>
-                  <p class="font-medium text-stone-800">{med.generic_name}</p>
+                  <p class="font-medium text-stone-800 dark:text-gray-100">{med.generic_name}</p>
                   {#if med.brand_name}
-                    <p class="text-xs text-stone-500">({med.brand_name})</p>
+                    <p class="text-xs text-stone-500 dark:text-gray-400">({med.brand_name})</p>
                   {/if}
                 </div>
                 <span class="text-xs px-2 py-0.5 rounded-full
-                             {med.status === 'active' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]' : 'bg-stone-100 text-stone-600'}">
+                             {med.status === 'active' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]' : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}">
                   {med.status}
                 </span>
               </div>
-              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
+              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600 dark:text-gray-300">
                 <span>{med.dose}</span>
                 <span>{med.frequency}</span>
                 <span>{med.route}</span>
               </div>
               {#if med.start_date || med.end_date}
-                <p class="text-xs text-stone-500 mt-2">
+                <p class="text-xs text-stone-500 dark:text-gray-400 mt-2">
                   {#if med.start_date}{$t('documents.detail_started')} {formatDate(med.start_date)}{/if}
                   {#if med.end_date} &middot; {$t('documents.detail_ended')} {formatDate(med.end_date)}{/if}
                 </p>
@@ -220,28 +220,28 @@
       {:else if activeSection === 'labs'}
         <div class="space-y-3">
           {#each detail.lab_results as lab}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
               <div class="flex items-start justify-between">
-                <p class="font-medium text-stone-800">{lab.test_name}</p>
+                <p class="font-medium text-stone-800 dark:text-gray-100">{lab.test_name}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full {abnormalColor(lab.abnormal_flag)}">
                   {lab.abnormal_flag === 'normal' ? $t('documents.detail_normal') : lab.abnormal_flag.replace('_', ' ')}
                 </span>
               </div>
               <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-lg font-semibold text-stone-800">
+                <span class="text-lg font-semibold text-stone-800 dark:text-gray-100">
                   {lab.value !== null ? lab.value : lab.value_text ?? '—'}
                 </span>
                 {#if lab.unit}
-                  <span class="text-sm text-stone-500">{lab.unit}</span>
+                  <span class="text-sm text-stone-500 dark:text-gray-400">{lab.unit}</span>
                 {/if}
               </div>
               {#if lab.reference_range_low !== null || lab.reference_range_high !== null}
-                <p class="text-xs text-stone-500 mt-1">
+                <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">
                   {$t('documents.detail_reference')} {lab.reference_range_low ?? '—'} – {lab.reference_range_high ?? '—'}
                   {#if lab.unit} {lab.unit}{/if}
                 </p>
               {/if}
-              <p class="text-xs text-stone-500 mt-1">{formatDate(lab.collection_date)}</p>
+              <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">{formatDate(lab.collection_date)}</p>
             </div>
           {/each}
         </div>
@@ -249,9 +249,9 @@
       {:else if activeSection === 'diagnoses'}
         <div class="space-y-3">
           {#each detail.diagnoses as dx}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
               <div class="flex items-start justify-between">
-                <p class="font-medium text-stone-800">{dx.name}</p>
+                <p class="font-medium text-stone-800 dark:text-gray-100">{dx.name}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full
                              {dx.status === 'active' ? 'bg-[var(--color-warning-200)] text-[var(--color-warning-800)]'
                                : dx.status === 'resolved' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
@@ -260,10 +260,10 @@
                 </span>
               </div>
               {#if dx.icd_code}
-                <p class="text-xs text-stone-500 mt-1">{$t('documents.detail_icd')} {dx.icd_code}</p>
+                <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">{$t('documents.detail_icd')} {dx.icd_code}</p>
               {/if}
               {#if dx.date_diagnosed}
-                <p class="text-xs text-stone-500 mt-1">{$t('documents.detail_diagnosed')} {formatDate(dx.date_diagnosed)}</p>
+                <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">{$t('documents.detail_diagnosed')} {formatDate(dx.date_diagnosed)}</p>
               {/if}
             </div>
           {/each}
@@ -272,15 +272,15 @@
       {:else if activeSection === 'allergies'}
         <div class="space-y-3">
           {#each detail.allergies as allergy}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
               <div class="flex items-start justify-between">
-                <p class="font-medium text-stone-800">{allergy.allergen}</p>
+                <p class="font-medium text-stone-800 dark:text-gray-100">{allergy.allergen}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full {severityColor(allergy.severity)}">
                   {allergy.severity}
                 </span>
               </div>
               {#if allergy.reaction}
-                <p class="text-sm text-stone-600 mt-1">{$t('documents.detail_reaction')} {allergy.reaction}</p>
+                <p class="text-sm text-stone-600 dark:text-gray-300 mt-1">{$t('documents.detail_reaction')} {allergy.reaction}</p>
               {/if}
             </div>
           {/each}
@@ -289,13 +289,13 @@
       {:else if activeSection === 'procedures'}
         <div class="space-y-3">
           {#each detail.procedures as proc}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
-              <p class="font-medium text-stone-800">{proc.name}</p>
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
+              <p class="font-medium text-stone-800 dark:text-gray-100">{proc.name}</p>
               {#if proc.date}
-                <p class="text-xs text-stone-500 mt-1">{formatDate(proc.date)}</p>
+                <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">{formatDate(proc.date)}</p>
               {/if}
               {#if proc.outcome}
-                <p class="text-sm text-stone-600 mt-1">{$t('documents.detail_outcome')} {proc.outcome}</p>
+                <p class="text-sm text-stone-600 dark:text-gray-300 mt-1">{$t('documents.detail_outcome')} {proc.outcome}</p>
               {/if}
               {#if proc.follow_up_required}
                 <span class="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning-200)] text-[var(--color-warning-800)]">
@@ -309,18 +309,18 @@
       {:else if activeSection === 'referrals'}
         <div class="space-y-3">
           {#each detail.referrals as ref}
-            <div class="bg-white rounded-xl p-4 border border-stone-100">
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
               <div class="flex items-start justify-between">
-                <p class="font-medium text-stone-800">{ref.reason ?? $t('documents.detail_referral_fallback')}</p>
+                <p class="font-medium text-stone-800 dark:text-gray-100">{ref.reason ?? $t('documents.detail_referral_fallback')}</p>
                 <span class="text-xs px-2 py-0.5 rounded-full
                              {ref.status === 'completed' ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
                                : ref.status === 'pending' ? 'bg-[var(--color-warning-200)] text-[var(--color-warning-800)]'
                                : ref.status === 'scheduled' ? 'bg-[var(--color-info-200)] text-[var(--color-info)]'
-                               : 'bg-stone-100 text-stone-600'}">
+                               : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}">
                   {ref.status}
                 </span>
               </div>
-              <p class="text-xs text-stone-500 mt-1">{formatDate(ref.date)}</p>
+              <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">{formatDate(ref.date)}</p>
             </div>
           {/each}
         </div>

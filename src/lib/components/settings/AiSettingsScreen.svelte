@@ -31,6 +31,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { CloseOutline } from 'flowbite-svelte-icons';
 
   let recommended = $state<RecommendedModel[]>([]);
   let pullInput = $state('');
@@ -177,11 +178,11 @@
   }
 </script>
 
-<div class="flex flex-col min-h-screen pb-20 bg-stone-50">
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
   <header class="px-6 pt-6 pb-4 flex items-center gap-3">
     <BackButton />
-    <h1 class="text-2xl font-bold text-stone-800">{$t('ai.settings_heading')}</h1>
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('ai.settings_heading')}</h1>
   </header>
 
   {#if ai.loading}
@@ -202,7 +203,7 @@
         <p class="text-sm text-[var(--color-warning-800)] mb-4">
           {$t('ai.ollama_needed')}
         </p>
-        <div class="space-y-2 text-sm text-stone-600">
+        <div class="space-y-2 text-sm text-stone-600 dark:text-gray-300">
           <p><strong>{$t('ai.install_label')}</strong> {$t('ai.install_visit', { values: { url: 'ollama.com/download' } })}</p>
           <p><strong>{$t('ai.start_label')}</strong> {$t('ai.start_ollama')}</p>
         </div>
@@ -220,8 +221,8 @@
 
       <!-- Active model section -->
       {#if ai.activeModel}
-        <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.active_model_heading')}</h2>
+        <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+          <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.active_model_heading')}</h2>
           <div class="flex items-center gap-3">
             <span
               class="text-lg"
@@ -230,8 +231,8 @@
               {ai.activeModel.quality === 'Medical' ? '\u2605' : '\u25CB'}
             </span>
             <div class="flex-1">
-              <p class="text-base font-medium text-stone-800">{ai.activeModel.name}</p>
-              <p class="text-xs text-stone-500">
+              <p class="text-base font-medium text-stone-800 dark:text-gray-100">{ai.activeModel.name}</p>
+              <p class="text-xs text-stone-500 dark:text-gray-400">
                 {ai.activeModel.quality === 'Medical' ? $t('ai.medical_trained') : $t('ai.general_purpose')}
                 &middot; {sourceDisplayText(ai.activeModel.source)}
               </p>
@@ -246,13 +247,13 @@
       {/if}
 
       <!-- Installed models list -->
-      <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-        <h2 class="text-sm font-medium text-stone-500 mb-3">
+      <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+        <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">
           {$t('ai.installed_models', { values: { count: ai.models.length } })}
         </h2>
 
         {#if ai.models.length === 0}
-          <p class="text-sm text-stone-500 py-4 text-center">
+          <p class="text-sm text-stone-500 dark:text-gray-400 py-4 text-center">
             {$t('ai.no_models_empty')}
           </p>
         {:else}
@@ -261,7 +262,7 @@
               {@const isActive = ai.activeModel?.name === model.name}
               {@const medical = isMedicalModel(model.name)}
               <div
-                class="flex items-center gap-3 p-3 rounded-lg border {isActive ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100'}"
+                class="flex items-center gap-3 p-3 rounded-lg border {isActive ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100 dark:border-gray-800'}"
                 role="listitem"
                 aria-current={isActive ? 'true' : undefined}
               >
@@ -272,8 +273,8 @@
                   {medical ? '\u2605' : '\u25CB'}
                 </span>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-stone-800 truncate">{model.name}</p>
-                  <p class="text-xs text-stone-500">
+                  <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{model.name}</p>
+                  <p class="text-xs text-stone-500 dark:text-gray-400">
                     {medical ? $t('ai.medical_label') : $t('ai.general_label')}
                     &middot; {formatModelSize(model.size)}
                     {#if model.details.family}
@@ -293,11 +294,11 @@
                     </button>
                   {/if}
                   <button
-                    class="text-stone-500 hover:text-[var(--color-danger)] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                    class="text-stone-500 dark:text-gray-400 hover:text-[var(--color-danger)] min-h-[44px] min-w-[44px] flex items-center justify-center"
                     onclick={() => { deleteConfirm = model.name; }}
                     aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
                   >
-                    &times;
+                    <CloseOutline class="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -308,11 +309,11 @@
 
       <!-- Pull progress -->
       {#if ai.isPulling && ai.pullProgress}
-        <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.downloading_heading')}</h2>
-          <p class="text-sm text-stone-800 mb-2">{ai.pullProgress.model_name}</p>
+        <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+          <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.downloading_heading')}</h2>
+          <p class="text-sm text-stone-800 dark:text-gray-100 mb-2">{ai.pullProgress.model_name}</p>
           <div
-            class="w-full bg-stone-200 rounded-full h-2.5 mb-2"
+            class="w-full bg-stone-200 dark:bg-gray-700 rounded-full h-2.5 mb-2"
             role="progressbar"
             aria-valuenow={Math.round(ai.pullProgress.progress_percent)}
             aria-valuemin={0}
@@ -325,7 +326,7 @@
             ></div>
           </div>
           <div class="flex justify-between items-center">
-            <span class="text-xs text-stone-500">
+            <span class="text-xs text-stone-500 dark:text-gray-400">
               {ai.pullProgress.status}
               &middot; {formatModelSize(ai.pullProgress.bytes_completed)} / {formatModelSize(ai.pullProgress.bytes_total)}
               &middot; {Math.round(ai.pullProgress.progress_percent)}%
@@ -351,8 +352,8 @@
 
       <!-- Pull section (when not actively pulling) -->
       {#if !ai.isPulling}
-        <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.pull_heading')}</h2>
+        <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+          <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.pull_heading')}</h2>
 
           <!-- Custom model input -->
           <div class="flex gap-2 mb-4">
@@ -360,7 +361,8 @@
               type="text"
               bind:value={pullInput}
               placeholder={$t('ai.model_name_placeholder')}
-              class="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
+              aria-label={$t('ai.model_name_placeholder')}
+              class="flex-1 text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 text-stone-800 dark:text-gray-100 placeholder-stone-400 dark:placeholder-gray-500 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--color-interactive)] min-h-[44px]"
             />
             <button
               class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
@@ -373,20 +375,20 @@
 
           <!-- Recommended models -->
           {#if recommended.length > 0}
-            <h3 class="text-xs font-medium text-stone-500 mb-2">{$t('ai.recommended_section')}</h3>
+            <h3 class="text-xs font-medium text-stone-500 dark:text-gray-400 mb-2">{$t('ai.recommended_section')}</h3>
             <div class="space-y-2">
               {#each recommended as rec (rec.name)}
                 {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
-                <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100">
+                <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100 dark:border-gray-800">
                   <span class="text-base" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-stone-800">{rec.name}</p>
-                    <p class="text-xs text-stone-500">
+                    <p class="text-sm font-medium text-stone-800 dark:text-gray-100">{rec.name}</p>
+                    <p class="text-xs text-stone-500 dark:text-gray-400">
                       {rec.description} &middot; {$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}
                     </p>
                   </div>
                   {#if alreadyInstalled}
-                    <span class="text-xs text-stone-500">{$t('ai.installed_tag')}</span>
+                    <span class="text-xs text-stone-500 dark:text-gray-400">{$t('ai.installed_tag')}</span>
                   {:else}
                     <button
                       class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
@@ -404,24 +406,24 @@
 
       <!-- Ollama status -->
       {#if ai.health}
-        <section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-          <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('ai.ollama_status_heading')}</h2>
+        <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+          <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.ollama_status_heading')}</h2>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <span class="text-stone-600">{$t('ai.status_label')}</span>
-              <span class="text-stone-800">
+              <span class="text-stone-600 dark:text-gray-300">{$t('ai.status_label')}</span>
+              <span class="text-stone-800 dark:text-gray-100">
                 {ai.health.reachable ? $t('ai.status_running') : $t('ai.status_not_running')}
               </span>
             </div>
             {#if ai.health.version}
               <div class="flex justify-between">
-                <span class="text-stone-600">{$t('ai.version_label')}</span>
-                <span class="text-stone-800">{ai.health.version}</span>
+                <span class="text-stone-600 dark:text-gray-300">{$t('ai.version_label')}</span>
+                <span class="text-stone-800 dark:text-gray-100">{ai.health.version}</span>
               </div>
             {/if}
             <div class="flex justify-between">
-              <span class="text-stone-600">{$t('ai.models_count_label')}</span>
-              <span class="text-stone-800">{ai.health.models_count}</span>
+              <span class="text-stone-600 dark:text-gray-300">{$t('ai.models_count_label')}</span>
+              <span class="text-stone-800 dark:text-gray-100">{ai.health.models_count}</span>
             </div>
           </div>
         </section>
@@ -440,9 +442,9 @@
     aria-modal="true"
     aria-describedby="delete-desc"
   >
-    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-      <h3 class="text-lg font-semibold text-stone-800 mb-2">{$t('ai.delete_heading')}</h3>
-      <p id="delete-desc" class="text-sm text-stone-600 mb-1">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+      <h3 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">{$t('ai.delete_heading')}</h3>
+      <p id="delete-desc" class="text-sm text-stone-600 dark:text-gray-300 mb-1">
         {$t('ai.delete_confirm', { values: { name: deleteConfirm } })}
         {#if modelInfo}
           {$t('ai.delete_frees', { values: { size: formatModelSize(modelInfo.size) } })}
@@ -473,12 +475,12 @@
     aria-modal="true"
     aria-describedby="nonmed-desc"
   >
-    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 shadow-xl">
       <h3 class="text-lg font-semibold text-[var(--color-warning-800)] mb-2">{$t('ai.nonmedical_heading')}</h3>
-      <p id="nonmed-desc" class="text-sm text-stone-600">
+      <p id="nonmed-desc" class="text-sm text-stone-600 dark:text-gray-300">
         {$t('ai.nonmedical_description', { values: { name: nonMedicalWarning } })}
       </p>
-      <p class="text-sm text-stone-500 mt-2">{$t('ai.nonmedical_privacy')}</p>
+      <p class="text-sm text-stone-500 dark:text-gray-400 mt-2">{$t('ai.nonmedical_privacy')}</p>
       <div class="flex gap-3 mt-4">
         <Button variant="secondary" onclick={() => { nonMedicalWarning = null; }}>
           {$t('ai.choose_medical')}

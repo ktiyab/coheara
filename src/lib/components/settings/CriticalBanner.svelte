@@ -102,7 +102,7 @@
           </button>
         {/if}
         <button
-          class="px-3 py-1.5 text-xs text-[var(--color-warning-800)] bg-white border border-[var(--color-warning-200)]
+          class="px-3 py-1.5 text-xs text-[var(--color-warning-800)] bg-white dark:bg-gray-900 border border-[var(--color-warning-200)]
                  rounded-lg min-h-[32px] hover:bg-[var(--color-warning-50)]"
           onclick={() => startDismiss(alert.id)}
         >
@@ -125,7 +125,7 @@
               {$t('critical.doctor_seen')}
             </button>
             <button
-              class="px-3 py-2 text-sm bg-white border border-[var(--color-warning-200)] text-[var(--color-warning-800)]
+              class="px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-[var(--color-warning-200)] text-[var(--color-warning-800)]
                      rounded-lg min-h-[44px] hover:bg-[var(--color-warning-50)]"
               onclick={cancelDismiss}
             >
@@ -138,10 +138,11 @@
           </p>
           <input
             type="text"
-            class="w-full px-3 py-2 rounded-lg border border-[var(--color-warning-200)] text-stone-700
+            class="w-full px-3 py-2 rounded-lg border border-[var(--color-warning-200)] text-stone-700 dark:text-gray-200
                    text-sm mb-2 min-h-[44px]"
             bind:value={dismissReason}
             placeholder={$t('critical.dismiss_reason_placeholder')}
+            aria-label={$t('critical.dismiss_reason_label')}
           />
           {#if error}
             <p class="text-[var(--color-danger)] text-xs mb-2">{error}</p>
@@ -156,7 +157,7 @@
               {$t('common.confirm')}
             </button>
             <button
-              class="px-3 py-2 text-sm bg-white border border-[var(--color-warning-200)] text-[var(--color-warning-800)]
+              class="px-3 py-2 text-sm bg-white dark:bg-gray-900 border border-[var(--color-warning-200)] text-[var(--color-warning-800)]
                      rounded-lg min-h-[44px]"
               onclick={cancelDismiss}
             >

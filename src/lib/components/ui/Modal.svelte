@@ -11,6 +11,7 @@
   import type { Snippet } from 'svelte';
   import { t } from 'svelte-i18n';
   import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
+  import { CloseOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     open: boolean;
@@ -75,7 +76,7 @@
   >
     <div
       bind:this={dialogEl}
-      class="bg-white rounded-xl shadow-xl max-w-sm w-full mx-4 p-6"
+      class="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-sm w-full mx-4 p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -83,14 +84,14 @@
     >
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
-        <h2 id={titleId} class="text-lg font-bold text-stone-800">{title}</h2>
+        <h2 id={titleId} class="text-lg font-bold text-stone-800 dark:text-gray-100">{title}</h2>
         <button
           class="min-h-[44px] min-w-[44px] flex items-center justify-center
-                 text-stone-400 hover:text-stone-600 transition-colors"
+                 text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
           onclick={onclose}
           aria-label={$t('common.close')}
         >
-          &times;
+          <CloseOutline class="w-5 h-5" />
         </button>
       </div>
 

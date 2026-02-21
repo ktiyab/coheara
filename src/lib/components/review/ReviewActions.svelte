@@ -90,11 +90,11 @@
        tabindex="-1"
        bind:this={flaggedDialogEl}
        onkeydown={(e) => { if (e.key === 'Escape') showFlaggedWarning = false; if (flaggedDialogEl) trapFocus(e, flaggedDialogEl); }}>
-    <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-      <h3 class="text-lg font-semibold text-stone-800 mb-2">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 max-w-md w-full shadow-xl">
+      <h3 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
         {$t('review.flagged_heading')}
       </h3>
-      <p class="text-stone-600 text-sm mb-4">
+      <p class="text-stone-600 dark:text-gray-300 text-sm mb-4">
         {$t('review.flagged_description', { values: { count: flaggedFields } })}
       </p>
       <div class="flex gap-3">
@@ -117,16 +117,16 @@
        tabindex="-1"
        bind:this={rejectDialogEl}
        onkeydown={(e) => { if (e.key === 'Escape') showRejectDialog = false; if (rejectDialogEl) trapFocus(e, rejectDialogEl); }}>
-    <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-      <h3 class="text-lg font-semibold text-stone-800 mb-2">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 max-w-md w-full shadow-xl">
+      <h3 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
         {$t('review.reject_heading')}
       </h3>
-      <p class="text-stone-600 text-sm mb-4">
+      <p class="text-stone-600 dark:text-gray-300 text-sm mb-4">
         {$t('review.reject_description')}
       </p>
 
       <div class="mb-4">
-        <label for="reject-reason" class="text-sm text-stone-500 block mb-1">
+        <label for="reject-reason" class="text-sm text-stone-500 dark:text-gray-400 block mb-1">
           {$t('review.reject_reason_label')}
         </label>
         <input
@@ -134,7 +134,8 @@
           type="text"
           bind:value={rejectReason}
           placeholder={$t('review.reject_reason_placeholder')}
-          class="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm
+          class="w-full px-3 py-2 border border-stone-200 dark:border-gray-700 rounded-lg text-sm
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200
                  focus:border-[var(--color-primary)] focus:outline-none min-h-[44px]"
         />
       </div>
@@ -167,7 +168,7 @@
 {/if}
 
 <!-- Action bar -->
-<div class="flex gap-3 px-4 py-4 bg-white border-t border-stone-200 shrink-0">
+<div class="flex gap-3 px-4 py-4 bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 shrink-0">
   <Button variant="secondary" disabled={confirming || rejecting} onclick={() => showRejectDialog = true}>
     {$t('review.not_right')}
   </Button>

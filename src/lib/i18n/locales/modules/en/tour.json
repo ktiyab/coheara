@@ -1,0 +1,13 @@
+{
+  "tour": {
+    "skip": "Skip",
+    "done": "Get started",
+    "progress": "Tour progress",
+    "slide1_title": "Import your documents",
+    "slide1_desc": "Your Vault starts here. Import a blood test, prescription, or medical report. Select a PDF or drag and drop.",
+    "slide2_title": "Ask questions about your health",
+    "slide2_desc": "Your AI assistant explains your documents in plain language. Ask anything about your prescriptions, lab results, or health records.",
+    "slide3_title": "Prepare for doctor visits",
+    "slide3_desc": "Review your medications, track symptoms, and bring organized notes. Everything you need, ready before your appointment."
+  }
+}

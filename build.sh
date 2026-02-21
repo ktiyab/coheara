@@ -52,6 +52,7 @@ Coheara Local Build System v${VERSION}
 Usage: ./build.sh <command> [options]
 
 Commands:
+  setup       First-time setup: install deps, verify toolchain, build i18n
   desktop     Build desktop installer (Linux .deb/.AppImage)
               Also builds mobile artifacts (bundled inside installer)
   android     Build standalone signed Android APK
@@ -521,6 +522,55 @@ cmd_clean() {
     log_ok "Clean complete"
 }
 
+# ── Setup ─────────────────────────────────────────────────────────────────
+
+cmd_setup() {
+    log_step "Setting up Coheara development environment"
+
+    # 1. Install npm dependencies
+    log_info "Installing npm dependencies..."
+    cd "$PROJECT_ROOT" && npm ci
+    log_ok "npm dependencies installed"
+
+    # 2. Verify key packages
+    local flowbite_ver
+    flowbite_ver=$(node -e "console.log(require('./node_modules/flowbite-svelte/package.json').version)" 2>/dev/null || echo "MISSING")
+    if [[ "$flowbite_ver" == "MISSING" ]]; then
+        log_error "flowbite-svelte not found — check package.json"
+    else
+        log_ok "flowbite-svelte@${flowbite_ver}"
+    fi
+
+    local icons_ver
+    icons_ver=$(node -e "console.log(require('./node_modules/flowbite-svelte-icons/package.json').version)" 2>/dev/null || echo "MISSING")
+    if [[ "$icons_ver" == "MISSING" ]]; then
+        log_error "flowbite-svelte-icons not found — check package.json"
+    else
+        log_ok "flowbite-svelte-icons@${icons_ver}"
+    fi
+
+    # 3. Build i18n locale files
+    log_info "Building i18n locale files..."
+    node src/lib/i18n/build-locales.js
+    log_ok "i18n locales built"
+
+    # 4. Check Rust toolchain
+    if [[ -n "${CARGO:-}" && -x "$CARGO" ]]; then
+        local rust_ver
+        rust_ver=$("$CARGO" --version 2>/dev/null | head -1)
+        log_ok "Rust: $rust_ver"
+    else
+        log_warn "Rust: not found (frontend-only mode will still work)"
+    fi
+
+    # 5. npm audit summary
+    log_info "Running npm audit..."
+    npm audit 2>/dev/null | tail -5 || true
+
+    echo ""
+    log_ok "Setup complete. Run: ./dev.sh frontend  (UI dev) or ./build.sh desktop --no-sign  (build)"
+}
+
 # ── Orchestration ──────────────────────────────────────────────────────────
 
 cmd_desktop() {
@@ -567,7 +617,7 @@ cmd_all() {
 
 for arg in "$@"; do
     case "$arg" in
-        desktop|android|all|clean) COMMAND="$arg" ;;
+        desktop|android|all|clean|setup) COMMAND="$arg" ;;
         --no-sign)      SIGN=false ;;
         --skip-mobile)  SKIP_MOBILE=true ;;
         --verbose)      VERBOSE=true; set -x ;;
@@ -586,6 +636,7 @@ echo -e "Command: ${BOLD}$COMMAND${NC}  Signing: ${BOLD}$SIGN${NC}  Platform: ${
 echo ""
 
 case "$COMMAND" in
+    setup)   cmd_setup ;;
     desktop) cmd_desktop ;;
     android) cmd_android ;;
     all)     cmd_all ;;

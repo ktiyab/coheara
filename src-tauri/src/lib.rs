@@ -158,6 +158,14 @@ pub fn run() {
             commands::ai_setup::get_user_preference_cmd,
             // L6-03: AI Setup Wizard
             commands::ai_setup::verify_ai_model,
+            // LP-01: Night Batch Extraction Pipeline
+            commands::extraction::get_pending_extractions,
+            commands::extraction::get_pending_extraction_count,
+            commands::extraction::confirm_extraction,
+            commands::extraction::confirm_extraction_with_edits,
+            commands::extraction::dismiss_extraction,
+            commands::extraction::dismiss_all_extractions,
+            commands::extraction::trigger_extraction_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coheara");

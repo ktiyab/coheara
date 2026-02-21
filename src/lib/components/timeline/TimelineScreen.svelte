@@ -117,11 +117,11 @@
   });
 </script>
 
-<div class="flex flex-col h-full bg-stone-50">
+<div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
   <header class="px-4 pt-4 pb-2">
-    <h1 class="text-xl font-bold text-stone-800">{$t('timeline.screen_title')}</h1>
-    <p class="text-sm text-stone-500 mt-0.5">{$t('timeline.screen_subtitle')}</p>
+    <h1 class="text-xl font-bold text-stone-800 dark:text-gray-100">{$t('timeline.screen_title')}</h1>
+    <p class="text-sm text-stone-500 dark:text-gray-400 mt-0.5">{$t('timeline.screen_subtitle')}</p>
   </header>
 
   {#if loading}

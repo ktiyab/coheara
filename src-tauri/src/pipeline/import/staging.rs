@@ -147,7 +147,7 @@ mod tests {
     fn setup_profile() -> (tempfile::TempDir, ProfileSession) {
         let dir = tempfile::tempdir().unwrap();
         let (info, _phrase) =
-            profile::create_profile(dir.path(), "TestUser", "test_password_123", None, None).unwrap();
+            profile::create_profile(dir.path(), "TestUser", "test_password_123", None, None, None, None).unwrap();
         let session = profile::open_profile(dir.path(), &info.id, "test_password_123").unwrap();
         (dir, session)
     }

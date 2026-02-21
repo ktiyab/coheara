@@ -2,6 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { PrescriberOption } from '$lib/types/medication';
+  import { SearchOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     value: string;
@@ -20,21 +21,20 @@
       {value}
       oninput={(e) => onInput(e.currentTarget.value)}
       placeholder={$t('medications.search_placeholder')}
-      class="w-full px-4 py-2.5 pl-10 rounded-lg border border-stone-200 bg-white
-             text-sm min-h-[44px]
+      class="w-full px-4 py-2.5 pl-10 rounded-lg border border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900
+             text-sm text-stone-700 dark:text-gray-200 min-h-[44px]
              focus:border-[var(--color-primary)] focus:outline-none"
       aria-label={$t('medications.search_aria')}
     />
-    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 text-sm"
-          aria-hidden="true">
-      &#x1F50D;
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 dark:text-gray-400" aria-hidden="true">
+      <SearchOutline class="w-4 h-4" />
     </span>
   </div>
 
   {#if prescribers.length > 0}
     <select
-      class="px-3 py-2.5 rounded-lg border border-stone-200 bg-white text-sm
-             min-h-[44px] text-stone-600
+      class="px-3 py-2.5 rounded-lg border border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm
+             min-h-[44px] text-stone-600 dark:text-gray-300
              focus:border-[var(--color-primary)] focus:outline-none"
       value={selectedPrescriber ?? ''}
       onchange={(e) => {

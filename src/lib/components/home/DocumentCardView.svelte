@@ -2,6 +2,7 @@
   import { t, locale } from 'svelte-i18n';
   import type { DocumentCard } from '$lib/types/home';
   import Badge from '$lib/components/ui/Badge.svelte';
+  import { ChevronRightOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     card: DocumentCard;
@@ -39,29 +40,29 @@
 </script>
 
 <button
-  class="w-full text-left bg-white rounded-xl p-4 shadow-sm border border-stone-100
+  class="w-full text-left bg-white dark:bg-gray-900 rounded-xl p-4 shadow-sm border border-stone-100 dark:border-gray-800
          hover:shadow-md transition-shadow min-h-[44px]"
   onclick={() => onTap(card)}
 >
   <div class="flex items-start justify-between gap-3">
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
-        <span class="font-medium text-stone-800 truncate">{card.document_type}</span>
+        <span class="font-medium text-stone-800 dark:text-gray-100 truncate">{card.document_type}</span>
         <Badge variant={statusBadge.variant} size="sm">
           {statusBadge.text}
         </Badge>
       </div>
-      <p class="text-sm text-stone-500 mt-1 truncate">
+      <p class="text-sm text-stone-500 dark:text-gray-400 mt-1 truncate">
         {card.professional_name ?? $t('home.card_unknown_professional')}
         {#if card.professional_specialty}
           · {card.professional_specialty}
         {/if}
       </p>
-      <p class="text-xs text-stone-500 mt-1">
+      <p class="text-xs text-stone-500 dark:text-gray-400 mt-1">
         {formatDate(card.document_date ?? card.imported_at)}
         · {entityText}
       </p>
     </div>
-    <span class="text-stone-300 mt-1" aria-hidden="true">&rsaquo;</span>
+    <ChevronRightOutline class="w-4 h-4 text-stone-300 dark:text-gray-600 mt-1" />
   </div>
 </button>

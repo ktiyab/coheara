@@ -14,6 +14,9 @@
     "profile_label": "Profil",
     "created_label": "Créé",
     "version_label": "Version",
-    "compatibility_warning": "Cette sauvegarde pourrait ne pas être entièrement compatible."
+    "compatibility_warning": "Cette sauvegarde pourrait ne pas être entièrement compatible.",
+    "field_backup_path": "un chemin de sauvegarde",
+    "field_file_path": "un chemin de fichier de sauvegarde",
+    "field_password": "un mot de passe"
   }
 }

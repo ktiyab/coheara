@@ -69,7 +69,7 @@
   </div>
 
   {#if step === 'professional'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">
+    <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-4">
       {$t('appointment.prep_flow_select_professional')}
     </h2>
     <ProfessionalSelector
@@ -79,10 +79,11 @@
     />
 
   {:else if step === 'date'}
-    <h2 class="text-xl font-semibold text-stone-800 mb-4">{$t('appointment.prep_flow_select_date')}</h2>
+    <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-4">{$t('appointment.prep_flow_select_date')}</h2>
     <input
       type="date"
-      class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700
+      aria-label={$t('appointment.prep_flow_select_date')}
+      class="w-full px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200
              focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] min-h-[44px]"
       bind:value={appointmentDate}
     />

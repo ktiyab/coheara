@@ -35,7 +35,23 @@
     "timeline": "Chronologie",
     "appointments": "Rendez-vous",
     "settings": "Param\u00e8tres",
-    "go_back": "Retour"
+    "go_back": "Retour",
+    "sidebar": "Navigation lat\u00e9rale",
+    "section_main": "Principal",
+    "section_library": "Biblioth\u00e8que",
+    "section_system": "Syst\u00e8me",
+    "expand_sidebar": "D\u00e9plier la barre lat\u00e9rale",
+    "collapse_sidebar": "R\u00e9duire la barre lat\u00e9rale",
+    "skip_to_content": "Aller au contenu principal",
+    "review": "R\u00e9vision",
+    "document-detail": "Document",
+    "ai-settings": "Param\u00e8tres IA",
+    "ai-setup": "Configuration IA",
+    "privacy": "Confidentialit\u00e9",
+    "pairing": "Appareils jumel\u00e9s",
+    "import": "Importer",
+    "transfer": "Transfert",
+    "breadcrumb": "Fil d'Ariane"
   },
   "home": {
     "greeting": "Bonjour, {name}\u00a0!",
@@ -596,6 +612,7 @@
     "specialty_nurse": "Infirmier/\u00e8re",
     "specialty_specialist": "Sp\u00e9cialiste",
     "specialty_other": "Autre",
+    "specialty_select": "Sp\u00e9cialit\u00e9",
     "prep_with": "Rendez-vous avec {name}",
     "prep_tab_questions": "Vos questions",
     "prep_tab_summary": "R\u00e9sum\u00e9 pour le m\u00e9decin",
@@ -793,7 +810,8 @@
     "not_yet": "Pas encore",
     "confirm_addressed": "Veuillez confirmer\u00a0: \u00ab\u00a0Mon m\u00e9decin a trait\u00e9 ce r\u00e9sultat d'analyse\u00a0\u00bb",
     "dismiss_reason_placeholder": "ex. Discut\u00e9 avec le Dr. Martin le 15 janv.",
-    "reason_required": "Veuillez fournir une raison"
+    "reason_required": "Veuillez fournir une raison",
+    "dismiss_reason_label": "Raison de la fermeture de cette alerte"
   },
   "caregiver": {
     "dependents_heading": "Personnes \u00e0 charge",
@@ -862,7 +880,11 @@
     "hub_switch_description": "Verrouiller et basculer vers un autre profil",
     "sound_heading": "Son et notifications",
     "sound_enabled": "Effets sonores",
-    "sound_volume": "Volume"
+    "sound_volume": "Volume",
+    "theme_heading": "Apparence",
+    "theme_light": "Clair",
+    "theme_dark": "Sombre",
+    "theme_colorful": "Coloré"
   },
   "ai": {
     "status_banner": "Assistant IA non disponible",

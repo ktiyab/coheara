@@ -54,7 +54,7 @@
              transition-colors
              {selected === tab.value
                ? 'bg-[var(--color-primary)] text-white'
-               : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'}"
+               : 'bg-white dark:bg-gray-800 text-stone-600 dark:text-gray-400 border border-stone-200 dark:border-gray-700 hover:bg-stone-50 dark:hover:bg-gray-700'}"
       role="tab"
       aria-selected={selected === tab.value}
       tabindex={selected === tab.value ? 0 : -1}

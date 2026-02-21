@@ -152,6 +152,8 @@ mod tests {
             "test-password-123",
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
 

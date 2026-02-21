@@ -19,13 +19,13 @@
     <Avatar name={$t('chat.avatar_initial')} variant="ai" size="lg" />
   </div>
 
-  <h2 class="text-xl font-bold text-stone-800 mb-2">
+  <h2 class="text-xl font-bold text-stone-800 dark:text-gray-100 mb-2">
     {$t('chat.greeting', { values: { name: profile.name } })}
   </h2>
-  <p class="text-sm text-stone-500 mb-2 leading-relaxed">
+  <p class="text-sm text-stone-500 dark:text-gray-400 mb-2 leading-relaxed">
     {$t('chat.description_1')}
   </p>
-  <p class="text-sm text-stone-500 mb-8 leading-relaxed">
+  <p class="text-sm text-stone-500 dark:text-gray-400 mb-8 leading-relaxed">
     {$t('chat.description_2')}
   </p>
 
@@ -43,12 +43,12 @@
 
   {#if suggestions.length > 0}
     <div class="w-full">
-      <p class="text-xs text-stone-500 uppercase font-medium mb-3">{$t('chat.suggestions_header')}</p>
+      <p class="text-xs text-stone-500 dark:text-gray-400 uppercase font-medium mb-3">{$t('chat.suggestions_header')}</p>
       <div class="grid grid-cols-1 gap-2">
         {#each suggestions as suggestion}
           <button
-            class="w-full text-left px-4 py-3 rounded-xl bg-white border border-stone-200
-                   text-sm text-stone-700 hover:border-[var(--color-interactive)]
+            class="w-full text-left px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700
+                   text-sm text-stone-700 dark:text-gray-200 hover:border-[var(--color-interactive)]
                    hover:shadow-sm transition-all min-h-[44px]"
             onclick={() => onSuggestionTap(suggestion)}
           >

@@ -30,8 +30,8 @@
   };
 
   const variantClasses: Record<string, string> = {
-    user: 'bg-teal-600 text-white',
-    ai: 'bg-stone-200 text-stone-600',
+    user: 'bg-teal-600 dark:bg-teal-500 text-white',
+    ai: 'bg-stone-200 dark:bg-gray-700 text-stone-600 dark:text-gray-300',
   };
 
   let classes = $derived(

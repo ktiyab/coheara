@@ -1,8 +1,8 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { CriticalLabAlert } from '$lib/types/trust';
-
   import { navigation } from '$lib/stores/navigation.svelte';
+  import { ExclamationCircleSolid } from 'flowbite-svelte-icons';
 
   interface Props {
     alerts: CriticalLabAlert[];
@@ -16,7 +16,7 @@
          role="alert"
          aria-label={$t('home.alert_critical_aria', { values: { testName: alert.test_name } })}>
       <div class="flex items-start gap-3">
-        <span class="text-[var(--color-danger)] mt-0.5 flex-shrink-0 text-lg" aria-hidden="true">&#9888;</span>
+        <ExclamationCircleSolid class="w-5 h-5 text-[var(--color-danger)] mt-0.5 flex-shrink-0" />
         <div class="flex-1">
           <p class="text-sm font-semibold text-[var(--color-danger-800)]">
             {$t('home.alert_critical_label', { values: { testName: alert.test_name } })}

@@ -6,6 +6,8 @@ export interface ProfileInfo {
   password_hint: string | null;
   date_of_birth: string | null;
   color_index: number | null;
+  country: string | null;
+  address: string | null;
 }
 
 export interface ProfileCreateResult {

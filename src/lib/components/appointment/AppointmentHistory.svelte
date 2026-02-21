@@ -6,6 +6,7 @@
   import Card from '$lib/components/ui/Card.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
+  import { ClipboardOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     appointments: StoredAppointment[];
@@ -31,7 +32,7 @@
     <LoadingState variant="inline" message={$t('common.loading')} />
   {:else if appointments.length === 0}
     <EmptyState
-      icon="📋"
+      icon={ClipboardOutline}
       title={$t('appointment.history_empty_title')}
       description={$t('appointment.history_empty_hint')}
       actionLabel={$t('appointment.screen_prepare')}
@@ -39,20 +40,20 @@
     />
   {:else}
     {#if upcoming.length > 0}
-      <h2 class="text-xs font-medium text-stone-500 uppercase mb-2">{$t('appointment.history_upcoming')}</h2>
+      <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase mb-2">{$t('appointment.history_upcoming')}</h2>
       {#each upcoming as appt (appt.id)}
         <div class="mb-2">
           <Card>
             <div class="flex items-start justify-between">
               <div>
-                <p class="font-medium text-stone-800">
+                <p class="font-medium text-stone-800 dark:text-gray-100">
                   {appt.professional_name}
                   {#if appt.professional_specialty}
-                    <span class="text-stone-500 mx-1" aria-hidden="true">&middot;</span>
-                    <span class="text-sm text-stone-500">{appt.professional_specialty}</span>
+                    <span class="text-stone-500 dark:text-gray-400 mx-1" aria-hidden="true">&middot;</span>
+                    <span class="text-sm text-stone-500 dark:text-gray-400">{appt.professional_specialty}</span>
                   {/if}
                 </p>
-                <p class="text-sm text-stone-500">{appt.date}</p>
+                <p class="text-sm text-stone-500 dark:text-gray-400">{appt.date}</p>
               </div>
               {#if appt.prep_generated}
                 <Badge variant="success" size="sm">{$t('appointment.history_prep_ready')}</Badge>
@@ -66,20 +67,20 @@
     {/if}
 
     {#if past.length > 0}
-      <h2 class="text-xs font-medium text-stone-500 uppercase mt-4 mb-2">{$t('appointment.history_past')}</h2>
+      <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase mt-4 mb-2">{$t('appointment.history_past')}</h2>
       {#each past as appt (appt.id)}
         <div class="mb-2">
           <Card>
             <div class="flex items-start justify-between">
               <div>
-                <p class="font-medium text-stone-800">
+                <p class="font-medium text-stone-800 dark:text-gray-100">
                   {appt.professional_name}
                   {#if appt.professional_specialty}
-                    <span class="text-stone-500 mx-1" aria-hidden="true">&middot;</span>
-                    <span class="text-sm text-stone-500">{appt.professional_specialty}</span>
+                    <span class="text-stone-500 dark:text-gray-400 mx-1" aria-hidden="true">&middot;</span>
+                    <span class="text-sm text-stone-500 dark:text-gray-400">{appt.professional_specialty}</span>
                   {/if}
                 </p>
-                <p class="text-sm text-stone-500">{appt.date}</p>
+                <p class="text-sm text-stone-500 dark:text-gray-400">{appt.date}</p>
               </div>
               {#if appt.has_post_notes}
                 <Badge variant="success" size="sm">{$t('appointment.history_notes_recorded')}</Badge>

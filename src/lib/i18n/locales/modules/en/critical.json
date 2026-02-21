@@ -10,6 +10,7 @@
     "not_yet": "Not yet",
     "confirm_addressed": "Please confirm: \"My doctor has addressed this lab result\"",
     "dismiss_reason_placeholder": "e.g. Discussed with Dr. Smith on Jan 15",
-    "reason_required": "Please provide a reason"
+    "reason_required": "Please provide a reason",
+    "dismiss_reason_label": "Reason for dismissing this alert"
   }
 }

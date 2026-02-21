@@ -1,5 +1,6 @@
 <!-- ADS: Companion app setup — start distribution server, show QR, guide user -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import {
     startDistribution,
     stopDistribution,
@@ -63,16 +64,16 @@
   }
 </script>
 
-<section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 mb-3">INSTALL COMPANION APP</h2>
+<section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+  <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('companion.heading')}</h2>
 
   {#if view === 'idle'}
-    <p class="text-sm text-stone-500 mb-4">
-      Serve the Coheara companion app to your phone over WiFi.
-      No app store needed.
+    <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">
+      {$t('companion.description_line1')}
+      {$t('companion.description_line2')}
     </p>
     <Button variant="primary" fullWidth loading={loading} onclick={handleStart}>
-      {loading ? 'Starting...' : 'Start Companion Server'}
+      {loading ? $t('companion.starting') : $t('companion.start_server')}
     </Button>
 
   {:else if view === 'serving' && qrCode}
@@ -81,31 +82,31 @@
       {@html qrCode.svg}
     </div>
 
-    <p class="text-sm text-stone-700 text-center mt-3 font-medium">
-      Scan with your phone camera
+    <p class="text-sm text-stone-700 dark:text-gray-200 text-center mt-3 font-medium">
+      {$t('companion.scan_camera')}
     </p>
-    <p class="text-xs text-stone-500 text-center mt-1">
-      Your phone will open a page to install the companion app.
+    <p class="text-xs text-stone-500 dark:text-gray-400 text-center mt-1">
+      {$t('companion.phone_install_note')}
     </p>
 
-    <div class="mt-4 bg-stone-50 rounded-lg p-3 text-xs text-stone-500 space-y-1">
-      <p><span class="font-medium">URL:</span> {qrCode.url}</p>
-      <p><span class="font-medium">Version:</span> {qrCode.desktop_version}</p>
+    <div class="mt-4 bg-stone-50 dark:bg-gray-950 rounded-lg p-3 text-xs text-stone-500 dark:text-gray-400 space-y-1">
+      <p><span class="font-medium">{$t('companion.url_label')}</span> {qrCode.url}</p>
+      <p><span class="font-medium">{$t('companion.version_label')}</span> {qrCode.desktop_version}</p>
       {#if status}
-        <p><span class="font-medium">Requests:</span> {status.request_count}</p>
+        <p><span class="font-medium">{$t('companion.requests_label')}</span> {status.request_count}</p>
         <p>
-          <span class="font-medium">APK:</span>
-          {status.apk_available ? 'Available' : 'Not bundled'}
+          <span class="font-medium">{$t('companion.apk_label')}</span>
+          {status.apk_available ? $t('companion.available') : $t('companion.not_bundled')}
           &middot;
-          <span class="font-medium">PWA:</span>
-          {status.pwa_available ? 'Available' : 'Not bundled'}
+          <span class="font-medium">{$t('companion.pwa_label')}</span>
+          {status.pwa_available ? $t('companion.available') : $t('companion.not_bundled')}
         </p>
       {/if}
     </div>
 
     <div class="flex gap-3 mt-4">
       <Button variant="secondary" fullWidth onclick={handleStop}>
-        Stop Server
+        {$t('companion.stop_server')}
       </Button>
     </div>
 
@@ -120,7 +121,7 @@
         error = null;
       }}
     >
-      Try again
+      {$t('common.try_again')}
     </button>
   {/if}
 </section>

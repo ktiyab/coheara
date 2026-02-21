@@ -18,12 +18,14 @@
     PromptSuggestion,
   } from '$lib/types/chat';
   import { profile } from '$lib/stores/profile.svelte';
+  import { ai } from '$lib/stores/ai.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ConversationList from './ConversationList.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import { BarsOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     initialConversationId?: string;
@@ -182,6 +184,7 @@
         case 'Error':
           streamError = chunk.message;
           isStreaming = false;
+          ai.handleOperationFailure(new Error(chunk.message));
           break;
       }
     });
@@ -191,6 +194,7 @@
     } catch (e) {
       streamError = e instanceof Error ? e.message : String(e);
       isStreaming = false;
+      ai.handleOperationFailure(e);
     } finally {
       unlisten();
       isSending = false;
@@ -225,24 +229,24 @@
   });
 </script>
 
-<div class="flex flex-col h-full bg-stone-50">
+<div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white border-b border-stone-200">
+  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700">
     <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500
-             hover:text-stone-600"
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 dark:text-gray-400
+             hover:text-stone-600 dark:hover:text-gray-300"
       onclick={() => showConversationList = !showConversationList}
       aria-label={$t('chat.toggle_conversations')}
     >
-      <span class="text-xl">&equiv;</span>
+      <BarsOutline class="w-5 h-5" />
     </button>
 
-    <h1 class="flex-1 text-base font-medium text-stone-800 truncate">
+    <h1 class="flex-1 text-base font-medium text-stone-800 dark:text-gray-100 truncate">
       {conversationTitle}
     </h1>
 
     <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500
+      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 dark:text-gray-400
              hover:text-[var(--color-interactive)]"
       onclick={handleNewConversation}
       aria-label={$t('chat.new_conversation')}
@@ -259,7 +263,7 @@
         onclick={() => showConversationList = false}
         aria-label={$t('chat.close_conversations')}
       ></button>
-      <div class="relative z-50 w-[280px] bg-white h-full shadow-xl overflow-y-auto">
+      <div class="relative z-50 w-[280px] bg-white dark:bg-gray-900 h-full shadow-xl overflow-y-auto">
         <ConversationList
           {conversations}
           activeConversationId={currentConversationId}
@@ -306,9 +310,9 @@
                         justify-center text-white text-sm font-bold flex-shrink-0 mt-1">
               {$t('chat.avatar_initial')}
             </div>
-            <div class="max-w-[85%] bg-white border border-stone-100 rounded-2xl rounded-bl-md
+            <div class="max-w-[85%] bg-white dark:bg-gray-900 border border-stone-100 dark:border-gray-800 rounded-2xl rounded-bl-md
                         px-4 py-3 shadow-sm">
-              <p class="text-stone-800 text-base leading-relaxed whitespace-pre-wrap">
+              <p class="text-stone-800 dark:text-gray-100 text-base leading-relaxed whitespace-pre-wrap">
                 {streamingText}<span class="animate-pulse text-[var(--color-interactive)]">|</span>
               </p>
             </div>
@@ -332,13 +336,14 @@
   </div>
 
   <!-- Input bar -->
-  <div class="bg-white border-t border-stone-200 px-4 py-3">
+  <div class="bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 px-4 py-3">
     <div class="flex items-end gap-2 max-w-2xl mx-auto">
       <textarea
-        class="flex-1 px-4 py-3 rounded-xl border border-stone-200 text-base
+        class="flex-1 px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-base
+               bg-white dark:bg-gray-800 text-stone-800 dark:text-gray-100
                resize-none min-h-[44px] max-h-[120px]
                focus:border-[var(--color-interactive)] focus:outline-none
-               placeholder:text-stone-500"
+               placeholder:text-stone-500 dark:placeholder:text-gray-500"
         placeholder={$t('chat.input_placeholder')}
         bind:value={inputText}
         onkeydown={handleKeydown}
@@ -351,7 +356,7 @@
                transition-colors
                {canSend
                  ? 'bg-[var(--color-interactive)] text-white hover:bg-[var(--color-interactive-hover)]'
-                 : 'bg-stone-100 text-stone-500 cursor-not-allowed'}"
+                 : 'bg-stone-100 dark:bg-gray-800 text-stone-500 dark:text-gray-400 cursor-not-allowed'}"
         onclick={handleSend}
         disabled={!canSend}
         aria-label={$t('chat.send_aria')}

@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { Spinner } from 'flowbite-svelte';
 
   interface Props {
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'dashed';
@@ -35,11 +36,11 @@
   }: Props = $props();
 
   const variantClasses: Record<string, string> = {
-    primary: 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)]',
-    secondary: 'bg-stone-200 text-stone-700 hover:bg-stone-300 active:bg-stone-400',
-    ghost: 'bg-transparent text-stone-600 border border-stone-200 hover:bg-stone-50 active:bg-stone-100',
+    primary: 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-700)] active:bg-[var(--color-primary-800)]',
+    secondary: 'bg-stone-200 dark:bg-gray-700 text-stone-700 dark:text-gray-200 hover:bg-stone-300 dark:hover:bg-gray-600 active:bg-stone-400 dark:active:bg-gray-500',
+    ghost: 'bg-transparent text-stone-600 dark:text-gray-300 border border-stone-200 dark:border-gray-700 hover:bg-stone-50 dark:hover:bg-gray-800 active:bg-stone-100 dark:active:bg-gray-700',
     danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
-    dashed: 'bg-transparent text-stone-500 border border-dashed border-stone-300 hover:bg-stone-50 hover:border-stone-400',
+    dashed: 'bg-transparent text-stone-500 dark:text-gray-400 border border-dashed border-stone-300 dark:border-gray-600 hover:bg-stone-50 dark:hover:bg-gray-800 hover:border-stone-400 dark:hover:border-gray-500',
   };
 
   const sizeClasses: Record<string, string> = {
@@ -68,11 +69,7 @@
   aria-busy={loading}
 >
   {#if loading}
-    <span class="flex items-center gap-1" aria-hidden="true">
-      <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
-      <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse [animation-delay:150ms]"></span>
-      <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse [animation-delay:300ms]"></span>
-    </span>
+    <Spinner size="4" color="gray" />
     <span class="sr-only">{@render children()}</span>
   {:else}
     {@render children()}

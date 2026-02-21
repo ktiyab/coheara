@@ -4,6 +4,7 @@
     "description_1": "Ich kann Ihnen helfen, Ihre medizinischen Dokumente zu verstehen.",
     "description_2": "Fragen Sie mich zu Ihren Rezepten, Laborergebnissen oder Gesundheitsunterlagen.",
     "suggestions_header": "Versuchen Sie zu fragen",
+    "ai_setup_prompt": "Richten Sie ein lokales KI-Modell ein, um \u00fcber Ihre Gesundheitsdokumente zu sprechen. Alles bleibt auf Ihrem Ger\u00e4t.",
     "input_placeholder": "Fragen Sie zu Ihren Dokumenten...",
     "input_aria": "Geben Sie Ihre Frage ein",
     "send_aria": "Nachricht senden",

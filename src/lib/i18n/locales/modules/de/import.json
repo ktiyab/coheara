@@ -32,6 +32,8 @@
     "filter_pdf": "PDF",
     "filter_images": "Bilder",
     "dialog_title": "Medizinische Dokumente auswählen",
-    "entities_found": "{count, plural, one {# Entität gefunden} other {# Entitäten gefunden}}"
+    "entities_found": "{count, plural, one {# Entit\u00e4t gefunden} other {# Entit\u00e4ten gefunden}}",
+    "drop_files_here": "Dateien hier ablegen",
+    "drag_drop_hint": "Sie k\u00f6nnen Dateien auch hierher ziehen"
   }
 }

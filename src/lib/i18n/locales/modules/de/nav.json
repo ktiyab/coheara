@@ -10,6 +10,21 @@
     "appointments": "Termine",
     "settings": "Einstellungen",
     "go_back": "Zurück",
-    "skip_to_content": "Zum Hauptinhalt springen"
+    "skip_to_content": "Zum Hauptinhalt springen",
+    "sidebar": "Seitenleiste",
+    "expand_sidebar": "Seitenleiste erweitern",
+    "collapse_sidebar": "Seitenleiste reduzieren",
+    "section_main": "Hauptmenü",
+    "section_library": "Bibliothek",
+    "section_system": "System",
+    "review": "Überprüfung",
+    "document-detail": "Dokument",
+    "ai-settings": "KI-Einstellungen",
+    "ai-setup": "KI-Einrichtung",
+    "privacy": "Datenschutz",
+    "pairing": "Gekoppelte Geräte",
+    "import": "Importieren",
+    "transfer": "Übertragung",
+    "breadcrumb": "Brotkrümel-Navigation"
   }
 }

@@ -84,11 +84,11 @@
 
 <div class="flex h-full">
   <!-- Fixed lane labels -->
-  <div class="flex-shrink-0 w-24 bg-white border-r border-stone-200 z-10">
-    <div style="height: {HEADER_HEIGHT}px" class="border-b border-stone-100"></div>
+  <div class="flex-shrink-0 w-24 bg-white dark:bg-gray-900 border-r border-stone-200 dark:border-gray-700 z-10">
+    <div style="height: {HEADER_HEIGHT}px" class="border-b border-stone-100 dark:border-gray-800"></div>
     {#each LANE_LABELS as label, i}
       <div
-        class="flex items-center px-2 text-xs text-stone-500 font-medium"
+        class="flex items-center px-2 text-xs text-stone-500 dark:text-gray-400 font-medium"
         style="height: {LANE_HEIGHT + LANE_GAP}px; padding-top: {i === 0 ? PADDING_Y : 0}px"
       >
         {label}

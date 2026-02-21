@@ -29,7 +29,7 @@
              transition-colors
              {date === today
                ? 'border-[var(--color-primary)] bg-[var(--color-primary-50)] text-[var(--color-primary)]'
-               : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}"
+               : 'border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-stone-600 dark:text-gray-300 hover:bg-stone-50 dark:hover:bg-gray-800'}"
       onclick={() => onDateChange(today)}
     >
       {$t('journal.date_today')}
@@ -39,7 +39,7 @@
              transition-colors
              {date === yesterday
                ? 'border-[var(--color-primary)] bg-[var(--color-primary-50)] text-[var(--color-primary)]'
-               : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}"
+               : 'border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-stone-600 dark:text-gray-300 hover:bg-stone-50 dark:hover:bg-gray-800'}"
       onclick={() => onDateChange(yesterday)}
     >
       {$t('journal.date_yesterday')}
@@ -48,20 +48,20 @@
 
   <!-- Calendar picker for older dates -->
   <label class="flex flex-col gap-1">
-    <span class="text-sm text-stone-500">{$t('journal.date_pick')}</span>
+    <span class="text-sm text-stone-500 dark:text-gray-400">{$t('journal.date_pick')}</span>
     <input
       type="date"
       value={date}
       max={today}
       oninput={(e) => onDateChange(e.currentTarget.value)}
-      class="px-4 py-3 rounded-lg border border-stone-300 text-base min-h-[44px]
+      class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 text-base min-h-[44px]
              focus:border-[var(--color-primary)] focus:outline-none"
     />
   </label>
 
   <!-- Optional time of day -->
   <div>
-    <span class="text-sm text-stone-500 mb-2 block">{$t('journal.date_time_label')}</span>
+    <span class="text-sm text-stone-500 dark:text-gray-400 mb-2 block">{$t('journal.date_time_label')}</span>
     <div class="grid grid-cols-4 gap-2">
       {#each timeOptions as option}
         <button
@@ -69,7 +69,7 @@
                  transition-colors
                  {time === option.value
                    ? 'border-[var(--color-primary)] bg-[var(--color-primary-50)] text-[var(--color-primary)]'
-                   : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}"
+                   : 'border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-stone-600 dark:text-gray-300 hover:bg-stone-50 dark:hover:bg-gray-800'}"
           onclick={() => onTimeChange(option.value)}
         >
           {$t(option.labelKey)}

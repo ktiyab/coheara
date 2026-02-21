@@ -130,3 +130,14 @@ export const SEVERITY_COLORS = [
   '#fb923c',
   '#f87171',
 ];
+
+export const COMMON_SYMPTOMS = [
+  { category: 'Pain', specific: 'Headache', labelKey: 'journal.symptom_headache' },
+  { category: 'General', specific: 'Fatigue', labelKey: 'journal.symptom_fatigue' },
+  { category: 'Digestive', specific: 'Nausea', labelKey: 'journal.symptom_nausea' },
+  { category: 'General', specific: 'Fever', labelKey: 'journal.symptom_fever' },
+  { category: 'Pain', specific: 'Back pain', labelKey: 'journal.symptom_back_pain' },
+  { category: 'Respiratory', specific: 'Cough', labelKey: 'journal.symptom_cough' },
+  { category: 'Mood', specific: 'Anxiety', labelKey: 'journal.symptom_anxiety' },
+  { category: 'Mood', specific: 'Sleep difficulty', labelKey: 'journal.symptom_sleep' },
+] as const;

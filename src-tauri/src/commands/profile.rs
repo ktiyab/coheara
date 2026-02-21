@@ -28,6 +28,8 @@ pub fn create_profile(
     password: String,
     managed_by: Option<String>,
     date_of_birth: Option<String>,
+    country: Option<String>,
+    address: Option<String>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileCreateResult, String> {
     // Parse date_of_birth from ISO 8601 string (YYYY-MM-DD)
@@ -46,6 +48,8 @@ pub fn create_profile(
         &password,
         managed_by.as_deref(),
         dob,
+        country.as_deref(),
+        address.as_deref(),
     )
     .map_err(|e| e.to_string())?;
 
@@ -94,6 +98,8 @@ pub fn unlock_profile(
             password_hint: None,
             date_of_birth: None,
             color_index: None,
+            country: None,
+            address: None,
         });
 
     state.set_session(session).map_err(|e| e.to_string())?;

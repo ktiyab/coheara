@@ -8,6 +8,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { CloseOutline } from 'flowbite-svelte-icons';
 
   interface Props {
     event: TimelineEvent;
@@ -71,7 +72,7 @@
 <!-- Popup card -->
 <div
   bind:this={popupEl}
-  class="fixed z-30 bg-white rounded-xl shadow-xl border border-stone-200
+  class="fixed z-30 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-stone-200 dark:border-gray-700
          overflow-y-auto p-4"
   style={popupStyle()}
   role="dialog"
@@ -83,48 +84,48 @@
     <span class="w-3 h-3 rounded-full mt-1 flex-shrink-0"
           style="background-color: {colors.stroke}"></span>
     <div class="flex-1 min-w-0">
-      <h3 class="font-medium text-stone-800 text-sm">{event.title}</h3>
-      <p class="text-xs text-stone-500 mt-0.5">{formatDate(event.date)}</p>
+      <h3 class="font-medium text-stone-800 dark:text-gray-100 text-sm">{event.title}</h3>
+      <p class="text-xs text-stone-500 dark:text-gray-400 mt-0.5">{formatDate(event.date)}</p>
       {#if event.professional_name}
-        <p class="text-xs text-stone-500">{event.professional_name}</p>
+        <p class="text-xs text-stone-500 dark:text-gray-400">{event.professional_name}</p>
       {/if}
     </div>
     <button
-      class="text-stone-500 hover:text-stone-600 min-h-[44px] min-w-[44px]
+      class="text-stone-500 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300 min-h-[44px] min-w-[44px]
              flex items-center justify-center -mr-2 -mt-2"
       onclick={onClose}
       aria-label={$t('timeline.event_close_aria')}
     >
-      &times;
+      <CloseOutline class="w-4 h-4" />
     </button>
   </div>
 
   <!-- Type-specific details -->
-  <div class="text-sm text-stone-700 space-y-1 mb-3">
+  <div class="text-sm text-stone-700 dark:text-gray-200 space-y-1 mb-3">
     {#if event.metadata.kind === 'Medication'}
-      <p><span class="text-stone-500">{$t('timeline.event_dose')}</span> {event.metadata.dose} {event.metadata.frequency}</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_dose')}</span> {event.metadata.dose} {event.metadata.frequency}</p>
       {#if event.metadata.brand_name}
-        <p><span class="text-stone-500">{$t('timeline.event_brand')}</span> {event.metadata.brand_name}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_brand')}</span> {event.metadata.brand_name}</p>
       {/if}
       {#if event.metadata.reason}
-        <p><span class="text-stone-500">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
       {/if}
     {:else if event.metadata.kind === 'DoseChange'}
-      <p><span class="text-stone-500">{$t('timeline.event_changed')}</span> {event.metadata.old_dose ?? '?'} &rarr; {event.metadata.new_dose}</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_changed')}</span> {event.metadata.old_dose ?? '?'} &rarr; {event.metadata.new_dose}</p>
       {#if event.metadata.old_frequency && event.metadata.new_frequency}
-        <p><span class="text-stone-500">{$t('timeline.event_frequency')}</span> {event.metadata.old_frequency} &rarr; {event.metadata.new_frequency}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_frequency')}</span> {event.metadata.old_frequency} &rarr; {event.metadata.new_frequency}</p>
       {/if}
       {#if event.metadata.reason}
-        <p><span class="text-stone-500">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
       {/if}
     {:else if event.metadata.kind === 'Lab'}
       <p>
-        <span class="text-stone-500">{$t('timeline.event_result')}</span>
+        <span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_result')}</span>
         {event.metadata.value ?? event.metadata.value_text ?? 'N/A'}
         {event.metadata.unit ?? ''}
       </p>
       {#if event.metadata.reference_low !== null && event.metadata.reference_high !== null}
-        <p><span class="text-stone-500">{$t('timeline.event_range')}</span> {event.metadata.reference_low} — {event.metadata.reference_high} {event.metadata.unit ?? ''}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_range')}</span> {event.metadata.reference_low} — {event.metadata.reference_high} {event.metadata.unit ?? ''}</p>
       {/if}
       {#if event.metadata.abnormal_flag !== 'normal'}
         <p class="text-[var(--color-warning-800)] text-xs">
@@ -132,9 +133,9 @@
         </p>
       {/if}
     {:else if event.metadata.kind === 'Symptom'}
-      <p><span class="text-stone-500">{$t('timeline.event_severity')}</span> {event.metadata.severity}/5</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_severity')}</span> {event.metadata.severity}/5</p>
       {#if event.metadata.body_region}
-        <p><span class="text-stone-500">{$t('timeline.event_location')}</span> {event.metadata.body_region}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_location')}</span> {event.metadata.body_region}</p>
       {/if}
       <p>
         <Badge variant={event.metadata.still_active ? 'warning' : 'success'} size="sm">
@@ -143,21 +144,21 @@
       </p>
     {:else if event.metadata.kind === 'Procedure'}
       {#if event.metadata.facility}
-        <p><span class="text-stone-500">{$t('timeline.event_facility')}</span> {event.metadata.facility}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_facility')}</span> {event.metadata.facility}</p>
       {/if}
       {#if event.metadata.outcome}
-        <p><span class="text-stone-500">{$t('timeline.event_outcome')}</span> {event.metadata.outcome}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_outcome')}</span> {event.metadata.outcome}</p>
       {/if}
       {#if event.metadata.follow_up_required}
         <p class="text-[var(--color-warning-800)] text-xs">{$t('timeline.event_follow_up')}</p>
       {/if}
     {:else if event.metadata.kind === 'Appointment'}
-      <p><span class="text-stone-500">{$t('timeline.event_type')}</span> {event.metadata.appointment_type}</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_type')}</span> {event.metadata.appointment_type}</p>
       {#if event.metadata.professional_specialty}
-        <p><span class="text-stone-500">{$t('timeline.event_specialty')}</span> {event.metadata.professional_specialty}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_specialty')}</span> {event.metadata.professional_specialty}</p>
       {/if}
     {:else if event.metadata.kind === 'Document'}
-      <p><span class="text-stone-500">{$t('timeline.event_type')}</span> {event.metadata.document_type}</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_type')}</span> {event.metadata.document_type}</p>
       <p>
         <Badge variant={event.metadata.verified ? 'success' : 'warning'} size="sm">
           {event.metadata.verified ? $t('timeline.event_verified') : $t('timeline.event_not_verified')}
@@ -165,26 +166,26 @@
       </p>
     {:else if event.metadata.kind === 'Diagnosis'}
       {#if event.metadata.icd_code}
-        <p><span class="text-stone-500">{$t('timeline.event_icd')}</span> {event.metadata.icd_code}</p>
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_icd')}</span> {event.metadata.icd_code}</p>
       {/if}
-      <p><span class="text-stone-500">{$t('timeline.event_status')}</span> {event.metadata.status}</p>
+      <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_status')}</span> {event.metadata.status}</p>
     {/if}
   </div>
 
   <!-- Correlations -->
   {#if correlations.length > 0}
-    <div class="border-t border-stone-100 pt-2 mb-3">
-      <p class="text-xs text-stone-500 font-medium mb-1">{$t('timeline.event_related', { values: { count: correlations.length } })}</p>
+    <div class="border-t border-stone-100 dark:border-gray-800 pt-2 mb-3">
+      <p class="text-xs text-stone-500 dark:text-gray-400 font-medium mb-1">{$t('timeline.event_related', { values: { count: correlations.length } })}</p>
       {#each correlations as corr}
         <button
-          class="w-full text-left text-xs text-stone-600 py-1.5 hover:text-stone-800
+          class="w-full text-left text-xs text-stone-600 dark:text-gray-300 py-1.5 hover:text-stone-800 dark:hover:text-gray-100
                  min-h-[44px] flex items-center"
           onclick={() => {
             const targetId = corr.source_id === event.id ? corr.target_id : corr.source_id;
             onScrollToEvent(targetId);
           }}
         >
-          <span class="text-stone-500 mr-1">&rarr;</span>
+          <span class="text-stone-500 dark:text-gray-400 mr-1">&rarr;</span>
           {corr.description}
         </button>
       {/each}
@@ -192,7 +193,7 @@
   {/if}
 
   <!-- Action buttons -->
-  <div class="flex gap-2 border-t border-stone-100 pt-2">
+  <div class="flex gap-2 border-t border-stone-100 dark:border-gray-800 pt-2">
     {#if event.document_id}
       <Button variant="secondary" size="sm"
         onclick={() => navigation.navigate('document-detail', { documentId: event.document_id! })}>

@@ -104,11 +104,11 @@
   }
 </script>
 
-<section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 mb-3">{$t('pairing.pair_heading')}</h2>
+<section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
+  <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('pairing.pair_heading')}</h2>
 
   {#if view === 'idle'}
-    <p class="text-sm text-stone-500 mb-4">
+    <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">
       {$t('pairing.scan_instruction')}
     </p>
     <Button variant="primary" fullWidth loading={loading} onclick={handleStart}>
@@ -120,18 +120,18 @@
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       {@html pairingData.qr_svg}
     </div>
-    <p class="text-sm text-stone-500 text-center mt-3">
-      Scan this code with the Coheara app on your phone.
+    <p class="text-sm text-stone-500 dark:text-gray-400 text-center mt-3">
+      {$t('pairing.scan_qr_instruction')}
     </p>
-    <p class="text-xs text-stone-500 text-center mt-1">
-      Both devices must be on the same WiFi network.
+    <p class="text-xs text-stone-500 dark:text-gray-400 text-center mt-1">
+      {$t('pairing.same_wifi')}
     </p>
-    <p class="text-xs text-stone-500 text-center mt-2">
-      Code expires in {timeRemaining()}
+    <p class="text-xs text-stone-500 dark:text-gray-400 text-center mt-2">
+      {$t('pairing.code_expires', { values: { time: timeRemaining() } })}
     </p>
     <div class="flex gap-3 mt-4">
       <Button variant="secondary" fullWidth onclick={handleCancel}>
-        Cancel
+        {$t('common.cancel')}
       </Button>
     </div>
 
@@ -146,7 +146,7 @@
         error = null;
       }}
     >
-      Try again
+      {$t('common.try_again')}
     </button>
   {/if}
 </section>

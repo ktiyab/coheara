@@ -1,5 +1,6 @@
 <!-- L4-01: Check-in nudge banner — gentle prompt to record symptoms. -->
 <script lang="ts">
+  import { t } from 'svelte-i18n';
   import type { NudgeDecision } from '$lib/types/journal';
   import Button from '$lib/components/ui/Button.svelte';
 
@@ -15,10 +16,10 @@
   <p class="text-sm text-[var(--color-info-800)] mb-3">{nudge.message}</p>
   <div class="flex gap-2">
     <Button variant="primary" size="sm" onclick={onAccept}>
-      {nudge.nudge_type === 'PostMedicationChange' ? 'Yes, remind me' : 'Yes'}
+      {nudge.nudge_type === 'PostMedicationChange' ? $t('journal.nudge_accept_post_med') : $t('journal.nudge_accept_default')}
     </Button>
     <Button variant="secondary" size="sm" onclick={onDismiss}>
-      {nudge.nudge_type === 'PostMedicationChange' ? 'No thanks' : 'Not now'}
+      {nudge.nudge_type === 'PostMedicationChange' ? $t('journal.nudge_dismiss_post_med') : $t('journal.nudge_dismiss_default')}
     </Button>
   </div>
 </div>

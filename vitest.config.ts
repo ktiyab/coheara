@@ -14,6 +14,7 @@ export default defineConfig({
     globals: true,
     alias: {
       '$lib': path.resolve('./src/lib'),
+      '$app/environment': path.resolve('./src/lib/__mocks__/app-environment.ts'),
       '$app': path.resolve('./.svelte-kit/runtime/app'),
     },
   },

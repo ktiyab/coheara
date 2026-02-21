@@ -27,6 +27,12 @@ pub struct ProfileInfo {
     /// Deterministic color from 8-palette (Spec 45) — auto-assigned at creation.
     #[serde(default)]
     pub color_index: Option<u8>,
+    /// Country code or name (optional) — for nearby services (Spec 51).
+    #[serde(default)]
+    pub country: Option<String>,
+    /// Free-form address (optional) — for nearby services (Spec 51).
+    #[serde(default)]
+    pub address: Option<String>,
 }
 
 /// 8-color palette for profile visual identity (Spec 45).
@@ -128,6 +134,8 @@ pub fn create_profile(
     password: &str,
     managed_by: Option<&str>,
     date_of_birth: Option<NaiveDate>,
+    country: Option<&str>,
+    address: Option<&str>,
 ) -> Result<(ProfileInfo, RecoveryPhrase), CryptoError> {
     // Check for duplicate name
     let existing = list_profiles(profiles_dir)?;
@@ -189,6 +197,8 @@ pub fn create_profile(
         password_hint: None,
         date_of_birth,
         color_index,
+        country: country.map(|s| s.to_string()),
+        address: address.map(|s| s.to_string()),
     };
     save_profile_info(profiles_dir, &info)?;
 
@@ -518,7 +528,7 @@ mod tests {
     #[test]
     fn create_profile_creates_directory_structure() {
         let dir = test_dir();
-        let (info, phrase) = create_profile(dir.path(), "Alice", "strong_password_123", None, None).unwrap();
+        let (info, phrase) = create_profile(dir.path(), "Alice", "strong_password_123", None, None, None, None).unwrap();
 
         assert_eq!(info.name, "Alice");
         assert_eq!(phrase.words().len(), 12);
@@ -538,7 +548,7 @@ mod tests {
     #[test]
     fn open_with_correct_password() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Bob", "correct_pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Bob", "correct_pass", None, None, None, None).unwrap();
 
         let session = open_profile(dir.path(), &info.id, "correct_pass").unwrap();
         assert_eq!(session.profile_name, "Bob");
@@ -552,7 +562,7 @@ mod tests {
     #[test]
     fn open_with_wrong_password_fails() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Carol", "real_pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Carol", "real_pass", None, None, None, None).unwrap();
 
         let result = open_profile(dir.path(), &info.id, "wrong_pass");
         assert!(matches!(result, Err(CryptoError::WrongPassword)));
@@ -561,7 +571,7 @@ mod tests {
     #[test]
     fn recover_with_correct_phrase() {
         let dir = test_dir();
-        let (info, phrase) = create_profile(dir.path(), "Dave", "password123", None, None).unwrap();
+        let (info, phrase) = create_profile(dir.path(), "Dave", "password123", None, None, None, None).unwrap();
         let phrase_str = phrase.as_str().to_string();
         drop(phrase);
 
@@ -577,7 +587,7 @@ mod tests {
     #[test]
     fn recover_with_wrong_phrase_fails() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Eve", "password", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Eve", "password", None, None, None, None).unwrap();
 
         // Generate a different valid phrase
         let wrong_phrase = RecoveryPhrase::generate();
@@ -589,9 +599,9 @@ mod tests {
     #[test]
     fn list_profiles_returns_all() {
         let dir = test_dir();
-        create_profile(dir.path(), "Profile1", "pass1", None, None).unwrap();
-        create_profile(dir.path(), "Profile2", "pass2", None, None).unwrap();
-        create_profile(dir.path(), "Profile3", "pass3", Some("Caregiver"), None).unwrap();
+        create_profile(dir.path(), "Profile1", "pass1", None, None, None, None).unwrap();
+        create_profile(dir.path(), "Profile2", "pass2", None, None, None, None).unwrap();
+        create_profile(dir.path(), "Profile3", "pass3", Some("Caregiver"), None, None, None).unwrap();
 
         let profiles = list_profiles(dir.path()).unwrap();
         assert_eq!(profiles.len(), 3);
@@ -605,7 +615,7 @@ mod tests {
     #[test]
     fn delete_profile_removes_all_files() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "ToDelete", "pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "ToDelete", "pass", None, None, None, None).unwrap();
 
         let profile_dir = dir.path().join(info.id.to_string());
         assert!(profile_dir.exists());
@@ -618,8 +628,8 @@ mod tests {
     #[test]
     fn delete_profile_removes_from_list() {
         let dir = test_dir();
-        let (info1, _) = create_profile(dir.path(), "Keep", "pass1", None, None).unwrap();
-        let (info2, _) = create_profile(dir.path(), "Delete", "pass2", None, None).unwrap();
+        let (info1, _) = create_profile(dir.path(), "Keep", "pass1", None, None, None, None).unwrap();
+        let (info2, _) = create_profile(dir.path(), "Delete", "pass2", None, None, None, None).unwrap();
 
         delete_profile(dir.path(), &info2.id).unwrap();
 
@@ -631,7 +641,7 @@ mod tests {
     #[test]
     fn deleted_profile_cannot_be_opened() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Erased", "password", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Erased", "password", None, None, None, None).unwrap();
 
         delete_profile(dir.path(), &info.id).unwrap();
 
@@ -644,7 +654,7 @@ mod tests {
     #[test]
     fn delete_overwrites_with_random_not_zeros() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "SecureDel", "pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "SecureDel", "pass", None, None, None, None).unwrap();
         let profile_dir = dir.path().join(info.id.to_string());
 
         // Read original salt to compare later
@@ -666,7 +676,7 @@ mod tests {
     fn profile_directory_has_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "PermTest", "pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "PermTest", "pass", None, None, None, None).unwrap();
         let profile_dir = dir.path().join(info.id.to_string());
         let mode = std::fs::metadata(&profile_dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700, "Profile dir should be owner-only (0o700), got {mode:o}");
@@ -675,7 +685,7 @@ mod tests {
     #[test]
     fn delete_profile_also_overwrites_password_blob_if_present() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "BlobDel", "pass1", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "BlobDel", "pass1", None, None, None, None).unwrap();
 
         // Change password to create password_blob.enc
         let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
@@ -694,8 +704,8 @@ mod tests {
     #[test]
     fn duplicate_profile_name_rejected() {
         let dir = test_dir();
-        create_profile(dir.path(), "Unique", "pass1", None, None).unwrap();
-        let result = create_profile(dir.path(), "Unique", "pass2", None, None);
+        create_profile(dir.path(), "Unique", "pass1", None, None, None, None).unwrap();
+        let result = create_profile(dir.path(), "Unique", "pass2", None, None, None, None);
         assert!(matches!(result, Err(CryptoError::ProfileExists(_))));
     }
 
@@ -710,7 +720,7 @@ mod tests {
     #[test]
     fn profile_database_is_initialized() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "DbTest", "pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "DbTest", "pass", None, None, None, None).unwrap();
 
         let session = open_profile(dir.path(), &info.id, "pass").unwrap();
         let conn = sqlite::open_database(session.db_path(), Some(session.key_bytes())).unwrap();
@@ -727,7 +737,7 @@ mod tests {
     #[test]
     fn managed_by_attribution_stored() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Patient", "pass", Some("Dr. Smith"), None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Patient", "pass", Some("Dr. Smith"), None, None, None).unwrap();
         assert_eq!(info.managed_by.as_deref(), Some("Dr. Smith"));
 
         let profiles = list_profiles(dir.path()).unwrap();
@@ -739,7 +749,7 @@ mod tests {
     #[test]
     fn change_password_allows_new_login() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Alice", "old_pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Alice", "old_pass", None, None, None, None).unwrap();
 
         // Open with old password to get master key
         let session = open_profile(dir.path(), &info.id, "old_pass").unwrap();
@@ -757,7 +767,7 @@ mod tests {
     #[test]
     fn change_password_rejects_wrong_current() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Bob", "correct", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Bob", "correct", None, None, None, None).unwrap();
         let key_bytes = [42u8; 32]; // dummy — won't reach this
 
         let result = change_password(dir.path(), &info.id, "wrong", "new_pass", &key_bytes);
@@ -767,7 +777,7 @@ mod tests {
     #[test]
     fn old_password_fails_after_change() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Carol", "old_pass", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Carol", "old_pass", None, None, None, None).unwrap();
 
         let session = open_profile(dir.path(), &info.id, "old_pass").unwrap();
         let key_bytes = *session.key_bytes();
@@ -782,7 +792,7 @@ mod tests {
     #[test]
     fn data_accessible_after_password_change() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Dave", "pass1", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Dave", "pass1", None, None, None, None).unwrap();
 
         // Encrypt data with original session
         let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
@@ -802,7 +812,7 @@ mod tests {
     #[test]
     fn recovery_still_works_after_password_change() {
         let dir = test_dir();
-        let (info, phrase) = create_profile(dir.path(), "Eve", "pass1", None, None).unwrap();
+        let (info, phrase) = create_profile(dir.path(), "Eve", "pass1", None, None, None, None).unwrap();
         let phrase_str = phrase.as_str().to_string();
         drop(phrase);
 
@@ -823,7 +833,7 @@ mod tests {
     #[test]
     fn multiple_password_changes() {
         let dir = test_dir();
-        let (info, _phrase) = create_profile(dir.path(), "Frank", "pass1", None, None).unwrap();
+        let (info, _phrase) = create_profile(dir.path(), "Frank", "pass1", None, None, None, None).unwrap();
 
         let session = open_profile(dir.path(), &info.id, "pass1").unwrap();
         let encrypted = session.encrypt(b"data").unwrap();

@@ -53,10 +53,10 @@
   });
 </script>
 
-<section class="bg-white rounded-xl p-5 border border-stone-100 shadow-sm">
+<section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-sm font-medium text-stone-500">{$t('devices.paired_heading')}</h2>
-    <span class="text-xs text-stone-500">
+    <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400">{$t('devices.paired_heading')}</h2>
+    <span class="text-xs text-stone-500 dark:text-gray-400">
       {$t('devices.paired_count', { values: { paired: counts.paired, max: counts.max } })} &middot; {$t('devices.connected_count', { values: { connected: counts.connected } })}
     </span>
   </div>
@@ -66,7 +66,7 @@
   {:else if error}
     <ErrorState message={error} onretry={load} />
   {:else if devices.length === 0}
-    <p class="text-sm text-stone-500 py-4 text-center">
+    <p class="text-sm text-stone-500 dark:text-gray-400 py-4 text-center">
       {$t('devices.no_devices')}
     </p>
   {:else}

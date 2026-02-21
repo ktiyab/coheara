@@ -47,17 +47,17 @@
     <BackButton onclick={onBack} label={$t('common.back')} />
   </div>
 
-  <h2 class="text-2xl font-bold text-stone-800">{$t('profile.recover_heading', { values: { name: profile.name } })}</h2>
-  <p class="text-stone-600 text-center">{$t('profile.recover_instructions')}</p>
+  <h2 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('profile.recover_heading', { values: { name: profile.name } })}</h2>
+  <p class="text-stone-600 dark:text-gray-300 text-center">{$t('profile.recover_instructions')}</p>
 
   <div class="grid grid-cols-3 gap-2 w-full">
     {#each words as _, i}
       <label class="flex items-center gap-1">
-        <span class="text-stone-500 text-sm w-5 text-right">{i + 1}.</span>
+        <span class="text-stone-500 dark:text-gray-400 text-sm w-5 text-right">{i + 1}.</span>
         <input
           type="text"
           bind:value={words[i]}
-          class="w-full px-2 py-2 rounded border border-stone-300 font-mono min-h-[44px]
+          class="w-full px-2 py-2 rounded border border-stone-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 font-mono min-h-[44px]
                  focus:border-[var(--color-primary)] focus:outline-none"
           autocomplete="off"
           autocapitalize="off"
@@ -67,16 +67,16 @@
   </div>
 
   <label class="w-full flex flex-col gap-1 mt-4">
-    <span class="text-stone-600 text-sm font-medium">{$t('profile.new_password_label')}</span>
+    <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('profile.new_password_label')}</span>
     <input type="password" bind:value={newPassword}
            placeholder={$t('profile.password_placeholder')}
-           class="px-4 py-3 rounded-lg border border-stone-300 min-h-[44px]" />
+           class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 min-h-[44px]" />
   </label>
   <label class="w-full flex flex-col gap-1">
-    <span class="text-stone-600 text-sm font-medium">{$t('profile.confirm_new_password_label')}</span>
+    <span class="text-stone-600 dark:text-gray-300 text-sm font-medium">{$t('profile.confirm_new_password_label')}</span>
     <input type="password" bind:value={confirmPassword}
            placeholder={$t('profile.confirm_password_placeholder')}
-           class="px-4 py-3 rounded-lg border border-stone-300 min-h-[44px]" />
+           class="px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 min-h-[44px]" />
   </label>
 
   {#if error}

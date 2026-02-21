@@ -45,58 +45,58 @@
 <div class="px-6 py-4">
   <BackButton onclick={onCancel} label={$t('common.cancel')} />
 
-  <h2 class="text-xl font-semibold text-stone-800 mb-6">{$t('appointment.post_title')}</h2>
+  <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-6">{$t('appointment.post_title')}</h2>
 
   <div class="flex flex-col gap-5">
     <label class="flex flex-col gap-1">
-      <span class="text-sm font-medium text-stone-700">
+      <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
         {$t('appointment.post_doctor_said_label')} <span class="text-[var(--color-danger)]">*</span>
       </span>
       <textarea
         bind:value={doctorSaid}
         rows={3}
         placeholder={$t('appointment.post_doctor_said_placeholder')}
-        class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
-               focus:outline-none focus:border-[var(--color-primary)] resize-none"
+        class="w-full px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200 text-sm
+               dark:bg-gray-900 focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="text-sm font-medium text-stone-700">
+      <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
         {$t('appointment.post_changes_label')} <span class="text-[var(--color-danger)]">*</span>
       </span>
       <textarea
         bind:value={changesMade}
         rows={3}
         placeholder={$t('appointment.post_changes_placeholder')}
-        class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
-               focus:outline-none focus:border-[var(--color-primary)] resize-none"
+        class="w-full px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200 text-sm
+               dark:bg-gray-900 focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="text-sm font-medium text-stone-700">
-        {$t('appointment.post_follow_up_label')} <span class="text-stone-500">{$t('common.optional')}</span>
+      <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
+        {$t('appointment.post_follow_up_label')} <span class="text-stone-500 dark:text-gray-400">{$t('common.optional')}</span>
       </span>
       <textarea
         bind:value={followUp}
         rows={2}
         placeholder={$t('appointment.post_follow_up_placeholder')}
-        class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
-               focus:outline-none focus:border-[var(--color-primary)] resize-none"
+        class="w-full px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200 text-sm
+               dark:bg-gray-900 focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="text-sm font-medium text-stone-700">
-        {$t('appointment.post_notes_label')} <span class="text-stone-500">{$t('common.optional')}</span>
+      <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
+        {$t('appointment.post_notes_label')} <span class="text-stone-500 dark:text-gray-400">{$t('common.optional')}</span>
       </span>
       <textarea
         bind:value={generalNotes}
         rows={2}
         placeholder={$t('appointment.post_notes_placeholder')}
-        class="w-full px-4 py-3 rounded-xl border border-stone-200 text-stone-700 text-sm
-               focus:outline-none focus:border-[var(--color-primary)] resize-none"
+        class="w-full px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-stone-700 dark:text-gray-200 text-sm
+               dark:bg-gray-900 focus:outline-none focus:border-[var(--color-primary)] resize-none"
       ></textarea>
     </label>
 

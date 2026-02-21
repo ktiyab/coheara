@@ -25,10 +25,10 @@
 </script>
 
 <div>
-  <h2 class="text-xl font-semibold text-stone-800 mb-2">
+  <h2 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-2">
     {$t('appointment.prep_with', { values: { name: prep.professional_name } })}
   </h2>
-  <p class="text-sm text-stone-500 mb-4">{prep.appointment_date}</p>
+  <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">{prep.appointment_date}</p>
 
   <!-- Tab switcher -->
   <div class="flex gap-2 mb-4">
@@ -36,7 +36,7 @@
       class="px-4 py-2 rounded-lg text-sm font-medium min-h-[44px]
              {activeTab === 'patient'
                ? 'bg-[var(--color-primary)] text-white'
-               : 'bg-stone-100 text-stone-600'}"
+               : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}"
       onclick={() => activeTab = 'patient'}
     >
       {$t('appointment.prep_tab_questions')}
@@ -45,7 +45,7 @@
       class="px-4 py-2 rounded-lg text-sm font-medium min-h-[44px]
              {activeTab === 'professional'
                ? 'bg-[var(--color-primary)] text-white'
-               : 'bg-stone-100 text-stone-600'}"
+               : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}"
       onclick={() => activeTab = 'professional'}
     >
       {$t('appointment.prep_tab_summary')}
@@ -53,10 +53,10 @@
   </div>
 
   <!-- Content -->
-  <div class="bg-white rounded-xl p-6 border border-stone-100 shadow-sm mb-4
+  <div class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-stone-100 dark:border-gray-800 shadow-sm mb-4
               max-h-[60vh] overflow-y-auto">
     {#if activeTab === 'patient'}
-      <h3 class="font-bold text-stone-800 mb-4">{prep.patient_copy.title}</h3>
+      <h3 class="font-bold text-stone-800 dark:text-gray-100 mb-4">{prep.patient_copy.title}</h3>
 
       {#if prep.patient_copy.priority_items.length > 0}
         <div class="mb-4 p-3 bg-[var(--color-warning-50)] rounded-lg border border-[var(--color-warning-200)]">
@@ -68,32 +68,32 @@
         </div>
       {/if}
 
-      <h4 class="text-sm font-medium text-stone-600 mb-2">{$t('appointment.prep_your_questions')}</h4>
+      <h4 class="text-sm font-medium text-stone-600 dark:text-gray-300 mb-2">{$t('appointment.prep_your_questions')}</h4>
       {#each prep.patient_copy.questions as q, i}
         <div class="mb-3">
-          <p class="text-sm text-stone-800">{i + 1}. {q.question}</p>
-          <p class="text-xs text-stone-500 mt-0.5">{q.context}</p>
+          <p class="text-sm text-stone-800 dark:text-gray-100">{i + 1}. {q.question}</p>
+          <p class="text-xs text-stone-500 dark:text-gray-400 mt-0.5">{q.context}</p>
         </div>
       {/each}
 
       {#if prep.patient_copy.symptoms_to_mention.length > 0}
-        <h4 class="text-sm font-medium text-stone-600 mt-4 mb-2">{$t('appointment.prep_symptoms')}</h4>
+        <h4 class="text-sm font-medium text-stone-600 dark:text-gray-300 mt-4 mb-2">{$t('appointment.prep_symptoms')}</h4>
         {#each prep.patient_copy.symptoms_to_mention as s}
-          <p class="text-sm text-stone-700 mb-1">· {s.description}</p>
+          <p class="text-sm text-stone-700 dark:text-gray-200 mb-1">· {s.description}</p>
         {/each}
       {/if}
 
       {#if prep.patient_copy.medication_changes.length > 0}
-        <h4 class="text-sm font-medium text-stone-600 mt-4 mb-2">{$t('appointment.prep_med_changes')}</h4>
+        <h4 class="text-sm font-medium text-stone-600 dark:text-gray-300 mt-4 mb-2">{$t('appointment.prep_med_changes')}</h4>
         {#each prep.patient_copy.medication_changes as mc}
-          <p class="text-sm text-stone-700 mb-1">· {mc.description}</p>
+          <p class="text-sm text-stone-700 dark:text-gray-200 mb-1">· {mc.description}</p>
         {/each}
       {/if}
 
-      <p class="text-sm font-medium text-stone-600 mt-6">{prep.patient_copy.reminder}</p>
+      <p class="text-sm font-medium text-stone-600 dark:text-gray-300 mt-6">{prep.patient_copy.reminder}</p>
 
     {:else}
-      <pre class="text-xs text-stone-700 whitespace-pre-wrap font-mono leading-relaxed">{prep.professional_copy.header.title} — {prep.professional_copy.header.date}
+      <pre class="text-xs text-stone-700 dark:text-gray-200 whitespace-pre-wrap font-mono leading-relaxed">{prep.professional_copy.header.title} — {prep.professional_copy.header.date}
 {prep.professional_copy.header.professional}
 {prep.professional_copy.header.disclaimer}
 
@@ -120,7 +120,7 @@
 {$t('appointment.prep_source_docs')}
 {#each prep.professional_copy.source_documents as d}· {d.document_type} — {d.professional} — {d.date}
 {/each}{/if}</pre>
-      <p class="text-xs text-stone-500 mt-4">{prep.professional_copy.disclaimer}</p>
+      <p class="text-xs text-stone-500 dark:text-gray-400 mt-4">{prep.professional_copy.disclaimer}</p>
     {/if}
   </div>
 

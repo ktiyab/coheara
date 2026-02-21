@@ -42,6 +42,14 @@
     "hub_switch_description": "Sperren und zu einem anderen Profil wechseln",
     "sound_heading": "Ton und Benachrichtigungen",
     "sound_enabled": "Soundeffekte",
-    "sound_volume": "Lautst\u00e4rke"
+    "sound_volume": "Lautst\u00e4rke",
+    "theme_heading": "Design",
+    "theme_light": "Hell",
+    "theme_dark": "Dunkel",
+    "theme_colorful": "Bunt",
+    "section_ai_profile": "KI & Profil",
+    "section_preferences": "Einstellungen",
+    "section_privacy": "Datenschutz & Ger\u00e4te",
+    "section_about": "Info"
   }
 }
