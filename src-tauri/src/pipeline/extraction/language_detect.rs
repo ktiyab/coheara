@@ -1,41 +1,18 @@
 //! EXT-04-G03: Lightweight language detection for extracted text.
 //!
-//! Detects French vs English using character patterns and keyword frequency.
-//! No external dependencies — uses simple heuristic scoring appropriate for
-//! medical document context where the primary languages are French and English.
-
-/// Detected language code (ISO 639-3 compatible with Tesseract).
-const FRENCH_INDICATORS: &[&str] = &[
-    // Common French words unlikely in English medical text
-    "le ", "la ", "les ", "un ", "une ", "des ", "du ", "de ", "et ", "est ",
-    "en ", "au ", "aux ", "pour ", "par ", "sur ", "dans ", "avec ", "qui ",
-    "que ", "pas ", "son ", "ses ", "mais ", "ou ", "ce ", "cette ",
-    // Medical French
-    "résultat", "analyse", "ordonnance", "médecin", "traitement",
-    "comprimé", "posologie", "quotidien", "matin", "midi", "soir",
-    "patient", "examen", "bilan", "sanguin", "urinaire",
-    "à jeun", "voie orale", "par jour", "fois par",
-    // French-specific patterns
-    "d'", "l'", "n'", "s'", "qu'", "j'", "c'",
-];
-
-/// English indicators (common English words rarely found in French text).
-const ENGLISH_INDICATORS: &[&str] = &[
-    "the ", "and ", "was ", "for ", "are ", "but ", "not ", "you ",
-    "all ", "can ", "her ", "has ", "his ", "how ", "its ", "may ",
-    "our ", "out ", "who ", "did ", "get ", "been ", "from ",
-    "have ", "this ", "that ", "with ", "they ", "will ",
-    // Medical English
-    "patient", "treatment", "medication", "dosage", "daily",
-    "twice", "tablet", "diagnosis", "prescription", "results",
-    "blood", "urine", "fasting", "normal", "range",
-];
+//! Detects French vs English using character-level signals only:
+//! - French diacritics (é, è, ê, ç, etc.) — structural to French orthography
+//! - Apostrophe elisions (l', d', n', s', qu') — structural to French grammar
+//!
+//! No keyword lists. Same approach as whatlang/CLD — trigram and character
+//! distribution, not vocabulary matching.
 
 /// Detect the primary language of extracted text.
 /// Returns a Tesseract-compatible language code: "fra" for French, "eng" for English.
 ///
-/// Uses case-insensitive keyword frequency analysis. French is favored when
-/// scores are close, since the primary user base produces French documents.
+/// Uses character-level analysis only. French diacritics and elision patterns
+/// are structural features of the language, not content keywords.
+/// French is favored when scores are close (primary user base).
 pub fn detect_language(text: &str) -> String {
     if text.trim().len() < 20 {
         // Too little text to detect — default to French (primary user base)
@@ -44,35 +21,21 @@ pub fn detect_language(text: &str) -> String {
 
     let lower = text.to_lowercase();
 
-    let french_score = count_indicators(&lower, FRENCH_INDICATORS);
-    let english_score = count_indicators(&lower, ENGLISH_INDICATORS);
+    let diacritics = count_french_diacritics(&lower);
+    let elisions = count_french_elisions(&lower);
+    let french_score = diacritics + elisions;
 
-    // Bonus for French-specific diacritics that are rare in English
-    let diacritic_bonus = count_french_diacritics(&lower);
-
-    let total_french = french_score + diacritic_bonus;
-
-    // French wins ties (primary user base)
-    if total_french >= english_score {
+    // Any French character signal = French (diacritics don't appear in English)
+    if french_score >= 1 {
         "fra".to_string()
     } else {
         "eng".to_string()
     }
 }
 
-/// Count how many indicator patterns appear in the text.
-fn count_indicators(lower_text: &str, indicators: &[&str]) -> u32 {
-    let mut score = 0u32;
-    for &indicator in indicators {
-        // Count occurrences (each occurrence adds 1)
-        score += lower_text.matches(indicator).count() as u32;
-    }
-    score
-}
-
-/// Count French-specific diacritical characters as a language signal.
+/// Count French-specific diacritical characters.
 /// Characters like é, è, ê, ë, ç, ù, û, ü, î, ï, ô, à, â are strong
-/// French indicators when they appear frequently.
+/// French indicators — they almost never appear in English text.
 fn count_french_diacritics(lower_text: &str) -> u32 {
     let mut count = 0u32;
     for ch in lower_text.chars() {
@@ -84,8 +47,19 @@ fn count_french_diacritics(lower_text: &str) -> u32 {
             count += 1;
         }
     }
-    // Each 2 diacritics = 1 point (weighted to reflect strong French signal)
-    count / 2
+    count
+}
+
+/// Count French elision patterns (l', d', n', s', qu', j', c').
+/// These apostrophe contractions are structural to French grammar and
+/// don't appear in English text.
+fn count_french_elisions(lower_text: &str) -> u32 {
+    let patterns = ["d'", "l'", "n'", "s'", "qu'", "j'", "c'"];
+    let mut count = 0u32;
+    for pattern in patterns {
+        count += lower_text.matches(pattern).count() as u32;
+    }
+    count
 }
 
 #[cfg(test)]
@@ -124,16 +98,14 @@ mod tests {
     }
 
     #[test]
-    fn mixed_text_favors_french() {
-        // Equal-ish indicators — French should win ties
-        let text = "Patient Marie Dubois, résultat de l'analyse pour le traitement";
+    fn diacritics_detect_french() {
+        let text = "Créatinine élevée, protéine réactive, hémoglobine, résultat préliminaire";
         assert_eq!(detect_language(text), "fra");
     }
 
     #[test]
-    fn diacritics_boost_french_score() {
-        // Text with French diacritics boosts French detection
-        let text = "Créatinine élevée, protéine réactive, hémoglobine, résultat préliminaire";
+    fn elisions_detect_french() {
+        let text = "L'ordonnance du médecin pour le traitement d'une infection qu'il s'agit";
         assert_eq!(detect_language(text), "fra");
     }
 
@@ -157,17 +129,17 @@ mod tests {
     }
 
     #[test]
-    fn count_indicators_basic() {
-        let text = "le patient est dans la salle";
-        let score = count_indicators(text, FRENCH_INDICATORS);
-        assert!(score >= 3, "Should match 'le ', 'est ', 'dans ', 'la ': got {}", score);
+    fn count_diacritics_basic() {
+        let text = "créatinine élevée protéine résultat";
+        let count = count_french_diacritics(text);
+        // é appears 4 times, è once = 5
+        assert!(count >= 4, "Should count diacritics: got {count}");
     }
 
     #[test]
-    fn count_french_diacritics_basic() {
-        let text = "créatinine élevée protéine résultat";
-        let count = count_french_diacritics(text);
-        // é×4, è×1 = 5 diacritics → 5/3 = 1
-        assert!(count >= 1, "Should count diacritics: got {}", count);
+    fn count_elisions_basic() {
+        let text = "l'ordonnance d'un médecin n'est pas c'est qu'il s'agit";
+        let count = count_french_elisions(text);
+        assert!(count >= 5, "Should count elisions: got {count}");
     }
 }

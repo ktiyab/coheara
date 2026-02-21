@@ -67,7 +67,16 @@ impl BatchRunner {
 
         // Step 2: Extract per domain (sequential — one LLM call at a time)
         for domain_match in &analysis.domains {
-            let extractor = self.get_extractor(domain_match.domain)?;
+            let extractor = match self.get_extractor(domain_match.domain) {
+                Ok(e) => e,
+                Err(_) => {
+                    tracing::debug!(
+                        domain = domain_match.domain.as_str(),
+                        "No extractor registered for domain, skipping"
+                    );
+                    continue;
+                }
+            };
 
             // Build extraction input
             let input = analysis.build_input(

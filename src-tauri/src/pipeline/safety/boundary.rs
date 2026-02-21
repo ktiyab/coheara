@@ -19,9 +19,6 @@ pub fn check_boundary(boundary: &BoundaryCheck) -> Vec<Violation> {
     vec![Violation {
         layer: FilterLayer::BoundaryCheck,
         category: ViolationCategory::BoundaryViolation,
-        matched_text: format!("{:?}", boundary),
-        offset: 0,
-        length: 0,
         reason: format!(
             "Boundary check is {:?}, expected one of: understanding, awareness, preparation",
             boundary

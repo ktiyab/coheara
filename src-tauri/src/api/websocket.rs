@@ -426,25 +426,9 @@ async fn handle_chat_query(
                         filtered.confidence,
                         format!("{:?}", filtered.boundary_check),
                     ),
-                    FilterOutcome::Rephrased { .. } => {
-                        tracing::info!("WS safety filter rephrased RAG response");
-                        (
-                            filtered.text.clone(),
-                            filtered.confidence,
-                            format!("{:?}", filtered.boundary_check),
-                        )
-                    }
                     FilterOutcome::Blocked { fallback_message, .. } => {
-                        tracing::warn!("WS safety filter blocked RAG response");
+                        tracing::warn!("WS safety filter blocked RAG response (boundary out of bounds)");
                         (fallback_message.clone(), 0.0, "OutOfBounds".to_string())
-                    }
-                    FilterOutcome::Escalated { rule_id, .. } => {
-                        tracing::warn!(rule_id = %rule_id, "WS safety escalation rule applied");
-                        (
-                            filtered.text.clone(),
-                            filtered.confidence,
-                            format!("{:?}", filtered.boundary_check),
-                        )
                     }
                 };
 

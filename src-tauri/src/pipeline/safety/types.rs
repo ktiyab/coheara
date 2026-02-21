@@ -4,9 +4,13 @@ use thiserror::Error;
 use crate::pipeline::rag::types::{BoundaryCheck, Citation, QueryType};
 
 /// Outcome of the safety filter pipeline.
+///
+/// The filter validates only the model-generated `BoundaryCheck` field.
+/// Medical tone, grounding, and urgency are handled by the SLM's system prompt —
+/// NOT by keyword pattern matching.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilteredResponse {
-    /// The (possibly rephrased) safe text to display.
+    /// The safe text to display (unchanged from RAG — SLM controls tone).
     pub text: String,
     /// Original citations passed through from RAG.
     pub citations: Vec<Citation>,
@@ -23,37 +27,22 @@ pub struct FilteredResponse {
 /// What the filter decided.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FilterOutcome {
-    /// Response passed all layers without modification.
+    /// Response passed boundary check — safe to display.
     Passed,
-    /// Response had violations but was successfully rephrased.
-    Rephrased {
-        original_violations: Vec<Violation>,
-    },
-    /// Response was blocked — too many or unresolvable violations.
+    /// Response was blocked — BoundaryCheck::OutOfBounds.
     Blocked {
         violations: Vec<Violation>,
         fallback_message: String,
     },
-    /// Layer 4 escalation: safety rule injected/replaced content (Spec 44).
-    Escalated {
-        rule_id: String,
-        severity: super::escalation::EscalationSeverity,
-    },
 }
 
-/// A specific safety violation detected by any layer.
+/// A specific safety violation detected by the boundary check layer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Violation {
     /// Which layer caught this.
     pub layer: FilterLayer,
     /// Category of violation.
     pub category: ViolationCategory,
-    /// The specific text span that triggered the violation.
-    pub matched_text: String,
-    /// Byte offset in original response where violation starts.
-    pub offset: usize,
-    /// Length of the matched span in bytes.
-    pub length: usize,
     /// Human-readable explanation for audit log.
     pub reason: String,
 }
@@ -61,28 +50,15 @@ pub struct Violation {
 /// Which filter layer detected the violation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FilterLayer {
+    /// Layer 1: Model-generated boundary check validation.
     BoundaryCheck,
-    KeywordScan,
-    ReportingVsStating,
-    /// Layer 4: Escalation check (Spec 44).
-    EscalationCheck,
 }
 
 /// Classification of what kind of unsafe content was detected.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ViolationCategory {
-    /// Layer 1: boundary_check field missing or invalid.
+    /// BoundaryCheck::OutOfBounds — response is outside medical document scope.
     BoundaryViolation,
-    /// Layer 2: diagnostic language ("you have [condition]").
-    DiagnosticLanguage,
-    /// Layer 2: prescriptive language ("you should [take/stop]").
-    PrescriptiveLanguage,
-    /// Layer 2: alarm/emergency language ("dangerous", "immediately").
-    AlarmLanguage,
-    /// Layer 3: ungrounded claim (states fact without document reference).
-    UngroundedClaim,
-    /// Layer 4: response insufficiently urgent for known-dangerous scenario (Spec 44).
-    InsufficientEscalation,
 }
 
 /// Result of input sanitization (pre-LLM).
@@ -115,22 +91,19 @@ pub enum InputModificationKind {
 /// Safety filter errors.
 #[derive(Error, Debug)]
 pub enum SafetyError {
-    #[error("Regex compilation failed: {0}")]
-    RegexCompilation(String),
-
     #[error("Input sanitization failed: {0}")]
     SanitizationFailed(String),
-
-    #[error("Rephrasing engine error: {0}")]
-    RephrasingFailed(String),
 
     #[error("Filter pipeline internal error: {0}")]
     InternalError(String),
 }
 
 /// The safety filter pipeline — validates every MedGemma response.
+///
+/// Only checks the model-generated `BoundaryCheck` field. Medical tone,
+/// grounding, and urgency are the SLM's responsibility via its system prompt.
 pub trait SafetyFilter {
-    /// Run all 3 filter layers on a RAG response.
+    /// Check the boundary layer on a RAG response.
     fn filter_response(
         &self,
         response: &crate::pipeline::rag::types::RagResponse,
@@ -184,13 +157,11 @@ mod tests {
     #[test]
     fn filter_layer_equality() {
         assert_eq!(FilterLayer::BoundaryCheck, FilterLayer::BoundaryCheck);
-        assert_ne!(FilterLayer::KeywordScan, FilterLayer::ReportingVsStating);
     }
 
     #[test]
     fn violation_category_equality() {
         assert_eq!(ViolationCategory::BoundaryViolation, ViolationCategory::BoundaryViolation);
-        assert_ne!(ViolationCategory::DiagnosticLanguage, ViolationCategory::AlarmLanguage);
     }
 
     #[test]
