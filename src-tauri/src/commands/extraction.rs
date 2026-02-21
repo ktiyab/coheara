@@ -156,63 +156,68 @@ pub fn dismiss_all_extractions(
 /// Manually trigger a batch extraction run.
 ///
 /// Emits progress events via `extraction-progress` channel.
-/// This is a blocking operation (sequential LLM calls).
+/// Runs on a blocking thread to avoid freezing the UI (sequential LLM calls).
 #[tauri::command]
-pub fn trigger_extraction_batch(
+pub async fn trigger_extraction_batch(
     app: AppHandle,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<BatchResult, String> {
-    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = state.open_db().map_err(|e| e.to_string())?;
 
-    // Resolve the active model name
-    let model_name = resolve_model_name(&state)?;
+        // Resolve the active model name
+        let model_name = resolve_model_name(&state)?;
 
-    let config = ExtractionConfig {
-        model_name,
-        ..ExtractionConfig::default()
-    };
+        let config = ExtractionConfig {
+            model_name,
+            ..ExtractionConfig::default()
+        };
 
-    let scheduler = SqliteBatchScheduler::new();
-    let store = SqlitePendingStore;
-    let runner = BatchRunner::new(
-        Box::new(RuleBasedAnalyzer::new()),
-        vec![
-            Box::new(SymptomExtractor::new()),
-            Box::new(MedicationExtractor::new()),
-            Box::new(AppointmentExtractor::new()),
-        ],
-        config.clone(),
-    );
+        let scheduler = SqliteBatchScheduler::new();
+        let store = SqlitePendingStore;
+        let runner = BatchRunner::new(
+            Box::new(RuleBasedAnalyzer::new()),
+            vec![
+                Box::new(SymptomExtractor::new()),
+                Box::new(MedicationExtractor::new()),
+                Box::new(AppointmentExtractor::new()),
+            ],
+            config.clone(),
+        );
 
-    // Create the LLM client
-    let llm = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        // Create the LLM client
+        let llm = crate::pipeline::structuring::ollama::OllamaClient::default_local();
 
-    let progress_fn = |event: BatchStatusEvent| {
-        let _ = app.emit("extraction-progress", &event);
-    };
+        let progress_fn = |event: BatchStatusEvent| {
+            let _ = app.emit("extraction-progress", &event);
+        };
 
-    // Load patient context from DB for LLM disambiguation
-    let patient_context = crate::pipeline::batch_extraction::context::load_patient_context(&conn)
-        .unwrap_or_default();
+        // Load patient context from DB for LLM disambiguation
+        let patient_context = crate::pipeline::batch_extraction::context::load_patient_context(&conn)
+            .unwrap_or_default();
 
-    let result = run_full_batch(
-        &conn,
-        &scheduler,
-        &runner,
-        &store,
-        &llm,
-        &config,
-        &patient_context,
-        Some(&progress_fn),
-    )
-    .map_err(|e| e.to_string())?;
+        let result = run_full_batch(
+            &conn,
+            &scheduler,
+            &runner,
+            &store,
+            &llm,
+            &config,
+            &patient_context,
+            Some(&progress_fn),
+        )
+        .map_err(|e| e.to_string())?;
 
-    state.update_activity();
-    Ok(result)
+        state.update_activity();
+        Ok(result)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Resolve the active model name from preferences.
-fn resolve_model_name(state: &State<'_, Arc<CoreState>>) -> Result<String, String> {
+fn resolve_model_name(state: &Arc<CoreState>) -> Result<String, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
     let client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
 

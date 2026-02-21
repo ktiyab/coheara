@@ -40,29 +40,44 @@ static PULL_CANCEL: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None
 /// Perform a lightweight health check on the Ollama service.
 ///
 /// Returns within 5s even if Ollama is unreachable (PERF-L6-01).
+/// Runs on a blocking thread to avoid freezing the UI (HTTP call).
 #[tauri::command]
-pub fn ollama_health_check() -> Result<OllamaHealth, String> {
-    let client = OllamaClient::default_local();
-    client.health_check().map_err(|e| e.to_string())
+pub async fn ollama_health_check() -> Result<OllamaHealth, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = OllamaClient::default_local();
+        client.health_check().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// List all locally installed models with enriched metadata.
 ///
 /// Returns name, size, family, parameter count, quantization level.
 /// UX-L6-03: Model sizes available for human-readable formatting.
+/// Runs on a blocking thread to avoid freezing the UI (HTTP call).
 #[tauri::command]
-pub fn list_ollama_models() -> Result<Vec<ModelInfo>, String> {
-    let client = OllamaClient::default_local();
-    client.list_models_detailed().map_err(|e| e.to_string())
+pub async fn list_ollama_models() -> Result<Vec<ModelInfo>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = OllamaClient::default_local();
+        client.list_models_detailed().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Get detailed information about a specific model.
 ///
 /// SEC-L6-02: Model name validated before HTTP call.
+/// Runs on a blocking thread to avoid freezing the UI (HTTP call).
 #[tauri::command]
-pub fn show_ollama_model(name: String) -> Result<ModelDetail, String> {
-    let client = OllamaClient::default_local();
-    client.show_model(&name).map_err(|e| e.to_string())
+pub async fn show_ollama_model(name: String) -> Result<ModelDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = OllamaClient::default_local();
+        client.show_model(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Initiate a model download from the Ollama registry.
@@ -187,10 +202,15 @@ pub fn cancel_model_pull() -> Result<(), String> {
 ///
 /// SEC-L6-02: Model name validated before HTTP call.
 /// Q-04: If deleted model was active, caller should re-run resolve_model.
+/// Runs on a blocking thread to avoid freezing the UI (HTTP call).
 #[tauri::command]
-pub fn delete_ollama_model(name: String) -> Result<(), String> {
-    let client = OllamaClient::default_local();
-    client.delete_model(&name).map_err(|e| e.to_string())
+pub async fn delete_ollama_model(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = OllamaClient::default_local();
+        client.delete_model(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Get the curated list of recommended medical models.
@@ -242,19 +262,25 @@ pub fn set_active_model(
 ///
 /// Uses ActiveModelResolver for preference → fallback chain.
 /// Returns None if no model is available.
+/// Runs on a blocking thread to avoid freezing the UI (HTTP call to Ollama).
 #[tauri::command]
-pub fn get_active_model(
+pub async fn get_active_model(
     state: State<'_, Arc<CoreState>>,
 ) -> Result<Option<ResolvedModel>, String> {
-    let conn = state.open_db().map_err(|e| e.to_string())?;
-    let client = OllamaClient::default_local();
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = state.open_db().map_err(|e| e.to_string())?;
+        let client = OllamaClient::default_local();
 
-    match state.resolver().resolve(&conn, &client) {
-        Ok(resolved) => Ok(Some(resolved)),
-        Err(PreferenceError::NoModelAvailable) => Ok(None),
-        Err(PreferenceError::OllamaUnavailable(_)) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+        match state.resolver().resolve(&conn, &client) {
+            Ok(resolved) => Ok(Some(resolved)),
+            Err(PreferenceError::NoModelAvailable) => Ok(None),
+            Err(PreferenceError::OllamaUnavailable(_)) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Clear the active model (revert to automatic selection).
@@ -314,14 +340,19 @@ const VERIFY_SYSTEM: &str = "You are being tested. Respond with only the word OK
 /// Sends a simple non-medical test prompt and checks for a response.
 /// SEC-L6-12: Uses test-only prompt, never patient data.
 /// QA-L6-14: Returns bool success, not the raw response.
+/// Runs on a blocking thread to avoid freezing the UI (LLM generate call).
 #[tauri::command]
-pub fn verify_ai_model(model_name: String) -> Result<bool, String> {
+pub async fn verify_ai_model(model_name: String) -> Result<bool, String> {
     validate_model_name(&model_name).map_err(|e| e.to_string())?;
-    let client = OllamaClient::default_local();
-    match client.generate(&model_name, VERIFY_PROMPT, VERIFY_SYSTEM) {
-        Ok(response) => Ok(response.trim().contains("OK")),
-        Err(e) => Err(e.to_string()),
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = OllamaClient::default_local();
+        match client.generate(&model_name, VERIFY_PROMPT, VERIFY_SYSTEM) {
+            Ok(response) => Ok(response.trim().contains("OK")),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 #[cfg(test)]
@@ -359,12 +390,12 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn health_check_does_not_panic() {
+    #[tokio::test]
+    async fn health_check_does_not_panic() {
         // Health check should never panic regardless of Ollama availability.
         // In CI: returns Err (not reachable) or Ok({ reachable: false })
         // In dev: may return Ok({ reachable: true }) if Ollama is running
-        let result = ollama_health_check();
+        let result = ollama_health_check().await;
         match result {
             Err(msg) => assert!(!msg.is_empty(), "Error message should not be empty"),
             Ok(health) => {
@@ -391,9 +422,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn verify_rejects_invalid_model_name() {
-        let result = verify_ai_model("../../../etc/passwd".to_string());
+    #[tokio::test]
+    async fn verify_rejects_invalid_model_name() {
+        let result = verify_ai_model("../../../etc/passwd".to_string()).await;
         assert!(result.is_err());
     }
 }
