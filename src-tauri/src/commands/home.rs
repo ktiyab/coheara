@@ -1,9 +1,12 @@
 //! L3-02 Home & Document Feed — Tauri IPC commands.
 //!
-//! Three commands:
+//! Commands:
 //! - `get_home_data`: unified fetch for the entire home screen
 //! - `get_more_documents`: paginated document feed for infinite scroll
 //! - `dismiss_alert`: dismiss a coherence observation
+//! - `get_recent_symptoms`: LP-07 recent symptoms for dashboard
+//! - `get_extraction_suggestions`: LP-07 proactive suggestions
+//! - `dismiss_extraction_suggestion`: LP-07 dismiss a suggestion
 
 use std::sync::Arc;
 
@@ -13,8 +16,9 @@ use uuid::Uuid;
 
 use crate::core_state::CoreState;
 use crate::home::{
-    compute_onboarding, fetch_document_detail, fetch_profile_stats, fetch_recent_documents,
-    DocumentCard, DocumentDetail, HomeData,
+    compute_onboarding, dismiss_suggestion, fetch_document_detail, fetch_profile_stats,
+    fetch_recent_documents, fetch_recent_symptoms, generate_extraction_suggestions, DocumentCard,
+    DocumentDetail, ExtractionSuggestion, HomeData, RecentSymptomCard,
 };
 
 /// Valid alert types matching the dismissed_alerts CHECK constraint.
@@ -120,4 +124,44 @@ pub fn search_documents(
 
     crate::db::search_documents_fts(&conn, &query, doc_type_filter.as_deref(), 50)
         .map_err(|e| e.to_string())
+}
+
+/// LP-07: Fetches recent symptoms for the Home dashboard.
+#[tauri::command]
+pub fn get_recent_symptoms(
+    limit: Option<u32>,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<RecentSymptomCard>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let clamped = limit.unwrap_or(5).clamp(1, 20);
+
+    state.update_activity();
+
+    fetch_recent_symptoms(&conn, clamped).map_err(|e| e.to_string())
+}
+
+/// LP-07: Generates proactive extraction suggestions for the Home dashboard.
+#[tauri::command]
+pub fn get_extraction_suggestions(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<ExtractionSuggestion>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    state.update_activity();
+
+    generate_extraction_suggestions(&conn).map_err(|e| e.to_string())
+}
+
+/// LP-07: Dismisses a suggestion so it does not reappear.
+#[tauri::command]
+pub fn dismiss_extraction_suggestion(
+    suggestion_type: String,
+    entity_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<(), String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+
+    state.update_activity();
+
+    dismiss_suggestion(&conn, &suggestion_type, &entity_id).map_err(|e| e.to_string())
 }

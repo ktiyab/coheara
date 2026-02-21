@@ -70,6 +70,20 @@
     "nudge_medication_prefill": "Ich habe kuerzlich {med} angefangen und fuehle mich...",
     "nudge_checkin_title": "Zeit fuer einen Check-in",
     "nudge_checkin_default": "Es sind einige Tage vergangen — moechten Sie notieren, wie Sie sich fuehlen?",
-    "nudge_dismiss_aria": "Check-in Vorschlag verwerfen"
+    "nudge_dismiss_aria": "Check-in Vorschlag verwerfen",
+    "insights_heading": "Gesundheitsinformationen",
+    "insights_show_more": "{count} weitere anzeigen",
+    "suggestions_heading": "Vorschläge",
+    "symptoms_heading": "Aktuelle Symptome",
+    "symptoms_severity": "Schweregrad",
+    "symptoms_still_active": "Aktiv",
+    "symptoms_resolved": "Abgeklungen",
+    "symptoms_log_new": "Symptom erfassen",
+    "symptoms_related_to": "Bezogen auf {medication}",
+    "symptoms_prefill": "Ich möchte mein Symptom {specific} aktualisieren.",
+    "meds_recently_changed": "{count, plural, one {# kürzlich geändert} other {# kürzlich geändert}}",
+    "feature_timeline_title": "Sehen Sie Ihren Gesundheitsverlauf",
+    "feature_timeline_body": "Medikamente, Symptome, Termine und Laborergebnisse — alles auf einer Zeitachse. Erkennen Sie Muster, verfolgen Sie Fortschritte und verstehen Sie Ihre Geschichte.",
+    "feature_timeline_cta": "Zeitachse öffnen"
   }
 }

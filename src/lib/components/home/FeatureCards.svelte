@@ -1,8 +1,8 @@
-<!-- V8-B6: Feature teaching cards — LP-06: 2 cards (Documents + Chat). -->
+<!-- V8-B6: Feature teaching cards — LP-07: 3 cards (Documents + Chat + Timeline). -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { FileSearchOutline, MessagesOutline } from 'flowbite-svelte-icons';
+  import { FileSearchOutline, MessagesOutline, ClockOutline } from 'flowbite-svelte-icons';
   import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
@@ -27,11 +27,19 @@
       action: 'chat',
       primary: false,
     },
+    {
+      icon: ClockOutline,
+      titleKey: 'home.feature_timeline_title',
+      bodyKey: 'home.feature_timeline_body',
+      ctaKey: 'home.feature_timeline_cta',
+      action: 'timeline',
+      primary: false,
+    },
   ];
 </script>
 
 <div class="px-6 mt-4">
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     {#each cards as card}
       <div class="bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700 rounded-xl p-6 flex flex-col">
         <!-- Icon -->

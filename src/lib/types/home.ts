@@ -44,3 +44,24 @@ export interface HomeData {
   onboarding: OnboardingProgress;
   critical_alerts: CriticalLabAlert[];
 }
+
+/** LP-07: Recent symptom for the Home dashboard. */
+export interface RecentSymptomCard {
+  id: string;
+  category: string;
+  specific: string;
+  severity: number;
+  onset_date: string;
+  still_active: boolean;
+  related_medication_name: string | null;
+}
+
+/** LP-07: Proactive extraction suggestion. */
+export interface ExtractionSuggestion {
+  id: string;
+  suggestion_type: string;
+  message: string;
+  source_context: string;
+  action_label: string;
+  chat_prefill: string;
+}

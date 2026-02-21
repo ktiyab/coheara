@@ -70,6 +70,20 @@
     "nudge_medication_prefill": "I recently started {med} and I'm feeling...",
     "nudge_checkin_title": "Time for a check-in",
     "nudge_checkin_default": "It's been a few days — would you like to note how you're feeling?",
-    "nudge_dismiss_aria": "Dismiss check-in suggestion"
+    "nudge_dismiss_aria": "Dismiss check-in suggestion",
+    "insights_heading": "Health Insights",
+    "insights_show_more": "Show {count} more",
+    "suggestions_heading": "Suggestions",
+    "symptoms_heading": "Recent Symptoms",
+    "symptoms_severity": "Severity",
+    "symptoms_still_active": "Active",
+    "symptoms_resolved": "Resolved",
+    "symptoms_log_new": "Log new symptom",
+    "symptoms_related_to": "Related to {medication}",
+    "symptoms_prefill": "I want to update my {specific} symptom.",
+    "meds_recently_changed": "{count, plural, one {# recently changed} other {# recently changed}}",
+    "feature_timeline_title": "See your health journey",
+    "feature_timeline_body": "Medications, symptoms, appointments, and lab results — all on one timeline. Spot patterns, track progress, and understand your history.",
+    "feature_timeline_cta": "Open timeline"
   }
 }

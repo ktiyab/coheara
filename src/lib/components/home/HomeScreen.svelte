@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t, locale } from 'svelte-i18n';
-  import { getHomeData, getMoreDocuments } from '$lib/api/home';
+  import { getHomeData, getMoreDocuments, getRecentSymptoms, getExtractionSuggestions, dismissExtractionSuggestion } from '$lib/api/home';
   import { listen } from '@tauri-apps/api/event';
   import { isTauriEnv } from '$lib/utils/tauri';
-  import type { HomeData, DocumentCard } from '$lib/types/home';
+  import type { HomeData, DocumentCard, RecentSymptomCard, ExtractionSuggestion } from '$lib/types/home';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { ai } from '$lib/stores/ai.svelte';
@@ -13,7 +13,9 @@
   import FeatureCards from './FeatureCards.svelte';
   import CompanionCard from './CompanionCard.svelte';
   import CriticalAlertBanner from './CriticalAlertBanner.svelte';
-  import ObservationsBanner from './ObservationsBanner.svelte';
+  import HealthInsightCards from './HealthInsightCards.svelte';
+  import RecentSymptoms from './RecentSymptoms.svelte';
+  import ExtractionSuggestions from './ExtractionSuggestions.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
@@ -39,6 +41,8 @@
   let appointments: StoredAppointment[] = $state([]);
   let activeMeds: MedicationCard[] = $state([]);
   let nudge: { should_nudge: boolean; nudge_type: string | null; message: string | null; related_medication: string | null } | null = $state(null);
+  let recentSymptoms: RecentSymptomCard[] = $state([]);
+  let suggestions: ExtractionSuggestion[] = $state([]);
   let aiBannerDismissed = $state(false);
   let loading = $state(true);
   let error: string | null = $state(null);
@@ -48,18 +52,22 @@
     try {
       loading = true;
       error = null;
-      const [data, alerts, caregiverData, appts, medData] = await Promise.all([
+      const [data, alerts, caregiverData, appts, medData, symptomData, suggestionData] = await Promise.all([
         getHomeData(),
         getCoherenceAlerts().catch(() => [] as CoherenceAlert[]),
         getCaregiverSummaries().catch(() => [] as CaregiverSummary[]),
         listAppointments().catch(() => [] as StoredAppointment[]),
         getMedications({ status: 'Active', prescriber_id: null, search_query: null, include_otc: true })
           .catch(() => ({ medications: [] as MedicationCard[], total_active: 0, total_paused: 0, total_stopped: 0, prescribers: [] })),
+        getRecentSymptoms(5).catch(() => [] as RecentSymptomCard[]),
+        getExtractionSuggestions().catch(() => [] as ExtractionSuggestion[]),
       ]);
       homeData = data;
       dependents = caregiverData;
       appointments = appts;
       activeMeds = medData.medications;
+      recentSymptoms = symptomData;
+      suggestions = suggestionData;
       // Show only non-dismissed, standard/info severity observations (exclude critical — handled by CriticalAlertBanner)
       observations = alerts.filter(a => !a.dismissed && a.severity !== 'Critical');
       // LP-01: Refresh pending extraction items
@@ -158,40 +166,47 @@
       onretry={refresh}
     />
   {:else if homeData}
-    <!-- Critical lab alerts — shown first for patient safety -->
+    <!-- ═══ ZONE A: SAFETY ═══ -->
     {#if homeData.critical_alerts.length > 0}
-      <CriticalAlertBanner
-        alerts={homeData.critical_alerts}
-      />
+      <CriticalAlertBanner alerts={homeData.critical_alerts} />
     {/if}
 
-    <!-- L2-03/GAP-M02: Non-critical coherence observations -->
-    {#if observations.length > 0}
-      <ObservationsBanner
-        alerts={observations}
-        onDismiss={refresh}
-      />
-    {/if}
+    <!-- ═══ ZONE B: ATTENTION (what needs action now) ═══ -->
+    <!-- LP-01: Morning review of batch-extracted health data -->
+    <ExtractionReview />
 
-    <!-- LP-07: Check-in nudge (Zone A — above extraction review) -->
+    <!-- LP-07: Check-in nudge -->
     {#if nudge}
       <NudgeCard {nudge} />
     {/if}
 
-    <!-- LP-01: Morning review of batch-extracted health data -->
-    <ExtractionReview />
+    <!-- LP-07: Health insight cards (replaces ObservationsBanner) -->
+    {#if observations.length > 0}
+      <HealthInsightCards alerts={observations} onDismiss={refresh} />
+    {/if}
 
-    <!-- Spec 46 [CG-02]: Caregiver dashboard (above personal content) -->
+    <!-- LP-07: Extraction suggestions -->
+    {#if suggestions.length > 0}
+      <ExtractionSuggestions
+        {suggestions}
+        onDismiss={async (type, entityId) => {
+          await dismissExtractionSuggestion(type, entityId).catch(() => {});
+          suggestions = suggestions.filter(s => s.id !== `suggestion-${type.split('_')[0]}-${entityId}`);
+          // Re-fetch to get accurate list
+          getExtractionSuggestions().then(s => { suggestions = s; }).catch(() => {});
+        }}
+      />
+    {/if}
+
+    <!-- ═══ ZONE C: CONTEXT ═══ -->
     {#if dependents.length > 0}
       <CaregiverDashboard {dependents} />
     {/if}
 
-    <!-- V8-B5: Progress block (new users — replaces OnboardingMilestones + EmptyState) -->
     {#if !homeData.onboarding.first_document_loaded || !homeData.onboarding.first_document_reviewed || !homeData.onboarding.first_question_asked}
       <ProgressBlock progress={homeData.onboarding} />
     {/if}
 
-    <!-- Spec 47 [OB-03]: AI setup banner — only after first document, only when AI not configured -->
     {#if homeData.stats.total_documents > 0 && !ai.isAiAvailable && !aiBannerDismissed}
       <div class="mx-6 mt-3 p-4 bg-[var(--color-primary-50)] border border-[var(--color-primary-200)] rounded-xl">
         <p class="text-sm font-medium text-[var(--color-text-primary)] mb-1">
@@ -211,10 +226,9 @@
       </div>
     {/if}
 
-    <!-- Spec 49: Upcoming appointments surfacing -->
+    <!-- ═══ ZONE D: STATUS (current health snapshot) ═══ -->
+    <RecentSymptoms symptoms={recentSymptoms} />
     <UpcomingAppointments {appointments} />
-
-    <!-- Spec 49: Active medications surfacing -->
     <ActiveMedsSummary medications={activeMeds} />
 
     <!-- Document feed (populated state) -->

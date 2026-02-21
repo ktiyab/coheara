@@ -55,9 +55,18 @@
             </p>
           </div>
           {#if !appt.prep_generated}
-            <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning-50)] text-[var(--color-warning-800)]">
+            <button
+              class="shrink-0 text-xs px-2 py-1 rounded-full bg-[var(--color-warning-50)] text-[var(--color-warning-800)]
+                     hover:bg-[var(--color-warning-100)] transition-colors"
+              onclick={(e) => {
+                e.stopPropagation();
+                const prefill = `I have an appointment with ${appt.professional_name} (${appt.professional_specialty}) on ${appt.date}. Help me prepare.`;
+                navigation.navigate('chat', { prefill });
+              }}
+              aria-label={$t('home.upcoming_prep_needed')}
+            >
               {$t('home.upcoming_prep_needed')}
-            </span>
+            </button>
           {/if}
         </button>
       {/each}

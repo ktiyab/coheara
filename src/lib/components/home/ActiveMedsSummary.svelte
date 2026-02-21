@@ -13,6 +13,13 @@
   let { medications }: Props = $props();
 
   let active = $derived(medications.filter((m) => m.status === 'Active'));
+
+  let recentlyChangedCount = $derived.by(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const cutoff = sevenDaysAgo.toISOString().slice(0, 10);
+    return active.filter((m) => m.start_date && m.start_date >= cutoff).length;
+  });
 </script>
 
 {#if active.length > 0}
@@ -31,6 +38,11 @@
       <div class="flex-1 min-w-0">
         <p class="text-sm font-medium text-[var(--color-text-primary)]">
           {$t('home.meds_active_count', { values: { count: active.length } })}
+          {#if recentlyChangedCount > 0}
+            <span class="ml-1 text-xs font-normal text-amber-600 dark:text-amber-400">
+              · {$t('home.meds_recently_changed', { values: { count: recentlyChangedCount } }) ?? `${recentlyChangedCount} recently changed`}
+            </span>
+          {/if}
         </p>
         <p class="text-xs text-[var(--color-text-muted)] truncate">
           {active.slice(0, 3).map((m) => m.generic_name).join(', ')}

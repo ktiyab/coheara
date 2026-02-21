@@ -98,6 +98,29 @@ pub struct HomeData {
     pub critical_alerts: Vec<crate::trust::CriticalLabAlert>,
 }
 
+/// LP-07: A recent symptom card for the Home dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentSymptomCard {
+    pub id: String,
+    pub category: String,
+    pub specific: String,
+    pub severity: u32,
+    pub onset_date: String,
+    pub still_active: bool,
+    pub related_medication_name: Option<String>,
+}
+
+/// LP-07: A proactive suggestion for the Home dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionSuggestion {
+    pub id: String,
+    pub suggestion_type: String,
+    pub message: String,
+    pub source_context: String,
+    pub action_label: String,
+    pub chat_prefill: String,
+}
+
 // ---------------------------------------------------------------------------
 // Repository functions
 // ---------------------------------------------------------------------------
@@ -265,6 +288,283 @@ pub fn compute_onboarding(conn: &Connection) -> Result<OnboardingProgress, Datab
         three_documents_loaded: doc_count >= 3,
         first_symptom_recorded: symptom_count >= 1,
     })
+}
+
+// ---------------------------------------------------------------------------
+// LP-07: Recent symptoms
+// ---------------------------------------------------------------------------
+
+/// Fetches the N most recent symptoms for the Home dashboard.
+pub fn fetch_recent_symptoms(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<RecentSymptomCard>, DatabaseError> {
+    let clamped = limit.clamp(1, 20);
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.category, s.specific, s.severity, s.onset_date,
+                s.still_active, m.generic_name AS related_medication_name
+         FROM symptoms s
+         LEFT JOIN medications m ON s.related_medication_id = m.id
+         ORDER BY s.onset_date DESC, s.recorded_date DESC
+         LIMIT ?1",
+    )?;
+
+    let rows = stmt.query_map(params![clamped], |row| {
+        Ok(RecentSymptomCard {
+            id: row.get(0)?,
+            category: row.get(1)?,
+            specific: row.get(2)?,
+            severity: row.get(3)?,
+            onset_date: row.get(4)?,
+            still_active: row.get(5)?,
+            related_medication_name: row.get(6)?,
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+// ---------------------------------------------------------------------------
+// LP-07: Extraction suggestions
+// ---------------------------------------------------------------------------
+
+/// Common symptom keywords for rule R1 (substring matching, no LLM).
+const COMMON_SYMPTOMS: &[&str] = &[
+    "headache", "nausea", "fatigue", "fever", "back pain", "cough",
+    "anxiety", "sleep", "dizziness", "chest pain", "shortness of breath",
+    "stomach", "joint pain", "rash", "sore throat",
+];
+
+/// Generates proactive suggestions based on recent data patterns (rule-based, no LLM).
+pub fn generate_extraction_suggestions(
+    conn: &Connection,
+) -> Result<Vec<ExtractionSuggestion>, DatabaseError> {
+    let mut suggestions: Vec<ExtractionSuggestion> = Vec::new();
+
+    // R3: Appointment prep — appointment within 48h, no prep generated
+    {
+        let mut stmt = conn.prepare(
+            "SELECT a.id, p.name, p.specialty, a.date
+             FROM appointments a
+             LEFT JOIN professionals p ON a.professional_id = p.id
+             WHERE a.date BETWEEN date('now') AND date('now', '+2 days')
+               AND a.pre_summary_generated = 0
+               AND NOT EXISTS (
+                 SELECT 1 FROM dismissed_suggestions ds
+                 WHERE ds.suggestion_type = 'appointment_prep' AND ds.entity_id = a.id
+               )
+             ORDER BY a.date ASC
+             LIMIT 2",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: Option<String> = row.get(1)?;
+            let specialty: Option<String> = row.get(2)?;
+            let date: String = row.get(3)?;
+            Ok((id, name, specialty, date))
+        })?;
+        for row in rows {
+            let (id, name, specialty, date) = row?;
+            let prof = name.as_deref().unwrap_or("your doctor");
+            let spec = specialty.as_deref().unwrap_or("");
+            let spec_suffix = if spec.is_empty() {
+                String::new()
+            } else {
+                format!(" ({spec})")
+            };
+            suggestions.push(ExtractionSuggestion {
+                id: format!("suggestion-appt-{id}"),
+                suggestion_type: "appointment_prep".to_string(),
+                message: format!("You see {prof}{spec_suffix} on {date}. Want to prepare?"),
+                source_context: format!("Upcoming appointment: {prof}{spec_suffix}"),
+                action_label: "Prepare now".to_string(),
+                chat_prefill: format!(
+                    "I have an appointment with {prof}{spec_suffix} on {date}. Help me prepare."
+                ),
+            });
+        }
+    }
+
+    // R2: Medication update — dose changed in last 7 days, no post-change symptom
+    {
+        let mut stmt = conn.prepare(
+            "SELECT dc.id, m.generic_name, dc.old_dose, dc.new_dose, dc.change_date
+             FROM dose_changes dc
+             JOIN medications m ON dc.medication_id = m.id
+             WHERE dc.change_date > date('now', '-7 days')
+               AND NOT EXISTS (
+                 SELECT 1 FROM symptoms s
+                 WHERE s.onset_date >= dc.change_date
+                   AND s.related_medication_id = dc.medication_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM dismissed_suggestions ds
+                 WHERE ds.suggestion_type = 'medication_update' AND ds.entity_id = dc.id
+               )
+             ORDER BY dc.change_date DESC
+             LIMIT 2",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let _old_dose: Option<String> = row.get(2)?;
+            let _new_dose: Option<String> = row.get(3)?;
+            let change_date: String = row.get(4)?;
+            Ok((id, name, change_date))
+        })?;
+        for row in rows {
+            let (id, name, _change_date) = row?;
+            suggestions.push(ExtractionSuggestion {
+                id: format!("suggestion-med-{id}"),
+                suggestion_type: "medication_update".to_string(),
+                message: format!("Your {name} dose was recently changed. How are you feeling?"),
+                source_context: format!("Recent dose change: {name}"),
+                action_label: "Tell the AI".to_string(),
+                chat_prefill: format!(
+                    "My {name} dose was recently changed. I want to share how I'm feeling."
+                ),
+            });
+        }
+    }
+
+    // R4: Lab follow-up — abnormal result in last 14 days, not discussed in chat
+    {
+        let mut stmt = conn.prepare(
+            "SELECT lr.id, lr.test_name, lr.abnormal_flag
+             FROM lab_results lr
+             WHERE lr.abnormal_flag != 'normal'
+               AND lr.collection_date > date('now', '-14 days')
+               AND NOT EXISTS (
+                 SELECT 1 FROM messages m
+                 WHERE m.role = 'patient'
+                   AND m.content LIKE '%' || lr.test_name || '%'
+                   AND m.timestamp > lr.collection_date
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM dismissed_suggestions ds
+                 WHERE ds.suggestion_type = 'lab_follow_up' AND ds.entity_id = lr.id
+               )
+             ORDER BY lr.collection_date DESC
+             LIMIT 2",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let test_name: String = row.get(1)?;
+            let _flag: String = row.get(2)?;
+            Ok((id, test_name))
+        })?;
+        for row in rows {
+            let (id, test_name) = row?;
+            suggestions.push(ExtractionSuggestion {
+                id: format!("suggestion-lab-{id}"),
+                suggestion_type: "lab_follow_up".to_string(),
+                message: format!(
+                    "Your {test_name} result was flagged. Want to understand what it means?"
+                ),
+                source_context: format!("Abnormal lab result: {test_name}"),
+                action_label: "Ask the AI".to_string(),
+                chat_prefill: format!(
+                    "My recent {test_name} lab result was flagged as abnormal. Can you explain what this means?"
+                ),
+            });
+        }
+    }
+
+    // R1: Symptom tracking — recent chat mentions symptom keyword, not tracked
+    {
+        let mut stmt = conn.prepare(
+            "SELECT m.content
+             FROM messages m
+             WHERE m.role = 'patient'
+               AND m.timestamp > datetime('now', '-2 days')
+             ORDER BY m.timestamp DESC
+             LIMIT 10",
+        )?;
+        let messages: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for keyword in COMMON_SYMPTOMS {
+            let mentioned = messages.iter().any(|msg| {
+                msg.to_lowercase().contains(keyword)
+            });
+            if !mentioned {
+                continue;
+            }
+
+            // Check if already tracked in symptoms table within same window
+            let already_tracked: bool = conn
+                .query_row(
+                    "SELECT EXISTS(
+                       SELECT 1 FROM symptoms
+                       WHERE LOWER(specific) LIKE '%' || ?1 || '%'
+                         AND onset_date > date('now', '-2 days')
+                     )",
+                    params![keyword],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if already_tracked {
+                continue;
+            }
+
+            // Check if dismissed
+            let dismissed: bool = conn
+                .query_row(
+                    "SELECT EXISTS(
+                       SELECT 1 FROM dismissed_suggestions
+                       WHERE suggestion_type = 'symptom_tracking' AND entity_id = ?1
+                     )",
+                    params![keyword],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if dismissed {
+                continue;
+            }
+
+            suggestions.push(ExtractionSuggestion {
+                id: format!("suggestion-symptom-{keyword}"),
+                suggestion_type: "symptom_tracking".to_string(),
+                message: format!(
+                    "You mentioned {keyword} recently. Want to track this symptom?"
+                ),
+                source_context: format!("Mentioned in chat: {keyword}"),
+                action_label: "Track it".to_string(),
+                chat_prefill: format!(
+                    "I want to log a {keyword} symptom I've been experiencing."
+                ),
+            });
+
+            // Cap symptom suggestions at 2
+            let symptom_count = suggestions
+                .iter()
+                .filter(|s| s.suggestion_type == "symptom_tracking")
+                .count();
+            if symptom_count >= 2 {
+                break;
+            }
+        }
+    }
+
+    // Return max 5 total (already ordered by priority: appt > med > lab > symptom)
+    suggestions.truncate(5);
+    Ok(suggestions)
+}
+
+/// Persists a dismissed suggestion to prevent re-surfacing.
+pub fn dismiss_suggestion(
+    conn: &Connection,
+    suggestion_type: &str,
+    entity_id: &str,
+) -> Result<(), DatabaseError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT OR IGNORE INTO dismissed_suggestions (id, suggestion_type, entity_id, dismissed_date)
+         VALUES (?1, ?2, ?3, datetime('now'))",
+        params![id, suggestion_type, entity_id],
+    )?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -992,5 +1292,232 @@ mod tests {
             detail.professional_specialty.as_deref(),
             Some("Endocrinology")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // LP-07: fetch_recent_symptoms
+    // -----------------------------------------------------------------------
+
+    fn insert_test_symptom(
+        conn: &Connection,
+        id: &str,
+        category: &str,
+        specific: &str,
+        severity: u32,
+        onset_date: &str,
+        still_active: bool,
+        related_medication_id: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO symptoms (id, category, specific, severity, onset_date, recorded_date, still_active, related_medication_id, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 'patient_reported')",
+            params![id, category, specific, severity, onset_date, still_active, related_medication_id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fetch_recent_symptoms_empty() {
+        let conn = open_memory_database().unwrap();
+        let symptoms = fetch_recent_symptoms(&conn, 5).unwrap();
+        assert!(symptoms.is_empty());
+    }
+
+    #[test]
+    fn fetch_recent_symptoms_ordered_by_onset() {
+        let conn = open_memory_database().unwrap();
+        let s1 = Uuid::new_v4().to_string();
+        let s2 = Uuid::new_v4().to_string();
+
+        insert_test_symptom(&conn, &s1, "Pain", "Headache", 3, "2025-01-10", true, None);
+        insert_test_symptom(&conn, &s2, "Digestive", "Nausea", 2, "2025-01-15", false, None);
+
+        let symptoms = fetch_recent_symptoms(&conn, 5).unwrap();
+        assert_eq!(symptoms.len(), 2);
+        // Most recent first
+        assert_eq!(symptoms[0].specific, "Nausea");
+        assert_eq!(symptoms[1].specific, "Headache");
+        assert!(!symptoms[0].still_active);
+        assert!(symptoms[1].still_active);
+    }
+
+    #[test]
+    fn fetch_recent_symptoms_with_medication_join() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+        insert_test_medication(&conn, &doc_id);
+
+        // Get the medication ID we just inserted
+        let med_id: String = conn
+            .query_row("SELECT id FROM medications LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+
+        let s1 = Uuid::new_v4().to_string();
+        insert_test_symptom(&conn, &s1, "Pain", "Side effect", 2, "2025-01-15", true, Some(&med_id));
+
+        let symptoms = fetch_recent_symptoms(&conn, 5).unwrap();
+        assert_eq!(symptoms.len(), 1);
+        assert_eq!(
+            symptoms[0].related_medication_name.as_deref(),
+            Some("Metformin")
+        );
+    }
+
+    #[test]
+    fn fetch_recent_symptoms_limit_clamped() {
+        let conn = open_memory_database().unwrap();
+        for i in 0..10 {
+            let id = Uuid::new_v4().to_string();
+            insert_test_symptom(
+                &conn,
+                &id,
+                "Pain",
+                &format!("Symptom {i}"),
+                2,
+                &format!("2025-01-{:02}", i + 1),
+                true,
+                None,
+            );
+        }
+
+        let symptoms = fetch_recent_symptoms(&conn, 3).unwrap();
+        assert_eq!(symptoms.len(), 3);
+        // Should be the 3 most recent
+        assert_eq!(symptoms[0].specific, "Symptom 9");
+    }
+
+    // -----------------------------------------------------------------------
+    // LP-07: generate_extraction_suggestions
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn generate_suggestions_empty() {
+        let conn = open_memory_database().unwrap();
+        let suggestions = generate_extraction_suggestions(&conn).unwrap();
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn generate_suggestions_appointment_prep() {
+        let conn = open_memory_database().unwrap();
+        let prof_id = Uuid::new_v4().to_string();
+        insert_test_professional(&conn, &prof_id, "Dr. Chen", "Cardiology");
+
+        let appt_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO appointments (id, professional_id, date, type, pre_summary_generated)
+             VALUES (?1, ?2, date('now', '+1 day'), 'upcoming', 0)",
+            params![appt_id, prof_id],
+        )
+        .unwrap();
+
+        let suggestions = generate_extraction_suggestions(&conn).unwrap();
+        assert!(!suggestions.is_empty());
+        assert_eq!(suggestions[0].suggestion_type, "appointment_prep");
+        assert!(suggestions[0].message.contains("Dr. Chen"));
+    }
+
+    #[test]
+    fn generate_suggestions_medication_update() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+        insert_test_medication(&conn, &doc_id);
+
+        let med_id: String = conn
+            .query_row("SELECT id FROM medications LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+
+        let dc_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO dose_changes (id, medication_id, old_dose, new_dose, change_date, reason)
+             VALUES (?1, ?2, '500mg', '1000mg', date('now', '-2 days'), 'increased')",
+            params![dc_id, med_id],
+        )
+        .unwrap();
+
+        let suggestions = generate_extraction_suggestions(&conn).unwrap();
+        let med_sugg = suggestions
+            .iter()
+            .find(|s| s.suggestion_type == "medication_update");
+        assert!(med_sugg.is_some());
+        assert!(med_sugg.unwrap().message.contains("Metformin"));
+    }
+
+    #[test]
+    fn generate_suggestions_excludes_dismissed() {
+        let conn = open_memory_database().unwrap();
+        let prof_id = Uuid::new_v4().to_string();
+        insert_test_professional(&conn, &prof_id, "Dr. Chen", "Cardiology");
+
+        let appt_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO appointments (id, professional_id, date, type, pre_summary_generated)
+             VALUES (?1, ?2, date('now', '+1 day'), 'upcoming', 0)",
+            params![appt_id, prof_id],
+        )
+        .unwrap();
+
+        // Dismiss it
+        dismiss_suggestion(&conn, "appointment_prep", &appt_id).unwrap();
+
+        let suggestions = generate_extraction_suggestions(&conn).unwrap();
+        assert!(
+            suggestions.iter().all(|s| s.suggestion_type != "appointment_prep"),
+            "Dismissed suggestion should not reappear"
+        );
+    }
+
+    #[test]
+    fn generate_suggestions_priority_order() {
+        let conn = open_memory_database().unwrap();
+
+        // Create appointment_prep trigger
+        let prof_id = Uuid::new_v4().to_string();
+        insert_test_professional(&conn, &prof_id, "Dr. Chen", "Cardiology");
+        let appt_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO appointments (id, professional_id, date, type, pre_summary_generated)
+             VALUES (?1, ?2, date('now', '+1 day'), 'upcoming', 0)",
+            params![appt_id, prof_id],
+        )
+        .unwrap();
+
+        // Create medication_update trigger
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+        insert_test_medication(&conn, &doc_id);
+        let med_id: String = conn
+            .query_row("SELECT id FROM medications LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        let dc_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO dose_changes (id, medication_id, old_dose, new_dose, change_date, reason)
+             VALUES (?1, ?2, '500mg', '1000mg', date('now', '-2 days'), 'increased')",
+            params![dc_id, med_id],
+        )
+        .unwrap();
+
+        let suggestions = generate_extraction_suggestions(&conn).unwrap();
+        assert!(suggestions.len() >= 2);
+        // appointment_prep should come before medication_update
+        assert_eq!(suggestions[0].suggestion_type, "appointment_prep");
+        assert_eq!(suggestions[1].suggestion_type, "medication_update");
+    }
+
+    #[test]
+    fn dismiss_suggestion_persists() {
+        let conn = open_memory_database().unwrap();
+        dismiss_suggestion(&conn, "symptom_tracking", "headache").unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dismissed_suggestions WHERE suggestion_type = 'symptom_tracking' AND entity_id = 'headache'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }
