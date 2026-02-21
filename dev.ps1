@@ -173,7 +173,7 @@ function Ensure-Tessdata {
     }
 
     $baseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main"
-    foreach ($lang in @("eng", "fra")) {
+    foreach ($lang in @("eng", "fra", "deu")) {
         $target = Join-Path $tessdataDir "$lang.traineddata"
         if (-not (Test-Path $target)) {
             Log-Info "Downloading $lang.traineddata..."

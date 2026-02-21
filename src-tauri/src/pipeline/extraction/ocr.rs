@@ -14,22 +14,37 @@ pub struct BundledTesseract {
 #[cfg(feature = "ocr")]
 impl BundledTesseract {
     /// Initialize with a tessdata directory.
-    /// Defaults to "eng+fra" if French traineddata is available, "eng" otherwise.
+    /// Defaults to "eng+fra+deu" when all three are available, progressively
+    /// falls back to "eng+fra", "eng+deu", or "eng" based on what's installed.
     pub fn new(tessdata_dir: &std::path::Path) -> Result<Self, ExtractionError> {
         if !tessdata_dir.join("eng.traineddata").exists() {
             return Err(ExtractionError::TessdataNotFound(tessdata_dir.to_path_buf()));
         }
 
-        // EXT-04-G01: Default to bilingual English+French
-        let default_lang = if tessdata_dir.join("fra.traineddata").exists() {
-            tracing::info!("French traineddata found, defaulting to eng+fra");
-            "eng+fra".to_string()
-        } else {
-            tracing::warn!(
-                "French traineddata (fra.traineddata) not found at {}, using English only",
-                tessdata_dir.display()
-            );
-            "eng".to_string()
+        // EXT-04-G01: Default to multilingual OCR based on available traineddata
+        let has_fra = tessdata_dir.join("fra.traineddata").exists();
+        let has_deu = tessdata_dir.join("deu.traineddata").exists();
+
+        let default_lang = match (has_fra, has_deu) {
+            (true, true) => {
+                tracing::info!("French + German traineddata found, defaulting to eng+fra+deu");
+                "eng+fra+deu".to_string()
+            }
+            (true, false) => {
+                tracing::info!("French traineddata found, defaulting to eng+fra");
+                "eng+fra".to_string()
+            }
+            (false, true) => {
+                tracing::info!("German traineddata found, defaulting to eng+deu");
+                "eng+deu".to_string()
+            }
+            (false, false) => {
+                tracing::warn!(
+                    "No additional traineddata found at {}, using English only",
+                    tessdata_dir.display()
+                );
+                "eng".to_string()
+            }
         };
 
         Ok(Self {
@@ -277,10 +292,12 @@ mod tests {
             return; // Skip on systems without Tesseract
         }
         let engine = BundledTesseract::new(tessdata_dir).unwrap();
-        // Default is "eng+fra" if French traineddata exists, otherwise "eng"
+        // Default depends on which traineddata files are available
+        let valid = ["eng", "eng+fra", "eng+deu", "eng+fra+deu"];
         assert!(
-            engine.default_lang == "eng" || engine.default_lang == "eng+fra",
-            "Expected eng or eng+fra, got {}",
+            valid.contains(&engine.default_lang.as_str()),
+            "Expected one of {:?}, got {}",
+            valid,
             engine.default_lang
         );
     }

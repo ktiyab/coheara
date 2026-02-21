@@ -260,7 +260,7 @@ ensure_tessdata() {
     fi
 
     local base_url="https://github.com/tesseract-ocr/tessdata_best/raw/main"
-    for lang in eng fra; do
+    for lang in eng fra deu; do
         if [[ ! -f "$tessdata_dir/$lang.traineddata" ]]; then
             log_info "Downloading $lang.traineddata..."
             if curl -fsSL -o "$tessdata_dir/$lang.traineddata" "$base_url/$lang.traineddata" 2>/dev/null; then

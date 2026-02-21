@@ -441,6 +441,43 @@ function Install-VcpkgTesseract {
     return $true
 }
 
+# ── Tessdata bootstrap ────────────────────────────────────────────────────
+function Ensure-Tessdata {
+    # Locate tessdata directory: TESSDATA_PREFIX > vcpkg default > VCPKG_ROOT
+    $tessdataDir = $null
+    if ($env:TESSDATA_PREFIX -and (Test-Path $env:TESSDATA_PREFIX)) {
+        $tessdataDir = $env:TESSDATA_PREFIX
+    } elseif (Test-Path "C:\vcpkg\installed\x64-windows-static-md\share\tessdata") {
+        $tessdataDir = "C:\vcpkg\installed\x64-windows-static-md\share\tessdata"
+    } elseif ($env:VCPKG_ROOT) {
+        $candidate = Join-Path $env:VCPKG_ROOT "installed\x64-windows-static-md\share\tessdata"
+        if (Test-Path $candidate) { $tessdataDir = $candidate }
+    }
+
+    if (-not $tessdataDir) {
+        Log-Warn "Tessdata directory not found - OCR will be unavailable for scanned documents"
+        Log-Info "Install Tesseract: vcpkg install tesseract:x64-windows-static-md"
+        return
+    }
+
+    $baseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main"
+    foreach ($lang in @("eng", "fra", "deu")) {
+        $target = Join-Path $tessdataDir "$lang.traineddata"
+        if (-not (Test-Path $target)) {
+            Log-Info "Downloading $lang.traineddata..."
+            try {
+                Invoke-WebRequest -Uri "$baseUrl/$lang.traineddata" -OutFile $target -UseBasicParsing
+                Log-Ok "Downloaded $lang.traineddata"
+            } catch {
+                Log-Warn "Failed to download $lang.traineddata: $_"
+            }
+        }
+    }
+
+    $env:TESSDATA_PREFIX = $tessdataDir
+    Log-Ok "Tessdata ready: $tessdataDir"
+}
+
 # ── Dependency Checking ────────────────────────────────────────────────────
 function Check-Dependencies {
     param([string]$Target)
@@ -901,7 +938,10 @@ function Invoke-Setup {
         Log-Ok "i18n locales built"
     } finally { Pop-Location }
 
-    # 4. Check Rust toolchain
+    # 4. Ensure Tesseract tessdata for OCR
+    Ensure-Tessdata
+
+    # 5. Check Rust toolchain
     if ($CargoPath) {
         $rustVer = & $CargoPath --version 2>$null | Select-Object -First 1
         Log-Ok "Rust: $rustVer"
@@ -909,7 +949,7 @@ function Invoke-Setup {
         Log-Warn "Rust: not found (frontend-only mode will still work)"
     }
 
-    # 5. npm audit summary
+    # 6. npm audit summary
     Log-Info "Running npm audit..."
     Push-Location $ProjectRoot
     try {
@@ -925,6 +965,7 @@ function Invoke-Setup {
 function Invoke-Desktop {
     Detect-PrestagedMobile
     Check-Dependencies "desktop"
+    Ensure-Tessdata
     Load-Credentials
     Build-Frontend
     if (-not $MobileSkipped) {
@@ -951,6 +992,7 @@ function Invoke-Android {
 function Invoke-All {
     Detect-PrestagedMobile
     Check-Dependencies "all"
+    Ensure-Tessdata
     Load-Credentials
     Build-Frontend
     if (-not $MobileSkipped) {

@@ -165,6 +165,50 @@ install_linux_deps() {
     return 1
 }
 
+# ── Tessdata bootstrap ────────────────────────────────────────────────────
+ensure_tessdata() {
+    local tessdata_dir=""
+
+    # Locate tessdata directory: TESSDATA_PREFIX > system paths
+    if [[ -n "${TESSDATA_PREFIX:-}" && -d "$TESSDATA_PREFIX" ]]; then
+        tessdata_dir="$TESSDATA_PREFIX"
+    else
+        local candidates=(
+            "/usr/share/tesseract-ocr/5/tessdata"
+            "/usr/share/tesseract-ocr/4.00/tessdata"
+            "/usr/share/tessdata"
+            "/usr/local/share/tessdata"
+        )
+        for candidate in "${candidates[@]}"; do
+            if [[ -d "$candidate" ]]; then
+                tessdata_dir="$candidate"
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$tessdata_dir" ]]; then
+        log_warn "Tessdata directory not found - OCR will be unavailable for scanned documents"
+        log_info "Install: sudo apt install tesseract-ocr"
+        return
+    fi
+
+    local base_url="https://github.com/tesseract-ocr/tessdata_best/raw/main"
+    for lang in eng fra deu; do
+        if [[ ! -f "$tessdata_dir/$lang.traineddata" ]]; then
+            log_info "Downloading $lang.traineddata..."
+            if curl -fsSL -o "$tessdata_dir/$lang.traineddata" "$base_url/$lang.traineddata" 2>/dev/null; then
+                log_ok "Downloaded $lang.traineddata"
+            else
+                log_warn "Failed to download $lang.traineddata (try: sudo apt install tesseract-ocr-$lang)"
+            fi
+        fi
+    done
+
+    export TESSDATA_PREFIX="$tessdata_dir"
+    log_ok "Tessdata ready: $tessdata_dir"
+}
+
 # ── Dependency Checking ────────────────────────────────────────────────────
 check_dependencies() {
     local target="$1"
@@ -546,7 +590,10 @@ cmd_setup() {
     node src/lib/i18n/build-locales.js
     log_ok "i18n locales built"
 
-    # 4. Check Rust toolchain
+    # 4. Ensure Tesseract tessdata for OCR
+    ensure_tessdata
+
+    # 5. Check Rust toolchain
     if [[ -n "${CARGO:-}" && -x "$CARGO" ]]; then
         local rust_ver
         rust_ver=$("$CARGO" --version 2>/dev/null | head -1)
@@ -555,7 +602,7 @@ cmd_setup() {
         log_warn "Rust: not found (frontend-only mode will still work)"
     fi
 
-    # 5. npm audit summary
+    # 6. npm audit summary
     log_info "Running npm audit..."
     npm audit 2>/dev/null | tail -5 || true
 
@@ -568,6 +615,7 @@ cmd_setup() {
 cmd_desktop() {
     detect_prestaged_mobile
     check_dependencies "desktop"
+    ensure_tessdata
     load_credentials
     build_frontend
     if [[ "$SKIP_MOBILE" != true ]]; then
@@ -594,6 +642,7 @@ cmd_android() {
 cmd_all() {
     detect_prestaged_mobile
     check_dependencies "all"
+    ensure_tessdata
     load_credentials
     build_frontend
     if [[ "$SKIP_MOBILE" != true ]]; then
