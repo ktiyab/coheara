@@ -8,6 +8,7 @@ pub mod language_detect;
 pub mod medical_correction;
 pub mod column_detect;
 pub mod table_detect;
+pub mod pdf_renderer;
 pub mod orchestrator;
 
 pub use types::*;

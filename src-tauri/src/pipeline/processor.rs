@@ -612,7 +612,11 @@ fn update_ocr_confidence(
 pub fn build_processor(model: &str) -> Result<DocumentProcessor, ProcessingError> {
     let ocr = build_ocr_engine()?;
     let pdf = Box::new(crate::pipeline::extraction::pdf::PdfTextExtractor);
-    let extractor = Box::new(DocumentExtractor::new(ocr, pdf));
+    let extractor = Box::new(
+        DocumentExtractor::new(ocr, pdf).with_pdf_renderer(Box::new(
+            crate::pipeline::extraction::pdf_renderer::LopdfImageExtractor,
+        )),
+    );
 
     let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
     tracing::info!(model = %model, "Document processor using LLM model");
