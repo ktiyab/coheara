@@ -2,12 +2,9 @@
   "nav": {
     "home": "Accueil",
     "chat": "Chat",
-    "journal": "Journal",
-    "medications": "Méds",
     "more": "Plus",
     "documents": "Documents",
     "timeline": "Chronologie",
-    "appointments": "Rendez-vous",
     "settings": "Paramètres",
     "go_back": "Retour",
     "skip_to_content": "Aller au contenu principal",

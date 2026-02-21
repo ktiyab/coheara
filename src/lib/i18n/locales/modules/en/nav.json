@@ -2,12 +2,9 @@
   "nav": {
     "home": "Home",
     "chat": "Chat",
-    "journal": "Journal",
-    "medications": "Meds",
     "more": "More",
     "documents": "Documents",
     "timeline": "Timeline",
-    "appointments": "Appointments",
     "settings": "Settings",
     "go_back": "Go back",
     "skip_to_content": "Skip to main content",

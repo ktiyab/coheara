@@ -2,12 +2,9 @@
   "nav": {
     "home": "Start",
     "chat": "Chat",
-    "journal": "Tagebuch",
-    "medications": "Medis",
     "more": "Mehr",
     "documents": "Dokumente",
     "timeline": "Zeitstrahl",
-    "appointments": "Termine",
     "settings": "Einstellungen",
     "go_back": "Zurück",
     "skip_to_content": "Zum Hauptinhalt springen",
