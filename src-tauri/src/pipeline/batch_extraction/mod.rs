@@ -29,6 +29,9 @@ pub mod store;
 pub mod scheduler;
 pub mod runner;
 pub mod dispatch;
+pub mod duplicate;
+pub mod context;
+pub mod background;
 
 pub use error::ExtractionError;
 pub use types::*;
@@ -40,3 +43,5 @@ pub use store::{SqlitePendingStore, create_pending_item};
 pub use scheduler::{SqliteBatchScheduler, new_batch_id};
 pub use runner::{BatchRunner, run_full_batch, ConversationExtractionResult};
 pub use dispatch::dispatch_item;
+pub use duplicate::check_duplicate;
+pub use context::load_patient_context;

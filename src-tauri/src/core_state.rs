@@ -180,6 +180,14 @@ impl CoreState {
             .unwrap_or(false)
     }
 
+    /// Minutes since last user activity (for batch extraction idle check).
+    pub fn idle_minutes(&self) -> u64 {
+        self.last_activity
+            .lock()
+            .map(|last| last.elapsed().as_secs() / 60)
+            .unwrap_or(0)
+    }
+
     // ── Audit logging ───────────────────────────────────────
 
     /// Log an access event. Auto-flushes to DB when buffer is full (IMP-002).

@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use rusqlite::Connection;
 
+use super::duplicate::check_duplicate;
 use super::error::ExtractionError;
 use super::scheduler::new_batch_id;
 use super::store::create_pending_item;
@@ -150,7 +151,7 @@ impl BatchRunner {
                         verified_item.item.data,
                         verified_item.confidence,
                         verified_item.grounding,
-                        None, // TODO: duplicate detection
+                        None, // Duplicate detection runs in run_full_batch (needs DB access)
                         source_ids,
                     );
 
@@ -229,12 +230,30 @@ pub fn run_full_batch(
         }
 
         match runner.extract_conversation(conv, patient_context, llm) {
-            Ok(extraction) => {
+            Ok(mut extraction) => {
                 if extraction.skipped {
                     result.conversations_skipped += 1;
                 } else {
                     result.conversations_processed += 1;
                     result.items_extracted += extraction.items.len() as u32;
+
+                    // Check duplicates against existing DB records
+                    let conv_date = conv.last_message_at.date();
+                    for item in &mut extraction.items {
+                        let dup_status = check_duplicate(
+                            conn,
+                            item.domain,
+                            &item.extracted_data,
+                            conv_date,
+                        );
+                        match &dup_status {
+                            DuplicateStatus::AlreadyTracked { existing_id }
+                            | DuplicateStatus::PossibleDuplicate { existing_id } => {
+                                item.duplicate_of = Some(existing_id.clone());
+                            }
+                            DuplicateStatus::New => {}
+                        }
+                    }
 
                     // Store pending items
                     if !extraction.items.is_empty() {

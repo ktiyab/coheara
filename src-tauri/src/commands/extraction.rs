@@ -191,6 +191,10 @@ pub fn trigger_extraction_batch(
         let _ = app.emit("extraction-progress", &event);
     };
 
+    // Load patient context from DB for LLM disambiguation
+    let patient_context = crate::pipeline::batch_extraction::context::load_patient_context(&conn)
+        .unwrap_or_default();
+
     let result = run_full_batch(
         &conn,
         &scheduler,
@@ -198,7 +202,7 @@ pub fn trigger_extraction_batch(
         &store,
         &llm,
         &config,
-        &PatientContext::default(),
+        &patient_context,
         Some(&progress_fn),
     )
     .map_err(|e| e.to_string())?;

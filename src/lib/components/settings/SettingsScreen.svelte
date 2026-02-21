@@ -1,9 +1,14 @@
 <!-- V16: Settings hub — grouped rows with inline controls (macOS / Raycast pattern). -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { lockProfile } from '$lib/api/profile';
+  import { getUserPreference, setUserPreference } from '$lib/api/ai';
+  import { triggerExtractionBatch } from '$lib/api/extraction';
+  import { extraction } from '$lib/stores/extraction.svelte';
+  import { isTauriEnv } from '$lib/utils/tauri';
   import LanguageSelector from './LanguageSelector.svelte';
   import { soundManager } from '$lib/utils/sound';
   import { theme, type Theme } from '$lib/stores/theme.svelte';
@@ -11,8 +16,9 @@
     BrainSolid, UserSolid, MobilePhoneSolid, LockSolid,
     PaletteSolid, VolumeUpSolid, InfoCircleSolid, SunSolid, MoonSolid,
     GlobeSolid, ChevronRightOutline, ArrowRightToBracketOutline,
+    ClipboardCheckOutline, PlayOutline,
   } from 'flowbite-svelte-icons';
-  import { Toggle, Range } from 'flowbite-svelte';
+  import { Toggle, Range, Select } from 'flowbite-svelte';
 
   const APP_VERSION = '0.2.0';
 
@@ -45,6 +51,52 @@
     const target = e.target as HTMLInputElement;
     soundVolume = parseFloat(target.value);
     soundManager.setVolume(soundVolume);
+  }
+
+  // ── LP-01: Extraction settings ──
+  let extractionEnabled = $state(true);
+  let batchHour = $state('2');
+  let batchRunning = $state(false);
+  let batchResult = $state<string | null>(null);
+
+  const hourOptions = Array.from({ length: 24 }, (_, i) => ({
+    value: String(i),
+    name: `${i === 0 ? '12' : i > 12 ? String(i - 12) : String(i)}:00 ${i < 12 ? 'AM' : 'PM'}`,
+  }));
+
+  onMount(async () => {
+    if (!isTauriEnv()) return;
+    const enabledPref = await getUserPreference('extraction_enabled').catch(() => null);
+    if (enabledPref !== null) extractionEnabled = enabledPref !== 'false';
+    const hourPref = await getUserPreference('batch_start_hour').catch(() => null);
+    if (hourPref !== null) batchHour = hourPref;
+  });
+
+  async function toggleExtraction() {
+    extractionEnabled = !extractionEnabled;
+    await setUserPreference('extraction_enabled', String(extractionEnabled)).catch(() => {});
+  }
+
+  async function updateBatchHour(e: Event) {
+    const target = e.target as HTMLSelectElement;
+    batchHour = target.value;
+    await setUserPreference('batch_start_hour', batchHour).catch(() => {});
+  }
+
+  async function runBatchNow() {
+    batchRunning = true;
+    batchResult = null;
+    try {
+      const result = await triggerExtractionBatch();
+      batchResult = $t('settings.extraction_batch_result', {
+        values: { processed: result.conversations_processed, extracted: result.items_extracted },
+      });
+      extraction.refresh().catch(() => {});
+    } catch (e) {
+      batchResult = e instanceof Error ? e.message : String(e);
+    } finally {
+      batchRunning = false;
+    }
   }
 </script>
 
@@ -163,6 +215,82 @@
             </div>
           {/if}
         </div>
+      </div>
+    </section>
+
+    <!-- ═══ Section: Extraction (LP-01) ═══ -->
+    <section>
+      <h2 class="text-xs font-semibold text-stone-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-2">
+        {$t('settings.section_extraction')}
+      </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+
+        <!-- Enable extraction — toggle -->
+        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+          <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleExtraction}>
+            <ClipboardCheckOutline class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_enabled')}</span>
+              <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.extraction_enabled_desc')}</p>
+            </div>
+          </button>
+          <Toggle checked={extractionEnabled} color="primary" onchange={toggleExtraction} aria-label={$t('settings.extraction_enabled')} />
+        </div>
+
+        <!-- Batch hour — dropdown -->
+        {#if extractionEnabled}
+          <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+            <div class="flex-1 min-w-0 pl-9">
+              <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_hour')}</span>
+            </div>
+            <Select
+              items={hourOptions}
+              value={batchHour}
+              size="sm"
+              class="w-32"
+              onchange={updateBatchHour}
+              aria-label={$t('settings.extraction_hour')}
+            />
+          </div>
+        {/if}
+
+        <!-- Manual trigger — action button -->
+        <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+          <PlayOutline class="w-5 h-5 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_run_now')}</p>
+            {#if batchResult}
+              <p class="text-xs text-stone-500 dark:text-gray-400">{batchResult}</p>
+            {:else}
+              <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.extraction_run_now_desc')}</p>
+            {/if}
+          </div>
+          <button
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-primary)] text-white
+                   hover:opacity-90 transition-opacity disabled:opacity-50"
+            onclick={runBatchNow}
+            disabled={batchRunning}
+          >
+            {batchRunning ? '...' : $t('settings.extraction_run_btn')}
+          </button>
+        </div>
+
+        <!-- Pending count (read-only) -->
+        {#if extraction.count > 0}
+          <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
+            <div class="flex-1 min-w-0 pl-9">
+              <span class="text-sm text-stone-600 dark:text-gray-300">
+                {$t('settings.extraction_pending', { values: { count: extraction.count } })}
+              </span>
+            </div>
+            <button
+              class="text-xs text-[var(--color-primary)] font-medium hover:underline"
+              onclick={() => navigation.navigate('home')}
+            >
+              {$t('settings.extraction_view')}
+            </button>
+          </div>
+        {/if}
       </div>
     </section>
 

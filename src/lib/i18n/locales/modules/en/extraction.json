@@ -27,6 +27,11 @@
 		"field_frequency": "Frequency",
 		"field_professional": "Professional",
 		"field_specialty": "Specialty",
-		"field_date": "Date"
+		"field_date": "Date",
+		"edit_btn": "Edit",
+		"cancel_edit": "Cancel edit",
+		"save_btn": "Save to records",
+		"batch_starting": "Analyzing conversations...",
+		"batch_progress": "Analyzing conversations... ({completed}/{total})"
 	}
 }

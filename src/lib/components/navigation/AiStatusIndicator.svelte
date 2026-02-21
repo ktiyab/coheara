@@ -1,7 +1,9 @@
 <!-- V8-B2: Inline AI status indicator — replaces green dot + repeating toast -->
+<!-- LP-01: Extended with batch extraction progress display -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { ai } from '$lib/stores/ai.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
   import { ChevronDownOutline } from 'flowbite-svelte-icons';
 
   let open = $state(false);
@@ -42,6 +44,14 @@
     return '';
   });
 
+  /** LP-01: Batch progress display text. */
+  let batchText = $derived.by(() => {
+    if (!extraction.batch.running) return '';
+    const { completed, total } = extraction.batch;
+    if (total === 0) return $t('extraction.batch_starting');
+    return $t('extraction.batch_progress', { values: { completed, total } });
+  });
+
   function toggle() {
     open = !open;
   }
@@ -80,8 +90,15 @@
       aria-haspopup="true"
       aria-expanded={open}
     >
-      <span class="w-2 h-2 rounded-full {dotColors[status]} flex-shrink-0" aria-hidden="true"></span>
-      {#if shortModelName}
+      {#if extraction.batch.running}
+        <!-- Pulsing dot during batch extraction -->
+        <span class="w-2 h-2 rounded-full bg-[var(--color-primary)] animate-pulse flex-shrink-0" aria-hidden="true"></span>
+      {:else}
+        <span class="w-2 h-2 rounded-full {dotColors[status]} flex-shrink-0" aria-hidden="true"></span>
+      {/if}
+      {#if extraction.batch.running}
+        <span class="hidden sm:inline text-[var(--color-primary)]">{batchText}</span>
+      {:else if shortModelName}
         <span class="hidden sm:inline">{shortModelName}</span>
       {/if}
       <ChevronDownOutline class="w-3 h-3 transition-transform {open ? 'rotate-180' : ''}" />
@@ -94,7 +111,7 @@
         role="tooltip"
       >
         <div class="flex items-center gap-2 mb-2">
-          <span class="w-2.5 h-2.5 rounded-full {dotColors[status]}" aria-hidden="true"></span>
+          <span class="w-2.5 h-2.5 rounded-full {extraction.batch.running ? 'bg-[var(--color-primary)] animate-pulse' : dotColors[status]}" aria-hidden="true"></span>
           <span class="text-sm font-medium text-stone-800 dark:text-gray-100">{statusLabel}</span>
         </div>
 
@@ -104,7 +121,21 @@
           </p>
         {/if}
 
-        {#if detailText}
+        {#if extraction.batch.running}
+          <div class="mt-2 pt-2 border-t border-stone-100 dark:border-gray-800">
+            <p class="text-xs font-medium text-[var(--color-primary)] mb-1">
+              {batchText}
+            </p>
+            {#if extraction.batch.total > 0}
+              <div class="w-full h-1.5 rounded-full bg-stone-100 dark:bg-gray-800 overflow-hidden">
+                <div
+                  class="h-full rounded-full bg-[var(--color-primary)] transition-[width] duration-300"
+                  style="width: {Math.round((extraction.batch.completed / extraction.batch.total) * 100)}%"
+                ></div>
+              </div>
+            {/if}
+          </div>
+        {:else if detailText}
           <p class="text-xs text-stone-500 dark:text-gray-400 leading-relaxed">
             {detailText}
           </p>

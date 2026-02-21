@@ -45,6 +45,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(core_state::CoreState::new()))
+        .setup(|app| {
+            // LP-01: Start background batch extraction scheduler
+            pipeline::batch_extraction::background::start_background_scheduler(
+                app.handle().clone(),
+            );
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::health_check,
             commands::check_ai_status,

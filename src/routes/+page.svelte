@@ -8,6 +8,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { ai } from '$lib/stores/ai.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
   import { isTauriEnv } from '$lib/utils/tauri';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import AppShell from '$lib/components/navigation/AppShell.svelte';
@@ -49,6 +50,9 @@
       profile.name = 'Patient';
     }
 
+    // LP-01: Listen for batch extraction progress events
+    extraction.startListening();
+
     // S.2+S.5: One-shot AI status check (immediate baseline + 30s verify)
     if (isTauriEnv()) {
       ai.startupCheck(
@@ -68,6 +72,7 @@
 
   onDestroy(() => {
     ai.cleanup();
+    extraction.stopListening();
   });
 </script>
 

@@ -48,7 +48,8 @@ export interface BatchResult {
 export type BatchStatusEvent =
 	| { Started: { conversation_count: number } }
 	| { Progress: { completed: number; total: number; current_title: string } }
-	| { Completed: { items_found: number; duration_ms: number } };
+	| { Completed: { items_found: number; duration_ms: number } }
+	| { Failed: { error: string } };
 
 /** Domain display labels for the UI. */
 export const DOMAIN_LABELS: Record<ExtractionDomain, string> = {

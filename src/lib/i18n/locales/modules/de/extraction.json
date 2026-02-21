@@ -27,6 +27,11 @@
 		"field_frequency": "H\u00e4ufigkeit",
 		"field_professional": "Fachperson",
 		"field_specialty": "Fachgebiet",
-		"field_date": "Datum"
+		"field_date": "Datum",
+		"edit_btn": "Bearbeiten",
+		"cancel_edit": "Abbrechen",
+		"save_btn": "Speichern",
+		"batch_starting": "Gespr\u00e4che werden analysiert...",
+		"batch_progress": "Gespr\u00e4che werden analysiert... ({completed}/{total})"
 	}
 }

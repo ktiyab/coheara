@@ -49,6 +49,16 @@
     "theme_colorful": "Colorful",
     "section_ai_profile": "AI & Profile",
     "section_preferences": "Preferences",
+    "section_extraction": "Health Extraction",
+    "extraction_enabled": "Auto-extract health data",
+    "extraction_enabled_desc": "Analyze conversations overnight for symptoms, medications, and appointments",
+    "extraction_hour": "Run at",
+    "extraction_run_now": "Run extraction now",
+    "extraction_run_now_desc": "Manually analyze recent conversations",
+    "extraction_run_btn": "Run now",
+    "extraction_batch_result": "Processed {processed} conversations, found {extracted} items",
+    "extraction_pending": "{count} items pending review",
+    "extraction_view": "Review",
     "section_privacy": "Privacy & Devices",
     "section_about": "About"
   }

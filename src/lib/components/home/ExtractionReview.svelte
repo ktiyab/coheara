@@ -19,6 +19,17 @@
 		}
 	}
 
+	async function handleConfirmWithEdits(itemId: string, edits: Record<string, unknown>) {
+		try {
+			errorMsg = null;
+			await extraction.confirmWithEdits(itemId, edits);
+			successMsg = $t('extraction.confirmed_msg');
+			setTimeout(() => (successMsg = null), 2000);
+		} catch (e) {
+			errorMsg = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	async function handleDismiss(itemId: string) {
 		try {
 			errorMsg = null;
@@ -91,7 +102,12 @@
 		<!-- Item cards -->
 		<div class="flex flex-col gap-3">
 			{#each extraction.items as item (item.id)}
-				<ExtractionReviewCard {item} onConfirm={handleConfirm} onDismiss={handleDismiss} />
+				<ExtractionReviewCard
+					{item}
+					onConfirm={handleConfirm}
+					onConfirmWithEdits={handleConfirmWithEdits}
+					onDismiss={handleDismiss}
+				/>
 			{/each}
 		</div>
 	</section>

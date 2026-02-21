@@ -3,6 +3,7 @@
   import { t } from 'svelte-i18n';
   import { navigation, NAV_SECTIONS } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
   import { lockProfile } from '$lib/api/profile';
   import {
     HomeSolid, HomeOutline,
@@ -106,13 +107,27 @@
               aria-current={isActive ? 'page' : undefined}
               title={collapsed ? ($t(item.key) ?? item.id) : undefined}
             >
-              {#if isActive}
-                <item.Active class="w-5 h-5 flex-shrink-0" />
-              {:else}
-                <item.Inactive class="w-5 h-5 flex-shrink-0" />
-              {/if}
+              <span class="relative flex-shrink-0">
+                {#if isActive}
+                  <item.Active class="w-5 h-5" />
+                {:else}
+                  <item.Inactive class="w-5 h-5" />
+                {/if}
+                {#if collapsed && item.id === 'home' && extraction.count > 0}
+                  <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[var(--color-primary)] border-2 border-white dark:border-gray-900"></span>
+                {/if}
+              </span>
               {#if !collapsed}
-                <span class="text-sm truncate">{$t(item.key)}</span>
+                <span class="text-sm truncate flex-1">{$t(item.key)}</span>
+                {#if item.id === 'home' && extraction.count > 0}
+                  <span
+                    class="ml-auto text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center
+                           bg-[var(--color-primary)] text-white"
+                    aria-label="{extraction.count} pending"
+                  >
+                    {extraction.count > 99 ? '99+' : extraction.count}
+                  </span>
+                {/if}
               {/if}
             </button>
           </li>
