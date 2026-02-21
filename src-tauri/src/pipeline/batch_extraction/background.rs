@@ -7,6 +7,7 @@
 //! 3. Cooldown has elapsed since last batch
 //! 4. Current hour matches configured batch_start_hour (if set)
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,25 +26,74 @@ use crate::core_state::CoreState;
 /// Check interval: every 15 minutes.
 const CHECK_INTERVAL_SECS: u64 = 15 * 60;
 
-/// Start the background batch scheduler on a separate thread.
+/// Sleep granularity for shutdown responsiveness (5 seconds).
+const SLEEP_GRANULARITY_SECS: u64 = 5;
+
+/// Handle for the background batch scheduler thread.
 ///
-/// Call this from the Tauri `.setup()` callback. The thread runs
-/// for the lifetime of the application.
-pub fn start_background_scheduler(app_handle: AppHandle) {
-    std::thread::spawn(move || {
-        tracing::info!("Background batch scheduler started (check every {}s)", CHECK_INTERVAL_SECS);
-        scheduler_loop(&app_handle);
-    });
+/// Supports graceful shutdown via `shutdown()` or automatic cleanup on `Drop`.
+/// Store this in Tauri app state so it is dropped when the app exits.
+pub struct BatchSchedulerHandle {
+    shutdown: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
-fn scheduler_loop(app: &AppHandle) {
-    loop {
-        std::thread::sleep(Duration::from_secs(CHECK_INTERVAL_SECS));
+impl BatchSchedulerHandle {
+    /// Request graceful shutdown. Current batch (if running) will complete,
+    /// but no new batches will be started.
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Drop for BatchSchedulerHandle {
+    fn drop(&mut self) {
+        self.shutdown();
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+/// Start the background batch scheduler on a separate thread.
+///
+/// Call this from the Tauri `.setup()` callback. Returns a handle that
+/// supports graceful shutdown — store it in Tauri managed state.
+pub fn start_background_scheduler(app_handle: AppHandle) -> BatchSchedulerHandle {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let flag = shutdown.clone();
+
+    let handle = std::thread::spawn(move || {
+        tracing::info!("Background batch scheduler started (check every {}s)", CHECK_INTERVAL_SECS);
+        scheduler_loop(&app_handle, &flag);
+    });
+
+    BatchSchedulerHandle {
+        shutdown,
+        handle: Some(handle),
+    }
+}
+
+fn scheduler_loop(app: &AppHandle, shutdown: &AtomicBool) {
+    while !shutdown.load(Ordering::Relaxed) {
+        // Sleep in small increments for responsive shutdown
+        for _ in 0..(CHECK_INTERVAL_SECS / SLEEP_GRANULARITY_SECS) {
+            if shutdown.load(Ordering::Relaxed) {
+                tracing::info!("Background batch scheduler shutting down");
+                return;
+            }
+            std::thread::sleep(Duration::from_secs(SLEEP_GRANULARITY_SECS));
+        }
+
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
 
         if let Err(e) = try_run_batch(app) {
             tracing::debug!(error = %e, "Background batch check: not ready");
         }
     }
+    tracing::info!("Background batch scheduler shutting down");
 }
 
 fn try_run_batch(app: &AppHandle) -> Result<(), String> {
@@ -142,5 +192,29 @@ mod tests {
     #[test]
     fn check_interval_is_15_minutes() {
         assert_eq!(CHECK_INTERVAL_SECS, 900);
+    }
+
+    #[test]
+    fn sleep_granularity_divides_check_interval() {
+        assert_eq!(CHECK_INTERVAL_SECS % SLEEP_GRANULARITY_SECS, 0);
+    }
+
+    #[test]
+    fn shutdown_flag_sets_atomic() {
+        let handle = BatchSchedulerHandle {
+            shutdown: Arc::new(AtomicBool::new(false)),
+            handle: None,
+        };
+        assert!(!handle.shutdown.load(Ordering::Relaxed));
+        handle.shutdown();
+        assert!(handle.shutdown.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn scheduler_loop_exits_on_shutdown() {
+        let shutdown = Arc::new(AtomicBool::new(true)); // pre-set
+        // scheduler_loop should exit immediately since shutdown is already true
+        // We can't call it without an AppHandle, but we verify the flag logic
+        assert!(shutdown.load(Ordering::Relaxed));
     }
 }

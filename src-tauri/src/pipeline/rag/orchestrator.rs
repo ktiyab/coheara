@@ -19,6 +19,21 @@ use crate::pipeline::storage::types::EmbeddingModel;
 /// Trait for LLM text generation within the RAG pipeline.
 pub trait LlmGenerate {
     fn generate(&self, system: &str, prompt: &str) -> Result<String, RagError>;
+
+    /// Stream tokens via channel during generation.
+    ///
+    /// Default implementation falls back to non-streaming: generates the full
+    /// response, then sends it as a single token. Override for progressive output.
+    fn generate_streaming(
+        &self,
+        system: &str,
+        prompt: &str,
+        token_tx: std::sync::mpsc::Sender<String>,
+    ) -> Result<String, RagError> {
+        let result = self.generate(system, prompt)?;
+        let _ = token_tx.send(result.clone());
+        Ok(result)
+    }
 }
 
 /// Full RAG pipeline orchestrator.
@@ -189,6 +204,100 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         };
 
         // Step 13: Build response
+        let context_used = build_context_summary(&assembled, &retrieved.structured_data);
+
+        Ok(RagResponse {
+            text: display_text,
+            citations,
+            confidence,
+            query_type,
+            context_used,
+            boundary_check,
+        })
+    }
+
+    /// Generate a RAG response with streaming tokens.
+    ///
+    /// Same pipeline as `generate()` (steps 1-7 identical), but step 8 uses
+    /// `generate_streaming()` to emit tokens progressively via `token_tx`.
+    /// The full response is still returned for post-processing (citations, safety).
+    pub fn generate_streaming(
+        &self,
+        query: &PatientQuery,
+        token_tx: std::sync::mpsc::Sender<String>,
+    ) -> Result<RagResponse, RagError> {
+        // Steps 1-7: identical to generate()
+        let query_type = query
+            .query_type
+            .clone()
+            .unwrap_or_else(|| classify_query(&query.text));
+
+        let params = retrieval_strategy(&query_type);
+
+        let retrieved = retrieve(
+            &query.text,
+            self.embedder,
+            self.vector_store,
+            &params,
+            self.conn,
+        )?;
+
+        let has_semantic = !retrieved.semantic_chunks.is_empty();
+        let has_structured = !retrieved.structured_data.medications.is_empty()
+            || !retrieved.structured_data.diagnoses.is_empty()
+            || !retrieved.structured_data.allergies.is_empty()
+            || !retrieved.structured_data.lab_results.is_empty()
+            || !retrieved.structured_data.symptoms.is_empty();
+
+        if !has_semantic && !has_structured {
+            return Ok(self.no_context_result(query_type));
+        }
+
+        let assembled = assemble_context(&retrieved, &query_type);
+
+        if assembled.text.is_empty() {
+            return Ok(self.no_context_result(query_type));
+        }
+
+        let conversation_mgr = ConversationManager::new(self.conn);
+        let history = conversation_mgr
+            .get_history(query.conversation_id)
+            .unwrap_or_default();
+
+        let sanitized_query = sanitize_patient_input(&query.text, 2000)
+            .map(|s| s.text)
+            .unwrap_or_else(|_| query.text.clone());
+
+        let prompt = build_conversation_prompt(&sanitized_query, &assembled, &history);
+
+        // Step 8: Generate with streaming (tokens flow via channel)
+        let system_prompt = conversation_system_prompt_i18n(&self.lang);
+        let raw_response = self
+            .generator
+            .generate_streaming(&system_prompt, &prompt, token_tx)?;
+
+        // Steps 9-13: post-processing (identical to generate())
+        let (boundary_check, cleaned_response) = parse_boundary_check(&raw_response);
+        let raw_citations = extract_citations(&cleaned_response, &assembled.chunks_included);
+        let citations = validate_citations(self.conn, raw_citations);
+        let display_text = clean_citations_for_display(&cleaned_response);
+
+        let confidence = calculate_confidence(
+            &boundary_check,
+            citations.len(),
+            assembled.chunks_included.len(),
+        );
+
+        let display_text = if confidence < 0.3 {
+            tracing::info!(confidence, "Low RAG confidence — adding disclaimer");
+            format!(
+                "**Note:** This response is based on limited information from your documents. \
+                Please verify with your healthcare provider.\n\n{display_text}"
+            )
+        } else {
+            display_text
+        };
+
         let context_used = build_context_summary(&assembled, &retrieved.structured_data);
 
         Ok(RagResponse {

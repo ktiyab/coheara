@@ -22,8 +22,9 @@ pub fn list_profiles(state: State<'_, Arc<CoreState>>) -> Result<Vec<ProfileInfo
 }
 
 /// Create a new profile, auto-open session, return info + recovery phrase.
+/// Runs on a blocking thread to avoid freezing the UI (Argon2 KDF is CPU-heavy).
 #[tauri::command]
-pub fn create_profile(
+pub async fn create_profile(
     name: String,
     password: String,
     managed_by: Option<String>,
@@ -32,127 +33,158 @@ pub fn create_profile(
     address: Option<String>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileCreateResult, String> {
-    // Parse date_of_birth from ISO 8601 string (YYYY-MM-DD)
-    let dob = date_of_birth
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid date of birth format: {e}"))
-        })
-        .transpose()?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Parse date_of_birth from ISO 8601 string (YYYY-MM-DD)
+        let dob = date_of_birth
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map_err(|e| format!("Invalid date of birth format: {e}"))
+            })
+            .transpose()?;
 
-    let (info, phrase) = profile::create_profile(
-        &state.profiles_dir,
-        &name,
-        &password,
-        managed_by.as_deref(),
-        dob,
-        country.as_deref(),
-        address.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
-
-    // Auto-open the newly created profile
-    let session = profile::open_profile(&state.profiles_dir, &info.id, &password)
+        let (info, phrase) = profile::create_profile(
+            &state.profiles_dir,
+            &name,
+            &password,
+            managed_by.as_deref(),
+            dob,
+            country.as_deref(),
+            address.as_deref(),
+        )
         .map_err(|e| e.to_string())?;
 
-    state.set_session(session).map_err(|e| e.to_string())?;
-    state.update_activity();
+        // Auto-open the newly created profile
+        let session = profile::open_profile(&state.profiles_dir, &info.id, &password)
+            .map_err(|e| e.to_string())?;
 
-    // Notify connected phones about profile change (RS-M0-03-003)
-    if let Ok(mut devices) = state.write_devices() {
-        devices.broadcast(WsOutgoing::ProfileChanged {
-            profile_name: info.name.clone(),
-        });
-    }
+        state.set_session(session).map_err(|e| e.to_string())?;
+        state.update_activity();
 
-    Ok(ProfileCreateResult {
-        profile: info,
-        recovery_phrase: phrase.words().iter().map(|w| w.to_string()).collect(),
+        // Notify connected phones about profile change (RS-M0-03-003)
+        if let Ok(mut devices) = state.write_devices() {
+            devices.broadcast(WsOutgoing::ProfileChanged {
+                profile_name: info.name.clone(),
+            });
+        }
+
+        Ok(ProfileCreateResult {
+            profile: info,
+            recovery_phrase: phrase.words().iter().map(|w| w.to_string()).collect(),
+        })
     })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Unlock a profile with password.
+/// Runs on a blocking thread to avoid freezing the UI (Argon2 KDF is CPU-heavy).
 #[tauri::command]
-pub fn unlock_profile(
+pub async fn unlock_profile(
     profile_id: String,
     password: String,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileInfo, String> {
-    let id = Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let id =
+            Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
 
-    let session =
-        profile::open_profile(&state.profiles_dir, &id, &password).map_err(|e| e.to_string())?;
+        let session = profile::open_profile(&state.profiles_dir, &id, &password)
+            .map_err(|e| e.to_string())?;
 
-    // Load full ProfileInfo from disk (includes DOB, color_index, managed_by)
-    let profiles = profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())?;
-    let info = profiles
-        .into_iter()
-        .find(|p| p.id == id)
-        .unwrap_or_else(|| ProfileInfo {
-            id: session.profile_id,
-            name: session.profile_name.clone(),
-            created_at: chrono::Local::now().naive_local(),
-            managed_by: None,
-            password_hint: None,
-            date_of_birth: None,
-            color_index: None,
-            country: None,
-            address: None,
-        });
+        // Load full ProfileInfo from disk (includes DOB, color_index, managed_by)
+        let profiles =
+            profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())?;
+        let info = profiles
+            .into_iter()
+            .find(|p| p.id == id)
+            .unwrap_or_else(|| ProfileInfo {
+                id: session.profile_id,
+                name: session.profile_name.clone(),
+                created_at: chrono::Local::now().naive_local(),
+                managed_by: None,
+                password_hint: None,
+                date_of_birth: None,
+                color_index: None,
+                country: None,
+                address: None,
+            });
 
-    state.set_session(session).map_err(|e| e.to_string())?;
-    state.update_activity();
+        state.set_session(session).map_err(|e| e.to_string())?;
+        state.update_activity();
 
-    // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
-    if let Err(e) = state.hydrate_devices() {
-        tracing::warn!("Failed to hydrate devices: {e}");
-    }
+        // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
+        if let Err(e) = state.hydrate_devices() {
+            tracing::warn!("Failed to hydrate devices: {e}");
+        }
 
-    // P.6: Startup consistency cleanup (repair stuck pipeline states, trust drift)
-    {
-        let guard = state.read_session().map_err(|e| e.to_string())?;
-        if let Some(session) = guard.as_ref() {
-            match crate::db::sqlite::open_database(session.db_path(), Some(session.key_bytes())) {
-                Ok(conn) => match crate::db::repository::repair_consistency(&conn) {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(repairs = n, "P.6: Startup consistency cleanup applied"),
-                    Err(e) => tracing::warn!(error = %e, "P.6: Startup consistency cleanup failed"),
-                },
-                Err(e) => tracing::warn!(error = %e, "P.6: Could not open DB for startup cleanup"),
+        // P.6: Startup consistency cleanup (repair stuck pipeline states, trust drift)
+        {
+            let guard = state.read_session().map_err(|e| e.to_string())?;
+            if let Some(session) = guard.as_ref() {
+                match crate::db::sqlite::open_database(
+                    session.db_path(),
+                    Some(session.key_bytes()),
+                ) {
+                    Ok(conn) => match crate::db::repository::repair_consistency(&conn) {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!(
+                            repairs = n,
+                            "P.6: Startup consistency cleanup applied"
+                        ),
+                        Err(e) => tracing::warn!(
+                            error = %e,
+                            "P.6: Startup consistency cleanup failed"
+                        ),
+                    },
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "P.6: Could not open DB for startup cleanup"
+                    ),
+                }
             }
         }
-    }
 
-    // Notify connected phones about profile change (RS-M0-03-003)
-    if let Ok(mut devices) = state.write_devices() {
-        devices.broadcast(WsOutgoing::ProfileChanged {
-            profile_name: info.name.clone(),
-        });
-    }
+        // Notify connected phones about profile change (RS-M0-03-003)
+        if let Ok(mut devices) = state.write_devices() {
+            devices.broadcast(WsOutgoing::ProfileChanged {
+                profile_name: info.name.clone(),
+            });
+        }
 
-    Ok(info)
+        Ok(info)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Change the password for the currently active profile (RS-L3-01-001).
+/// Runs on a blocking thread to avoid freezing the UI (Argon2 KDF is CPU-heavy).
 #[tauri::command]
-pub fn change_profile_password(
+pub async fn change_profile_password(
     current_password: String,
     new_password: String,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
-    let guard = state.read_session().map_err(|e| e.to_string())?;
-    let session = guard.as_ref().ok_or("No active profile session")?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard.as_ref().ok_or("No active profile session")?;
 
-    profile::change_password(
-        &state.profiles_dir,
-        &session.profile_id,
-        &current_password,
-        &new_password,
-        session.key_bytes(),
-    )
-    .map_err(|e| e.to_string())
+        profile::change_password(
+            &state.profiles_dir,
+            &session.profile_id,
+            &current_password,
+            &new_password,
+            session.key_bytes(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Lock the current profile (zeroes encryption key).
@@ -166,33 +198,41 @@ pub fn lock_profile(state: State<'_, Arc<CoreState>>) {
 }
 
 /// Recover a profile using BIP39 recovery phrase.
+/// Runs on a blocking thread to avoid freezing the UI (crypto operations).
 #[tauri::command]
-pub fn recover_profile(
+pub async fn recover_profile(
     profile_id: String,
     recovery_phrase: String,
     _new_password: String,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
-    let id = Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let id =
+            Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
 
-    let session = profile::recover_profile(&state.profiles_dir, &id, &recovery_phrase)
-        .map_err(|e| e.to_string())?;
+        let session =
+            profile::recover_profile(&state.profiles_dir, &id, &recovery_phrase)
+                .map_err(|e| e.to_string())?;
 
-    let profile_name = session.profile_name.clone();
-    state.set_session(session).map_err(|e| e.to_string())?;
-    state.update_activity();
+        let profile_name = session.profile_name.clone();
+        state.set_session(session).map_err(|e| e.to_string())?;
+        state.update_activity();
 
-    // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
-    if let Err(e) = state.hydrate_devices() {
-        tracing::warn!("Failed to hydrate devices: {e}");
-    }
+        // Hydrate paired devices from DB so they survive app restarts (RS-ME-02-001)
+        if let Err(e) = state.hydrate_devices() {
+            tracing::warn!("Failed to hydrate devices: {e}");
+        }
 
-    // Notify connected phones about profile change (RS-M0-03-003)
-    if let Ok(mut devices) = state.write_devices() {
-        devices.broadcast(WsOutgoing::ProfileChanged { profile_name });
-    }
+        // Notify connected phones about profile change (RS-M0-03-003)
+        if let Ok(mut devices) = state.write_devices() {
+            devices.broadcast(WsOutgoing::ProfileChanged { profile_name });
+        }
 
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Check if a profile session is currently active.
@@ -227,20 +267,30 @@ pub fn get_active_profile_info(
 }
 
 /// Delete a profile and all its data (cryptographic erasure).
+/// Runs on a blocking thread to avoid freezing the UI (file I/O operations).
 #[tauri::command]
-pub fn delete_profile(profile_id: String, state: State<'_, Arc<CoreState>>) -> Result<(), String> {
-    let id = Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
+pub async fn delete_profile(
+    profile_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let id =
+            Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
 
-    // Lock if deleting the currently active profile
-    let active_id = state
-        .read_session()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|s| s.profile_id));
-    if active_id == Some(id) {
-        state.lock();
-    }
+        // Lock if deleting the currently active profile
+        let active_id = state
+            .read_session()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|s| s.profile_id));
+        if active_id == Some(id) {
+            state.lock();
+        }
 
-    profile::delete_profile(&state.profiles_dir, &id).map_err(|e| e.to_string())
+        profile::delete_profile(&state.profiles_dir, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 /// Check for inactivity timeout — called periodically from frontend.
@@ -282,7 +332,8 @@ pub fn get_caregiver_summaries(
     }
 
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let summaries: CaregiverSummaries = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    let summaries: CaregiverSummaries =
+        serde_json::from_str(&data).map_err(|e| e.to_string())?;
 
     // Filter to only dependents managed by the current profile
     Ok(summaries

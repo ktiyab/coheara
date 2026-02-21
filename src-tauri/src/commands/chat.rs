@@ -47,78 +47,111 @@ pub fn start_conversation(state: State<'_, Arc<CoreState>>) -> Result<String, St
 /// 3. Update conversation title from first message
 /// 4. Try RAG pipeline if Ollama is available; otherwise emit placeholder
 /// 5. Filter RAG response through safety layers before emitting
+///
+/// Runs on a blocking thread via `spawn_blocking` — the RAG pipeline uses
+/// `reqwest::blocking::Client` for Ollama HTTP calls (10-30s), which would
+/// freeze the UI if run on the main thread.
 #[tauri::command]
-pub fn send_chat_message(
+pub async fn send_chat_message(
     conversation_id: String,
     text: String,
     state: State<'_, Arc<CoreState>>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let db_path = state.db_path().map_err(|e| e.to_string())?;
-    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = state.db_path().map_err(|e| e.to_string())?;
+        let conn = state.open_db().map_err(|e| e.to_string())?;
 
-    let conv_uuid =
-        Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
+        let conv_uuid =
+            Uuid::parse_str(&conversation_id).map_err(|e| format!("Invalid conversation ID: {e}"))?;
 
-    let manager = ConversationManager::new(&conn);
-    // I18N-06: Use profile language for safety fallback messages
-    let lang = state.get_profile_language();
-    let safety = SafetyFilterImpl::with_language(&lang);
+        let manager = ConversationManager::new(&conn);
+        // I18N-06: Use profile language for safety fallback messages
+        let lang = state.get_profile_language();
+        let safety = SafetyFilterImpl::with_language(&lang);
 
-    // 1. Sanitize patient input (L2-02: remove injection patterns, control chars)
-    let sanitized = safety
-        .sanitize_input(&text)
-        .map_err(|e| format!("Input sanitization failed: {e}"))?;
+        // 1. Sanitize patient input (L2-02: remove injection patterns, control chars)
+        let sanitized = safety
+            .sanitize_input(&text)
+            .map_err(|e| format!("Input sanitization failed: {e}"))?;
 
-    if sanitized.was_modified {
-        tracing::info!(
-            modifications = sanitized.modifications.len(),
-            "Patient input sanitized before processing"
-        );
-    }
-
-    // 2. Save patient message (sanitized)
-    manager
-        .add_patient_message(conv_uuid, &sanitized.text)
-        .map_err(|e| e.to_string())?;
-
-    // 3. Update conversation title from first message if still default
-    let history = manager.get_history(conv_uuid).map_err(|e| e.to_string())?;
-    let patient_messages: Vec<_> = history
-        .iter()
-        .filter(|m| m.role == MessageRole::Patient)
-        .collect();
-    if patient_messages.len() == 1 {
-        let title = generate_title(&sanitized.text);
-        let _ = update_conversation_title(&conn, &conversation_id, &title);
-    }
-
-    // 4. Resolve active model via preferences (L6-04), then attempt RAG pipeline
-    let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
-    let resolved_model = state
-        .resolver()
-        .resolve(&conn, &ollama_client)
-        .ok()
-        .map(|r| r.name);
-    let db_key = state.db_key().ok();
-    match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref(), &lang) {
-        Some(rag_response) => {
-            // 5. Filter RAG response through safety layers
-            emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
+        if sanitized.was_modified {
+            tracing::info!(
+                modifications = sanitized.modifications.len(),
+                "Patient input sanitized before processing"
+            );
         }
-        None => {
-            // S.3: Emit degraded status event when AI pipeline fails
-            state.set_ai_verified(false);
-            let _ = app.emit("ai-status-changed", super::StatusLevel::Degraded);
-            emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid, &lang)?;
-        }
-    }
 
-    state.update_activity();
-    Ok(())
+        // 2. Save patient message (sanitized)
+        manager
+            .add_patient_message(conv_uuid, &sanitized.text)
+            .map_err(|e| e.to_string())?;
+
+        // 3. Update conversation title from first message if still default
+        let history = manager.get_history(conv_uuid).map_err(|e| e.to_string())?;
+        let patient_messages: Vec<_> = history
+            .iter()
+            .filter(|m| m.role == MessageRole::Patient)
+            .collect();
+        if patient_messages.len() == 1 {
+            let title = generate_title(&sanitized.text);
+            let _ = update_conversation_title(&conn, &conversation_id, &title);
+        }
+
+        // 4. Resolve active model via preferences (L6-04), then attempt RAG pipeline
+        let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        let resolved_model = state
+            .resolver()
+            .resolve(&conn, &ollama_client)
+            .ok()
+            .map(|r| r.name);
+        let db_key = state.db_key().ok();
+
+        // Set up token streaming: tokens flow from RAG → channel → Tauri events
+        let (token_tx, token_rx) = std::sync::mpsc::channel::<String>();
+        let stream_app = app.clone();
+        let stream_conv_id = conversation_id.clone();
+        let forwarder = std::thread::spawn(move || {
+            while let Ok(token) = token_rx.recv() {
+                let _ = stream_app.emit(
+                    "chat-stream",
+                    &ChatStreamEvent {
+                        conversation_id: stream_conv_id.clone(),
+                        chunk: StreamChunkPayload::Token { text: token },
+                    },
+                );
+            }
+        });
+
+        match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref(), &lang, token_tx) {
+            Some(rag_response) => {
+                // Wait for all tokens to be forwarded before emitting Done
+                let _ = forwarder.join();
+                // 5. Filter RAG response through safety layers (emits Citations + Done)
+                emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
+            }
+            None => {
+                // Drop sender so forwarder thread exits
+                drop(forwarder);
+                // S.3: Emit degraded status event when AI pipeline fails
+                state.set_ai_verified(false);
+                let _ = app.emit("ai-status-changed", super::StatusLevel::Degraded);
+                emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid, &lang)?;
+            }
+        }
+
+        state.update_activity();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
-/// Attempt to run the RAG pipeline. Returns `None` if AI services unavailable.
+/// Attempt to run the RAG pipeline with streaming. Returns `None` if AI unavailable.
+///
+/// Tokens are streamed progressively via `token_tx` — the caller forwards them
+/// as Tauri events so the frontend sees text building in real time.
 ///
 /// Uses production components:
 /// - **LLM**: OllamaRagGenerator (MedGemma via local Ollama)
@@ -133,6 +166,7 @@ fn try_rag_query(
     resolved_model: Option<&str>,
     db_key: Option<&[u8; 32]>,
     lang: &str,
+    token_tx: std::sync::mpsc::Sender<String>,
 ) -> Option<RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::storage::vectordb::SqliteVectorStore;
@@ -155,13 +189,13 @@ fn try_rag_query(
         query_type: None,
     };
 
-    match pipeline.generate(&query) {
+    match pipeline.generate_streaming(&query, token_tx) {
         Ok(response) => {
             tracing::info!(
                 confidence = response.confidence,
                 boundary = ?response.boundary_check,
                 citations = response.citations.len(),
-                "RAG pipeline generated response"
+                "RAG pipeline generated streaming response"
             );
             Some(response)
         }
@@ -177,7 +211,10 @@ fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> 
     crate::pipeline::storage::embedder::build_embedder()
 }
 
-/// Emit a RAG response filtered through safety layers.
+/// Emit citations and Done event for a safety-filtered RAG response.
+///
+/// Token events are already streamed progressively by the forwarder thread,
+/// so this only emits Citations + Done (with final safety-filtered text).
 fn emit_filtered_response(
     app: &AppHandle,
     conversation_id: &str,
@@ -216,18 +253,7 @@ fn emit_filtered_response(
         );
     }
 
-    // Emit response text
-    let _ = app.emit(
-        "chat-stream",
-        &ChatStreamEvent {
-            conversation_id: conversation_id.to_string(),
-            chunk: StreamChunkPayload::Token {
-                text: display_text.clone(),
-            },
-        },
-    );
-
-    // Emit done
+    // Emit Done with final safety-filtered text (replaces streamed tokens)
     let _ = app.emit(
         "chat-stream",
         &ChatStreamEvent {

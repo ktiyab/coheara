@@ -99,83 +99,91 @@ pub async fn get_transfer_status(
 
 /// Process all staged WiFi transfer files through the document import pipeline.
 /// Returns the number of files successfully imported.
+/// Runs blocking work (file I/O + crypto + DB) in `spawn_blocking` to avoid
+/// blocking the Tokio runtime.
 #[tauri::command]
 pub async fn process_staged_files(
     state: State<'_, Arc<CoreState>>,
 ) -> Result<u32, String> {
-    let (staging_dir, db_path) = {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (staging_dir, db_path) = {
+            let guard = state.read_session().map_err(|e| e.to_string())?;
+            let session = guard
+                .as_ref()
+                .ok_or("No active profile session")?;
+            let staging = staging_dir_from_db_path(session.db_path())?;
+            (staging, session.db_path().to_path_buf())
+        };
+
+        if !staging_dir.exists() {
+            return Ok(0);
+        }
+
+        let entries: Vec<_> = std::fs::read_dir(&staging_dir)
+            .map_err(|e| format!("Failed to read staging dir: {e}"))?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        if entries.is_empty() {
+            return Ok(0);
+        }
+
+        // Re-acquire session for import_file (needs ProfileSession reference)
         let guard = state.read_session().map_err(|e| e.to_string())?;
         let session = guard
             .as_ref()
             .ok_or("No active profile session")?;
-        let staging = staging_dir_from_db_path(session.db_path())?;
-        (staging, session.db_path().to_path_buf())
-    };
 
-    if !staging_dir.exists() {
-        return Ok(0);
-    }
+        let conn = open_database(&db_path, Some(session.key_bytes()))
+            .map_err(|e| format!("Database error: {e}"))?;
 
-    let entries: Vec<_> = std::fs::read_dir(&staging_dir)
-        .map_err(|e| format!("Failed to read staging dir: {e}"))?
-        .filter_map(|e| e.ok())
-        .collect();
-
-    if entries.is_empty() {
-        return Ok(0);
-    }
-
-    // Re-acquire session for import_file (needs ProfileSession reference)
-    let guard = state.read_session().map_err(|e| e.to_string())?;
-    let session = guard
-        .as_ref()
-        .ok_or("No active profile session")?;
-
-    let conn = open_database(&db_path, Some(session.key_bytes())).map_err(|e| format!("Database error: {e}"))?;
-
-    let key = session.key_bytes();
-    let mut count = 0u32;
-    for entry in entries {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
-        // SEC-02-G04: Decrypt encrypted staging file to temp for import
-        let temp_file = match decrypt_staging_to_temp(&path, key) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "WiFi transfer: staging decryption failed"
-                );
+        let key = session.key_bytes();
+        let mut count = 0u32;
+        for entry in entries {
+            let path = entry.path();
+            if !path.is_file() {
                 continue;
             }
-        };
 
-        match import_file(temp_file.path(), session, &conn) {
-            Ok(result) => {
-                tracing::info!(
-                    document_id = %result.document_id,
-                    filename = %result.original_filename,
-                    status = ?result.status,
-                    "WiFi transfer file imported"
-                );
-                // Remove encrypted staged file after successful import (SEC-02-G05)
-                crate::crypto::secure_delete_file(&path).ok();
-                count += 1;
+            // SEC-02-G04: Decrypt encrypted staging file to temp for import
+            let temp_file = match decrypt_staging_to_temp(&path, key) {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "WiFi transfer: staging decryption failed"
+                    );
+                    continue;
+                }
+            };
+
+            match import_file(temp_file.path(), session, &conn) {
+                Ok(result) => {
+                    tracing::info!(
+                        document_id = %result.document_id,
+                        filename = %result.original_filename,
+                        status = ?result.status,
+                        "WiFi transfer file imported"
+                    );
+                    // Remove encrypted staged file after successful import (SEC-02-G05)
+                    crate::crypto::secure_delete_file(&path).ok();
+                    count += 1;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to import WiFi transfer file"
+                    );
+                    // Leave failed files for retry
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to import WiFi transfer file"
-                );
-                // Leave failed files for retry
-            }
+            // temp_file dropped here → auto-deleted
         }
-        // temp_file dropped here → auto-deleted
-    }
 
-    state.update_activity();
-    Ok(count)
+        state.update_activity();
+        Ok(count)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }

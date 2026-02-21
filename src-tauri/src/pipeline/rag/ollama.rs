@@ -58,6 +58,17 @@ impl LlmGenerate for OllamaRagGenerator {
             .generate(&self.model, prompt, system)
             .map_err(|e| RagError::OllamaConnection(e.to_string()))
     }
+
+    fn generate_streaming(
+        &self,
+        system: &str,
+        prompt: &str,
+        token_tx: std::sync::mpsc::Sender<String>,
+    ) -> Result<String, RagError> {
+        self.client
+            .generate_streaming(&self.model, prompt, system, token_tx)
+            .map_err(|e| RagError::OllamaConnection(e.to_string()))
+    }
 }
 
 #[cfg(test)]

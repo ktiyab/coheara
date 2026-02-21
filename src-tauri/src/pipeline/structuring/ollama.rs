@@ -16,20 +16,19 @@ const DEFAULT_GENERATE_TIMEOUT_SECS: u64 = 600;
 
 /// Ollama HTTP client for local LLM inference.
 ///
-/// Owns two HTTP clients with different timeouts:
-/// - `client`: 600s for generation requests (MedGemma can be slow on cold start)
-/// - `client_quick`: 5s for health checks, model listing, show operations
+/// Single shared HTTP client with per-request timeouts:
+/// - Generation: `timeout_secs` (default 600s — MedGemma cold start can take ~5min)
+/// - Health/list/show: 5s (quick fail if unreachable)
+/// - Delete: 30s (filesystem operation)
+/// - Pull: no timeout (downloads are arbitrarily long)
 ///
 /// SD-03: Blocking client stays blocking. Tauri commands run on a threadpool.
 /// Async is only used for streaming pull (via tokio::spawn in IPC layer).
 pub struct OllamaClient {
     base_url: String,
-    /// Long-timeout client for generation (600s default).
+    /// Single shared HTTP client — per-request timeouts applied at call sites.
     client: reqwest::blocking::Client,
-    /// Short-timeout client for health/list/show (5s).
-    client_quick: reqwest::blocking::Client,
-    /// Moderate-timeout client for delete (30s).
-    client_moderate: reqwest::blocking::Client,
+    /// Default generation timeout in seconds.
     timeout_secs: u64,
     /// Generation parameters (temperature, top_p, top_k, etc.).
     options: GenerationOptions,
@@ -38,31 +37,19 @@ pub struct OllamaClient {
 impl OllamaClient {
     /// Create a new OllamaClient pointing at a local Ollama instance.
     ///
-    /// SD-02: Separate timeout tiers.
-    /// - `timeout_secs`: used for generation requests
-    /// - Health/list/show: hardcoded 5s (quick fail if unreachable)
-    /// - Delete: hardcoded 30s (filesystem operation)
+    /// SD-02: Single client, per-request timeouts.
+    /// - `timeout_secs`: applied to generation requests
+    /// - Health/list/show: 5s hardcoded at call sites
+    /// - Delete: 30s hardcoded at call sites
+    /// - Pull: no timeout (applied at call site)
     pub fn new(base_url: &str, timeout_secs: u64) -> Self {
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout_secs))
             .build()
             .expect("Failed to create HTTP client");
-
-        let client_quick = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .expect("Failed to create quick HTTP client");
-
-        let client_moderate = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .expect("Failed to create moderate HTTP client");
 
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             client,
-            client_quick,
-            client_moderate,
             timeout_secs,
             options: GenerationOptions::default(),
         }
@@ -136,15 +123,18 @@ impl OllamaClient {
 
         // GET / returns "Ollama is running" with 200 OK
         let url = format!("{}/", self.base_url);
-        let response = self.client_quick.get(&url).send().map_err(|e| {
-            let err = if e.is_connect() || e.is_timeout() {
-                OllamaError::NotReachable
-            } else {
-                OllamaError::Network(e.to_string())
-            };
-            tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama health check failed");
-            err
-        })?;
+        let response = self.client.get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .map_err(|e| {
+                let err = if e.is_connect() || e.is_timeout() {
+                    OllamaError::NotReachable
+                } else {
+                    OllamaError::Network(e.to_string())
+                };
+                tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama health check failed");
+                err
+            })?;
 
         if !response.status().is_success() {
             tracing::warn!(
@@ -197,15 +187,18 @@ impl OllamaClient {
         let start = std::time::Instant::now();
         let url = format!("{}/api/tags", self.base_url);
 
-        let response = self.client_quick.get(&url).send().map_err(|e| {
-            let err = if e.is_connect() || e.is_timeout() {
-                OllamaError::NotReachable
-            } else {
-                OllamaError::Network(e.to_string())
-            };
-            tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama list_models failed");
-            err
-        })?;
+        let response = self.client.get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .map_err(|e| {
+                let err = if e.is_connect() || e.is_timeout() {
+                    OllamaError::NotReachable
+                } else {
+                    OllamaError::Network(e.to_string())
+                };
+                tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama list_models failed");
+                err
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -242,8 +235,9 @@ impl OllamaClient {
         let url = format!("{}/api/show", self.base_url);
 
         let response = self
-            .client_quick
+            .client
             .post(&url)
+            .timeout(std::time::Duration::from_secs(5))
             .json(&serde_json::json!({ "name": name }))
             .send()
             .map_err(|e| {
@@ -309,12 +303,8 @@ impl OllamaClient {
 
         let url = format!("{}/api/pull", self.base_url);
 
-        // Use a client without timeout for pull (downloads can be very long)
-        let no_timeout_client = reqwest::blocking::Client::builder()
-            .build()
-            .map_err(|e| OllamaError::Network(e.to_string()))?;
-
-        let response = no_timeout_client
+        // No per-request timeout — downloads can be arbitrarily long.
+        let response = self.client
             .post(&url)
             .json(&serde_json::json!({ "name": name }))
             .send()
@@ -379,8 +369,9 @@ impl OllamaClient {
         let url = format!("{}/api/delete", self.base_url);
 
         let response = self
-            .client_moderate
+            .client
             .delete(&url)
+            .timeout(std::time::Duration::from_secs(30))
             .json(&serde_json::json!({ "name": name }))
             .send()
             .map_err(|e| {
@@ -504,6 +495,7 @@ impl OllamaClient {
         let response = self
             .client
             .post(&url)
+            .timeout(std::time::Duration::from_secs(self.timeout_secs))
             .json(&body)
             .send()
             .map_err(|e| {
@@ -666,7 +658,11 @@ impl LlmClient for OllamaClient {
                 keep_alive: "0",
             };
 
-            let response = match self.client.post(&url).json(&body).send() {
+            let response = match self.client.post(&url)
+                .timeout(std::time::Duration::from_secs(self.timeout_secs))
+                .json(&body)
+                .send()
+            {
                 Ok(resp) => resp,
                 Err(e) => {
                     if e.is_connect() {
@@ -759,15 +755,18 @@ impl LlmClient for OllamaClient {
         let start = std::time::Instant::now();
         let url = format!("{}/api/tags", self.base_url);
 
-        let response = self.client_quick.get(&url).send().map_err(|e| {
-            let err = if e.is_connect() {
-                StructuringError::OllamaConnection(self.base_url.clone())
-            } else {
-                StructuringError::HttpClient(e.to_string())
-            };
-            tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama list_models (legacy) failed");
-            err
-        })?;
+        let response = self.client.get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .map_err(|e| {
+                let err = if e.is_connect() {
+                    StructuringError::OllamaConnection(self.base_url.clone())
+                } else {
+                    StructuringError::HttpClient(e.to_string())
+                };
+                tracing::warn!(elapsed_ms = %start.elapsed().as_millis(), error = %e, "Ollama list_models (legacy) failed");
+                err
+            })?;
 
         let status = response.status();
         if !status.is_success() {

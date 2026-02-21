@@ -24,6 +24,7 @@ pub mod trust; // L5-01: Trust & Safety
 pub mod suggestions; // LP-05: Intelligent Chat Suggestions
 
 use std::sync::Arc;
+use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -47,10 +48,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(core_state::CoreState::new()))
         .setup(|app| {
-            // LP-01: Start background batch extraction scheduler
-            pipeline::batch_extraction::background::start_background_scheduler(
-                app.handle().clone(),
-            );
+            // LP-01: Start background batch extraction scheduler (graceful shutdown via handle)
+            let scheduler_handle =
+                pipeline::batch_extraction::background::start_background_scheduler(
+                    app.handle().clone(),
+                );
+            app.manage(scheduler_handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
