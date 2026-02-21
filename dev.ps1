@@ -153,6 +153,44 @@ function Invoke-Rebuild {
     Write-Host ""
 }
 
+# ── Tessdata bootstrap ────────────────────────────────────────────────────
+function Ensure-Tessdata {
+    # Locate tessdata directory: TESSDATA_PREFIX > vcpkg default > VCPKG_ROOT
+    $tessdataDir = $null
+    if ($env:TESSDATA_PREFIX -and (Test-Path $env:TESSDATA_PREFIX)) {
+        $tessdataDir = $env:TESSDATA_PREFIX
+    } elseif (Test-Path "C:\vcpkg\installed\x64-windows-static-md\share\tessdata") {
+        $tessdataDir = "C:\vcpkg\installed\x64-windows-static-md\share\tessdata"
+    } elseif ($env:VCPKG_ROOT) {
+        $candidate = Join-Path $env:VCPKG_ROOT "installed\x64-windows-static-md\share\tessdata"
+        if (Test-Path $candidate) { $tessdataDir = $candidate }
+    }
+
+    if (-not $tessdataDir) {
+        Log-Warn "Tessdata directory not found - OCR will be unavailable for scanned documents"
+        Log-Info "Install Tesseract: vcpkg install tesseract:x64-windows-static-md"
+        return
+    }
+
+    $baseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main"
+    foreach ($lang in @("eng", "fra")) {
+        $target = Join-Path $tessdataDir "$lang.traineddata"
+        if (-not (Test-Path $target)) {
+            Log-Info "Downloading $lang.traineddata..."
+            try {
+                Invoke-WebRequest -Uri "$baseUrl/$lang.traineddata" -OutFile $target -UseBasicParsing
+                Log-Ok "Downloaded $lang.traineddata"
+            } catch {
+                Log-Warn "Failed to download $lang.traineddata: $_"
+            }
+        }
+    }
+
+    # Set TESSDATA_PREFIX so the Rust runtime can find tessdata
+    $env:TESSDATA_PREFIX = $tessdataDir
+    Log-Ok "Tessdata ready: $tessdataDir"
+}
+
 # ── Dependency bootstrap ──────────────────────────────────────────────────
 function Ensure-Deps {
     # Install node_modules if missing
@@ -180,6 +218,9 @@ function Ensure-Deps {
         Push-Location $ProjectRoot
         try { & node src/lib/i18n/build-locales.js } finally { Pop-Location }
     }
+
+    # Ensure tessdata for OCR (full-stack mode needs it)
+    Ensure-Tessdata
 }
 
 # ── Commands ──────────────────────────────────────────────────────────────
@@ -356,7 +397,10 @@ function Invoke-Setup {
         Log-Ok "i18n locales built"
     } finally { Pop-Location }
 
-    # 4. Check Rust toolchain
+    # 4. Ensure Tesseract tessdata for OCR
+    Ensure-Tessdata
+
+    # 5. Check Rust toolchain
     if ($CargoPath) {
         $rustVer = & $CargoPath --version 2>$null | Select-Object -First 1
         Log-Ok "Rust: $rustVer"

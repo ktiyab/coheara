@@ -654,7 +654,7 @@ fn build_ocr_engine(
 /// Locate tessdata directory from environment or system paths.
 #[cfg(feature = "ocr")]
 fn find_tessdata_dir() -> Result<PathBuf, ProcessingError> {
-    // 1. Check TESSDATA_PREFIX environment variable
+    // 1. Check TESSDATA_PREFIX environment variable (cross-platform)
     if let Ok(path) = std::env::var("TESSDATA_PREFIX") {
         let p = PathBuf::from(&path);
         if p.join("eng.traineddata").exists() {
@@ -662,16 +662,36 @@ fn find_tessdata_dir() -> Result<PathBuf, ProcessingError> {
         }
     }
 
-    // 2. Try common system paths
-    let candidates = [
-        "/usr/share/tesseract-ocr/5/tessdata",
-        "/usr/share/tesseract-ocr/4.00/tessdata",
-        "/usr/share/tessdata",
-        "/usr/local/share/tessdata",
-        "/opt/homebrew/share/tessdata",
-    ];
+    // 2. Check VCPKG_ROOT for non-default vcpkg locations (Windows)
+    if let Ok(vcpkg_root) = std::env::var("VCPKG_ROOT") {
+        let p = PathBuf::from(&vcpkg_root)
+            .join("installed")
+            .join("x64-windows-static-md")
+            .join("share")
+            .join("tessdata");
+        if p.join("eng.traineddata").exists() {
+            return Ok(p);
+        }
+    }
 
-    for path in &candidates {
+    // 3. Try platform-specific system paths
+    let candidates: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            r"C:\vcpkg\installed\x64-windows-static-md\share\tessdata",
+            r"C:\Program Files\Tesseract-OCR\tessdata",
+            r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
+        ]
+    } else {
+        &[
+            "/usr/share/tesseract-ocr/5/tessdata",
+            "/usr/share/tesseract-ocr/4.00/tessdata",
+            "/usr/share/tessdata",
+            "/usr/local/share/tessdata",
+            "/opt/homebrew/share/tessdata",
+        ]
+    };
+
+    for path in candidates {
         let p = PathBuf::from(path);
         if p.join("eng.traineddata").exists() {
             return Ok(p);

@@ -70,7 +70,35 @@ impl TextExtractor for DocumentExtractor {
         let (method, mut pages) = match &format.category {
             FileCategory::DigitalPdf => {
                 let pages = self.pdf_extractor.extract_text(&decrypted_bytes)?;
-                (ExtractionMethod::PdfDirect, pages)
+
+                // Check if extraction yielded meaningful text.
+                // A misclassified scanned PDF has text operators in its structure
+                // but no extractable content — PdfDirect returns near-empty pages.
+                let total_chars: usize = pages.iter().map(|p| p.text.trim().len()).sum();
+                let avg_chars = total_chars as f32 / pages.len().max(1) as f32;
+
+                if avg_chars < 20.0 {
+                    // Fallback: treat as scanned and apply OCR
+                    tracing::warn!(
+                        document_id = %document_id,
+                        total_chars,
+                        avg_chars,
+                        "DigitalPdf extraction insufficient, falling back to OCR"
+                    );
+                    let renderer_ref = self
+                        .pdf_renderer
+                        .as_ref()
+                        .map(|r| &**r as &dyn PdfPageRenderer);
+                    let ocr_pages = ocr_scanned_pdf(
+                        &decrypted_bytes,
+                        &*self.pdf_extractor,
+                        &*self.ocr_engine,
+                        renderer_ref,
+                    )?;
+                    (ExtractionMethod::TesseractOcr, ocr_pages)
+                } else {
+                    (ExtractionMethod::PdfDirect, pages)
+                }
             }
             FileCategory::ScannedPdf => {
                 let renderer_ref = self.pdf_renderer.as_ref().map(|r| &**r as &dyn PdfPageRenderer);
@@ -1495,5 +1523,172 @@ mod tests {
 
         // Good confidence
         assert!(result.overall_confidence > 0.80);
+    }
+
+    // ── DigitalPdf OCR fallback tests ────────────────────────────────────
+
+    #[test]
+    fn digital_pdf_falls_back_to_ocr_when_text_sparse() {
+        let (_dir, session) = setup();
+
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("sparse.pdf");
+        std::fs::write(&path, b"fake pdf").unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        // 4 pages with <20 chars avg (total 30 chars across 4 pages = 7.5 avg)
+        let sparse_pages = vec![
+            PageExtraction {
+                page_number: 1,
+                text: "".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+            PageExtraction {
+                page_number: 2,
+                text: "AB".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+            PageExtraction {
+                page_number: 3,
+                text: "".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+            PageExtraction {
+                page_number: 4,
+                text: "test".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+        ];
+
+        let extractor = DocumentExtractor::new(
+            Box::new(MockOcrEngine::new("OCR fallback result", 0.75)),
+            Box::new(MockPdfExtractor::with_pages(sparse_pages)),
+        );
+
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::DigitalPdf,
+            is_digital_pdf: Some(true),
+            file_size_bytes: 760000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        // Should have fallen back to OCR
+        assert_eq!(result.method, ExtractionMethod::TesseractOcr);
+        assert!(result.full_text.contains("OCR fallback result"));
+    }
+
+    #[test]
+    fn digital_pdf_no_fallback_when_text_sufficient() {
+        let (_dir, session) = setup();
+
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("good.pdf");
+        std::fs::write(&path, b"fake pdf").unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        // 2 pages with >20 chars avg (plenty of text)
+        let good_pages = vec![
+            PageExtraction {
+                page_number: 1,
+                text: "Patient: Marie Dubois, DOB: 1945-03-12, Blood test results".into(),
+                confidence: 0.95,
+                regions: vec![],
+                warnings: vec![],
+            },
+            PageExtraction {
+                page_number: 2,
+                text: "Potassium: 4.2 mmol/L, Sodium: 140 mmol/L, Creatinine: 85 umol/L".into(),
+                confidence: 0.95,
+                regions: vec![],
+                warnings: vec![],
+            },
+        ];
+
+        let extractor = DocumentExtractor::new(
+            Box::new(MockOcrEngine::new("should not be called", 0.0)),
+            Box::new(MockPdfExtractor::with_pages(good_pages)),
+        );
+
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::DigitalPdf,
+            is_digital_pdf: Some(true),
+            file_size_bytes: 5000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        // Should use PdfDirect, NOT fall back to OCR
+        assert_eq!(result.method, ExtractionMethod::PdfDirect);
+        assert!(result.full_text.contains("Marie Dubois"));
+    }
+
+    #[test]
+    fn digital_pdf_fallback_graceful_with_mock_ocr() {
+        let (_dir, session) = setup();
+
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("empty.pdf");
+        std::fs::write(&path, b"fake pdf").unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        // All pages empty — worst case
+        let empty_pages = vec![
+            PageExtraction {
+                page_number: 1,
+                text: "".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+            PageExtraction {
+                page_number: 2,
+                text: "".into(),
+                confidence: 0.0,
+                regions: vec![],
+                warnings: vec![],
+            },
+        ];
+
+        // Mock OCR returns empty too (simulates OCR unavailable)
+        let extractor = DocumentExtractor::new(
+            Box::new(MockOcrEngine::new("", 0.0)),
+            Box::new(MockPdfExtractor::with_pages(empty_pages)),
+        );
+
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::DigitalPdf,
+            is_digital_pdf: Some(true),
+            file_size_bytes: 760000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        // Fallback triggered, but OCR also returned nothing — graceful degradation
+        assert_eq!(result.method, ExtractionMethod::TesseractOcr);
+        assert!(result.overall_confidence < 0.50);
     }
 }
