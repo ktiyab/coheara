@@ -1,7 +1,7 @@
 {
 	"extraction": {
 		"review_heading": "Health insights found",
-		"review_subtitle": "Review data extracted from your conversations",
+		"review_subtitle": "Review data extracted from your sessions",
 		"domain_symptom": "Symptom",
 		"domain_medication": "Medication",
 		"domain_appointment": "Appointment",
@@ -15,7 +15,7 @@
 		"confirmed_msg": "Added to your records",
 		"dismissed_msg": "Dismissed",
 		"empty_title": "No pending items",
-		"empty_subtitle": "Health data from your conversations will appear here for review",
+		"empty_subtitle": "Health data from your sessions will appear here for review",
 		"error_confirm": "Failed to confirm item",
 		"error_dismiss": "Failed to dismiss item",
 		"badge_count": "{count} new",
@@ -38,7 +38,7 @@
 		"edit_btn": "Edit",
 		"cancel_edit": "Cancel edit",
 		"save_btn": "Save to records",
-		"batch_starting": "Analyzing conversations...",
-		"batch_progress": "Analyzing conversations... ({completed}/{total})"
+		"batch_starting": "Analyzing sessions...",
+		"batch_progress": "Analyzing sessions... ({completed}/{total})"
 	}
 }

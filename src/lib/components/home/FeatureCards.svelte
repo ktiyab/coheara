@@ -2,7 +2,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { FileSearchOutline, MessagesOutline, ClockOutline } from 'flowbite-svelte-icons';
+  import { FileSearchOutline, SearchOutline, ClockOutline } from 'flowbite-svelte-icons';
   import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
@@ -20,7 +20,7 @@
       primary: true,
     },
     {
-      icon: MessagesOutline,
+      icon: SearchOutline,
       titleKey: 'home.feature_chat_title',
       bodyKey: 'home.feature_chat_body',
       ctaKey: 'home.feature_chat_cta',

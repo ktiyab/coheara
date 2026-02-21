@@ -16,9 +16,10 @@
   interface Props {
     stages: ProcessStage[];
     documentCount?: number;
+    notifyKey?: string;
   }
 
-  let { stages, documentCount = 0 }: Props = $props();
+  let { stages, documentCount = 0, notifyKey }: Props = $props();
 
   let currentStage = $state(0);
   let elapsedSeconds = $state(0);
@@ -77,9 +78,14 @@
       ></div>
     </div>
 
-    <!-- Privacy/trust note for long waits -->
+    <!-- Notify + privacy notes for long waits -->
     {#if showPrivacyNote}
-      <p class="text-xs text-[var(--color-text-muted)] mt-1.5">
+      {#if notifyKey}
+        <p class="text-xs text-[var(--color-text-secondary)] mt-1.5 font-medium">
+          {$t(notifyKey)}
+        </p>
+      {/if}
+      <p class="text-xs text-[var(--color-text-muted)] mt-1">
         {$t('process.privacy_note')}
       </p>
     {/if}

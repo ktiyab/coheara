@@ -27,6 +27,7 @@
   import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { BarsOutline } from 'flowbite-svelte-icons';
+  import { soundManager } from '$lib/utils/sound';
 
   interface Props {
     initialConversationId?: string;
@@ -181,6 +182,7 @@
           messages = [...messages, cohearaMessage];
           streamingText = '';
           pendingCitations = [];
+          soundManager.play('completion');
           scrollToBottom();
           break;
         case 'Error':

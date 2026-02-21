@@ -63,7 +63,7 @@
     "medical_quality": "(Médical)",
     "ai_responding": "L'IA répond correctement",
     "go_to_app": "Accéder à Coheara",
-    "without_ai": "<strong>Sans IA :</strong> Vous pouvez toujours importer des documents, suivre vos médicaments et utiliser le journal. Les fonctionnalités IA comme l'analyse de documents et le chat nécessitent Ollama.",
+    "without_ai": "<strong>Sans IA :</strong> Vous pouvez toujours importer des documents, suivre vos médicaments et utiliser le journal. Les fonctionnalités IA comme l'analyse de documents et les questions de santé nécessitent Ollama.",
     "settings_heading": "Moteur IA",
     "loading_settings": "Chargement des paramètres IA...",
     "ollama_not_running": "Ollama n'est pas en cours d'exécution",

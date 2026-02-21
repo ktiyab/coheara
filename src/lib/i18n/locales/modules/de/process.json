@@ -1,0 +1,18 @@
+{
+  "process": {
+    "chat_searching": "Ihre Unterlagen werden durchsucht...",
+    "chat_found": "Relevante Dokumente gefunden",
+    "chat_generating": "Analyse und Antwort wird erstellt...",
+    "chat_safety": "Fast fertig — Genauigkeit wird geprüft...",
+    "chat_complex": "Dauert etwas länger — gründliche Analyse läuft",
+    "chat_notify": "Coheara benachrichtigt Sie, wenn Ihre Antwort bereit ist.",
+    "import_reading": "Dokument wird gelesen...",
+    "import_analyzing": "Inhalt wird analysiert...",
+    "import_quality": "Qualität wird geprüft...",
+    "import_ready": "Bereit zur Überprüfung",
+    "prep_gathering": "Ihre Gesundheitsdaten werden gesammelt...",
+    "prep_building": "Vorbereitungszusammenfassung wird erstellt...",
+    "prep_ready": "Ihre Vorbereitungsnotizen sind fertig",
+    "privacy_note": "Ihre Daten bleiben privat — KI läuft lokal auf Ihrem Gerät"
+  }
+}

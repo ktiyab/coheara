@@ -1,7 +1,7 @@
 <!-- Spec 45 [ON-02]: 3-slide welcome tour after recovery phrase -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { FileCirclePlusOutline, MessagesOutline, CalendarEditOutline } from 'flowbite-svelte-icons';
+  import { FileCirclePlusOutline, SearchOutline, CalendarEditOutline } from 'flowbite-svelte-icons';
   import type { Component } from 'svelte';
 
   interface Props {
@@ -14,7 +14,7 @@
   type Slide = { titleKey: string; descKey: string; Icon: Component<{class?: string}> };
   const slides: Slide[] = [
     { titleKey: 'tour.slide1_title', descKey: 'tour.slide1_desc', Icon: FileCirclePlusOutline },
-    { titleKey: 'tour.slide2_title', descKey: 'tour.slide2_desc', Icon: MessagesOutline },
+    { titleKey: 'tour.slide2_title', descKey: 'tour.slide2_desc', Icon: SearchOutline },
     { titleKey: 'tour.slide3_title', descKey: 'tour.slide3_desc', Icon: CalendarEditOutline },
   ];
 

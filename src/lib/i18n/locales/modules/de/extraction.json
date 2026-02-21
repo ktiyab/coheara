@@ -1,7 +1,7 @@
 {
 	"extraction": {
 		"review_heading": "Gesundheitsdaten erkannt",
-		"review_subtitle": "Pr\u00fcfen Sie die aus Ihren Gespr\u00e4chen extrahierten Daten",
+		"review_subtitle": "Pr\u00fcfen Sie die aus Ihren Sitzungen extrahierten Daten",
 		"domain_symptom": "Symptom",
 		"domain_medication": "Medikament",
 		"domain_appointment": "Termin",
@@ -15,7 +15,7 @@
 		"confirmed_msg": "Zu Ihren Akten hinzugef\u00fcgt",
 		"dismissed_msg": "Verworfen",
 		"empty_title": "Keine ausstehenden Elemente",
-		"empty_subtitle": "Gesundheitsdaten aus Ihren Gespr\u00e4chen erscheinen hier zur Pr\u00fcfung",
+		"empty_subtitle": "Gesundheitsdaten aus Ihren Sitzungen erscheinen hier zur Pr\u00fcfung",
 		"error_confirm": "Fehler bei der Best\u00e4tigung",
 		"error_dismiss": "Fehler beim Verwerfen",
 		"badge_count": "{count} neu",
@@ -38,7 +38,7 @@
 		"edit_btn": "Bearbeiten",
 		"cancel_edit": "Abbrechen",
 		"save_btn": "Speichern",
-		"batch_starting": "Gespr\u00e4che werden analysiert...",
-		"batch_progress": "Gespr\u00e4che werden analysiert... ({completed}/{total})"
+		"batch_starting": "Sitzungen werden analysiert...",
+		"batch_progress": "Sitzungen werden analysiert... ({completed}/{total})"
 	}
 }

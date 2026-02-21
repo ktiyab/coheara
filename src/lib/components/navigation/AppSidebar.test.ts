@@ -42,7 +42,7 @@ describe('AppSidebar', () => {
     render(AppSidebar);
     // LP-06: 5 nav items (journal, medications, appointments removed)
     expect(screen.getByText('Home')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.getByText('Ask')).toBeInTheDocument();
     expect(screen.getByText('Documents')).toBeInTheDocument();
     expect(screen.getByText('Timeline')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('AppSidebar', () => {
 
   it('clicking a nav item calls navigation.navigate()', async () => {
     render(AppSidebar);
-    const chatButton = screen.getByText('Chat').closest('button')!;
+    const chatButton = screen.getByText('Ask').closest('button')!;
     await fireEvent.click(chatButton);
     expect(navigation.navigate).toHaveBeenCalledWith('chat');
   });
@@ -65,14 +65,14 @@ describe('AppSidebar', () => {
   it('active screen gets aria-current="page"', () => {
     navigation.activeScreen = 'chat';
     render(AppSidebar);
-    const chatButton = screen.getByText('Chat').closest('button')!;
+    const chatButton = screen.getByText('Ask').closest('button')!;
     expect(chatButton.getAttribute('aria-current')).toBe('page');
   });
 
   it('non-active screens do not have aria-current', () => {
     navigation.activeScreen = 'home';
     render(AppSidebar);
-    const chatButton = screen.getByText('Chat').closest('button')!;
+    const chatButton = screen.getByText('Ask').closest('button')!;
     expect(chatButton.getAttribute('aria-current')).toBeNull();
   });
 
@@ -142,7 +142,7 @@ describe('AppSidebar', () => {
   it('inactive screen does not have active styling', () => {
     navigation.activeScreen = 'home';
     render(AppSidebar);
-    const chatButton = screen.getByText('Chat').closest('button')!;
+    const chatButton = screen.getByText('Ask').closest('button')!;
     expect(chatButton.className).not.toContain('color-interactive');
   });
 });

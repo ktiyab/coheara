@@ -63,7 +63,7 @@
     "medical_quality": "(Medizinisch)",
     "ai_responding": "KI antwortet korrekt",
     "go_to_app": "Zu Coheara",
-    "without_ai": "<strong>Ohne KI:</strong> Sie können weiterhin Dokumente importieren, Medikamente verfolgen und das Tagebuch verwenden. KI-Funktionen wie Dokumentenanalyse und Chat erfordern Ollama.",
+    "without_ai": "<strong>Ohne KI:</strong> Sie können weiterhin Dokumente importieren, Medikamente verfolgen und das Tagebuch verwenden. KI-Funktionen wie Dokumentenanalyse und Gesundheitsabfragen erfordern Ollama.",
     "settings_heading": "KI-Engine",
     "loading_settings": "KI-Einstellungen werden geladen...",
     "ollama_not_running": "Ollama läuft nicht",

@@ -16,6 +16,6 @@
     <Avatar name={$t('chat.avatar_initial')} variant="ai" size="sm" />
   </div>
   <div class="bg-white dark:bg-gray-900 border border-stone-100 dark:border-gray-800 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm min-w-[240px]">
-    <ProcessIndicator stages={CHAT_STAGES} {documentCount} />
+    <ProcessIndicator stages={CHAT_STAGES} {documentCount} notifyKey="process.chat_notify" />
   </div>
 </div>

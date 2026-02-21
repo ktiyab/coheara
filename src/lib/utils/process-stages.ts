@@ -6,11 +6,11 @@
 import type { ProcessStage } from '$lib/components/ui/ProcessIndicator.svelte';
 
 export const CHAT_STAGES: ProcessStage[] = [
-  { messageKey: 'process.chat_searching', percentHint: 15, durationHint: 2 },
-  { messageKey: 'process.chat_found', percentHint: 40, durationHint: 3 },
-  { messageKey: 'process.chat_generating', percentHint: 65, durationHint: 5 },
-  { messageKey: 'process.chat_safety', percentHint: 85, durationHint: 10 },
-  { messageKey: 'process.chat_complex', percentHint: 92, durationHint: 999 },
+  { messageKey: 'process.chat_searching', percentHint: 15, durationHint: 3 },
+  { messageKey: 'process.chat_found', percentHint: 35, durationHint: 5 },
+  { messageKey: 'process.chat_generating', percentHint: 60, durationHint: 15 },
+  { messageKey: 'process.chat_safety', percentHint: 80, durationHint: 30 },
+  { messageKey: 'process.chat_complex', percentHint: 90, durationHint: 999 },
 ];
 
 export const IMPORT_STAGES: ProcessStage[] = [

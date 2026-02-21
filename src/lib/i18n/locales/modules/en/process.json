@@ -1,0 +1,18 @@
+{
+  "process": {
+    "chat_searching": "Searching your records...",
+    "chat_found": "Found relevant documents",
+    "chat_generating": "Analyzing and generating response...",
+    "chat_safety": "Almost ready — verifying accuracy...",
+    "chat_complex": "Taking a bit longer — thorough analysis in progress",
+    "chat_notify": "Coheara will notify you when your answer is ready.",
+    "import_reading": "Reading document...",
+    "import_analyzing": "Analyzing content...",
+    "import_quality": "Checking quality...",
+    "import_ready": "Ready for your review",
+    "prep_gathering": "Gathering your health data...",
+    "prep_building": "Building preparation summary...",
+    "prep_ready": "Your prep notes are ready",
+    "privacy_note": "Your data stays private — AI runs locally on your device"
+  }
+}

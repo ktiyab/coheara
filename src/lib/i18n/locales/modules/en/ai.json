@@ -63,7 +63,7 @@
     "medical_quality": "(Medical)",
     "ai_responding": "AI responding correctly",
     "go_to_app": "Go to Coheara",
-    "without_ai": "<strong>Without AI:</strong> You can still import documents, track medications, and use the journal. AI features like document analysis and chat require Ollama.",
+    "without_ai": "<strong>Without AI:</strong> You can still import documents, track medications, and use the journal. AI features like document analysis and health queries require Ollama.",
     "settings_heading": "AI Engine",
     "loading_settings": "Loading AI settings...",
     "ollama_not_running": "Ollama is not running",

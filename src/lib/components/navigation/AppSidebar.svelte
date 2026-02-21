@@ -6,7 +6,7 @@
   import { lockProfile } from '$lib/api/profile';
   import {
     HomeSolid, HomeOutline,
-    MessagesSolid, MessagesOutline,
+    SearchSolid, SearchOutline,
     FileSolid, FileOutline,
     ClockSolid, ClockOutline,
     CogSolid, CogOutline,
@@ -26,7 +26,7 @@
   const navItems: Record<string, NavItem[]> = {
     main: [
       { id: 'home', key: 'nav.home', Active: HomeSolid, Inactive: HomeOutline },
-      { id: 'chat', key: 'nav.chat', Active: MessagesSolid, Inactive: MessagesOutline },
+      { id: 'chat', key: 'nav.chat', Active: SearchSolid, Inactive: SearchOutline },
     ],
     library: [
       { id: 'documents', key: 'nav.documents', Active: FileSolid, Inactive: FileOutline },
