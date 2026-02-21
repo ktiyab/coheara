@@ -26,6 +26,8 @@ pub enum EventType {
     Appointment,
     Document,
     Diagnosis,
+    CoherenceAlert,
+    VitalSign,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -48,6 +50,11 @@ pub enum EventMetadata {
         frequency: String,
         status: String,
         reason: Option<String>,
+        route: Option<String>,
+        frequency_type: Option<String>,
+        is_otc: Option<bool>,
+        condition: Option<String>,
+        administration_instructions: Option<String>,
     },
     DoseChange {
         generic_name: String,
@@ -72,6 +79,16 @@ pub enum EventMetadata {
         severity: u8,
         body_region: Option<String>,
         still_active: bool,
+        duration: Option<String>,
+        character: Option<String>,
+        aggravating: Option<String>,
+        relieving: Option<String>,
+        timing_pattern: Option<String>,
+        resolved_date: Option<String>,
+        notes: Option<String>,
+        source: Option<String>,
+        related_medication_id: Option<String>,
+        related_diagnosis_id: Option<String>,
     },
     Procedure {
         name: String,
@@ -82,6 +99,8 @@ pub enum EventMetadata {
     Appointment {
         appointment_type: String,
         professional_specialty: Option<String>,
+        pre_summary_generated: Option<bool>,
+        post_notes: Option<String>,
     },
     Document {
         document_type: String,
@@ -91,6 +110,22 @@ pub enum EventMetadata {
         name: String,
         icd_code: Option<String>,
         status: String,
+    },
+    CoherenceAlert {
+        alert_type: String,
+        severity: String,
+        patient_message: Option<String>,
+        entity_ids: Vec<String>,
+        dismissed: bool,
+        two_step_confirmed: bool,
+    },
+    VitalSign {
+        vital_type: String,
+        value_primary: f64,
+        value_secondary: Option<f64>,
+        unit: String,
+        notes: Option<String>,
+        source: String,
     },
 }
 
@@ -110,6 +145,7 @@ pub enum CorrelationType {
     SymptomResolvedAfterMedicationStop,
     LabAfterMedicationChange,
     ExplicitLink,
+    SymptomLinkedToDiagnosis,
 }
 
 /// Filter parameters sent from frontend.
@@ -120,6 +156,7 @@ pub struct TimelineFilter {
     pub date_from: Option<String>,
     pub date_to: Option<String>,
     pub since_appointment_id: Option<String>,
+    pub include_dismissed_alerts: Option<bool>,
 }
 
 /// Complete timeline data — single response.
@@ -147,6 +184,8 @@ pub struct EventCounts {
     pub appointments: u32,
     pub documents: u32,
     pub diagnoses: u32,
+    pub coherence_alerts: u32,
+    pub vital_signs: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

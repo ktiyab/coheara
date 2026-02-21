@@ -32,9 +32,11 @@
   }
 
   const chipDefs: ChipDefI18n[] = [
+    { types: ['CoherenceAlert'], labelKey: 'timeline.filter_insights', colorGroup: 'insight', countKey: 'coherence_alerts' },
     { types: ['MedicationStart', 'MedicationStop', 'MedicationDoseChange'], labelKey: 'timeline.filter_meds', colorGroup: 'medication', countKey: 'medications' },
     { types: ['LabResult'], labelKey: 'timeline.filter_labs', colorGroup: 'lab', countKey: 'lab_results' },
     { types: ['Symptom'], labelKey: 'timeline.filter_symptoms', colorGroup: 'symptom', countKey: 'symptoms' },
+    { types: ['VitalSign'], labelKey: 'timeline.filter_vitals', colorGroup: 'vital', countKey: 'vital_signs' },
     { types: ['Procedure'], labelKey: 'timeline.filter_procedures', colorGroup: 'procedure', countKey: 'procedures' },
     { types: ['Appointment'], labelKey: 'timeline.filter_appointments', colorGroup: 'appointment', countKey: 'appointments' },
     { types: ['Document'], labelKey: 'timeline.filter_documents', colorGroup: 'document', countKey: 'documents' },

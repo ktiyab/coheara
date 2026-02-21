@@ -29,6 +29,7 @@
   let activeTypes: EventType[] = $state([
     'MedicationStart', 'MedicationStop', 'MedicationDoseChange',
     'LabResult', 'Symptom', 'Procedure', 'Appointment', 'Document', 'Diagnosis',
+    'CoherenceAlert', 'VitalSign',
   ]);
   let selectedProfessionalId: string | null = $state(null);
   let dateFrom: string | null = $state(null);
@@ -39,11 +40,12 @@
   let popupAnchor: { x: number; y: number } | null = $state(null);
 
   let filter = $derived<TimelineFilter>({
-    event_types: activeTypes.length < 9 ? activeTypes : null,
+    event_types: activeTypes.length < 11 ? activeTypes : null,
     professional_id: selectedProfessionalId,
     date_from: dateFrom,
     date_to: dateTo,
     since_appointment_id: sinceAppointment,
+    include_dismissed_alerts: null,
   });
 
   let visibleEvents = $derived.by(() => {
@@ -197,6 +199,7 @@
           correlations={timelineData.correlations.filter(
             c => c.source_id === selectedEvent!.id || c.target_id === selectedEvent!.id
           )}
+          allEvents={timelineData.events}
           anchor={popupAnchor}
           onClose={handleClosePopup}
           onScrollToEvent={(eventId) => {

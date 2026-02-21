@@ -42,6 +42,7 @@ pub async fn recent(
         event_types: None,
         professional_id: None,
         since_appointment_id: None,
+        include_dismissed_alerts: None,
     };
 
     let mut data = timeline::get_timeline_data(&conn, &filter).map_err(ApiError::from)?;

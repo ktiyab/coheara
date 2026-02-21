@@ -374,6 +374,11 @@ mod tests {
                     frequency: "daily".into(),
                     status: "active".into(),
                     reason: None,
+                    route: None,
+                    frequency_type: None,
+                    is_otc: None,
+                    condition: None,
+                    administration_instructions: None,
                 },
             },
             TimelineEvent {
@@ -392,6 +397,16 @@ mod tests {
                     severity: 3,
                     body_region: None,
                     still_active: true,
+                    duration: None,
+                    character: None,
+                    aggravating: None,
+                    relieving: None,
+                    timing_pattern: None,
+                    resolved_date: None,
+                    notes: None,
+                    source: None,
+                    related_medication_id: None,
+                    related_diagnosis_id: None,
                 },
             },
         ];
@@ -424,6 +439,11 @@ mod tests {
                     frequency: "daily".into(),
                     status: "active".into(),
                     reason: None,
+                    route: None,
+                    frequency_type: None,
+                    is_otc: None,
+                    condition: None,
+                    administration_instructions: None,
                 },
             },
             TimelineEvent {
@@ -442,6 +462,16 @@ mod tests {
                     severity: 3,
                     body_region: None,
                     still_active: true,
+                    duration: None,
+                    character: None,
+                    aggravating: None,
+                    relieving: None,
+                    timing_pattern: None,
+                    resolved_date: None,
+                    notes: None,
+                    source: None,
+                    related_medication_id: None,
+                    related_diagnosis_id: None,
                 },
             },
         ];
@@ -580,6 +610,8 @@ mod tests {
             EventType::Appointment,
             EventType::Document,
             EventType::Diagnosis,
+            EventType::CoherenceAlert,
+            EventType::VitalSign,
         ];
 
         for t in types {
@@ -603,6 +635,258 @@ mod tests {
         assert!(data.date_range.earliest.is_none());
         assert!(data.date_range.latest.is_none());
         assert_eq!(data.event_counts.medications, 0);
+        assert_eq!(data.event_counts.coherence_alerts, 0);
+        assert_eq!(data.event_counts.vital_signs, 0);
         assert!(data.professionals.is_empty());
+    }
+
+    // ── LP-08 New Tests ─────────────────────────────────────────────────
+
+    fn insert_coherence_alert(
+        conn: &Connection,
+        id: &str,
+        alert_type: &str,
+        severity: &str,
+        detected_at: &str,
+        dismissed: bool,
+    ) {
+        conn.execute(
+            "INSERT INTO coherence_alerts (id, alert_type, severity, entity_ids, source_document_ids, patient_message, detail_json, detected_at, dismissed, two_step_confirmed)
+             VALUES (?1, ?2, ?3, '[\"med-1\"]', '[\"doc-1\"]', 'Check this interaction', '{}', ?4, ?5, 0)",
+            params![id, alert_type, severity, detected_at, dismissed as i32],
+        )
+        .unwrap();
+    }
+
+    fn insert_vital_sign(
+        conn: &Connection,
+        id: &str,
+        vital_type: &str,
+        value_primary: f64,
+        value_secondary: Option<f64>,
+        unit: &str,
+        recorded_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO vital_signs (id, vital_type, value_primary, value_secondary, unit, recorded_at, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual')",
+            params![id, vital_type, value_primary, value_secondary, unit, recorded_at],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_assemble_coherence_alerts() {
+        let conn = setup_db();
+        insert_coherence_alert(&conn, "ca-1", "conflict", "critical", "2026-01-15", false);
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let alerts: Vec<_> = events.iter().filter(|e| e.event_type == EventType::CoherenceAlert).collect();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].severity, Some(EventSeverity::Critical));
+        assert_eq!(alerts[0].title, "Medication Conflict");
+    }
+
+    #[test]
+    fn test_assemble_vital_signs() {
+        let conn = setup_db();
+        insert_vital_sign(&conn, "vs-1", "blood_pressure", 120.0, Some(80.0), "mmHg", "2026-01-20");
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let vitals: Vec<_> = events.iter().filter(|e| e.event_type == EventType::VitalSign).collect();
+        assert_eq!(vitals.len(), 1);
+        assert_eq!(vitals[0].title, "Blood Pressure");
+        assert_eq!(vitals[0].subtitle.as_deref(), Some("120/80 mmHg"));
+    }
+
+    #[test]
+    fn test_symptom_oldcarts_fields() {
+        let conn = setup_db();
+
+        conn.execute(
+            "INSERT INTO symptoms (id, category, specific, severity, onset_date, recorded_date, source,
+                duration, character, aggravating, relieving, timing_pattern, notes)
+             VALUES ('sym-1', 'Pain', 'Migraine', 4, '2026-01-20', '2026-01-20', 'patient_reported',
+                '3 hours', 'throbbing', 'light, noise', 'rest, dark room', 'afternoon', 'occurs after stress')",
+            [],
+        ).unwrap();
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let sym = events.iter().find(|e| e.event_type == EventType::Symptom).unwrap();
+        if let EventMetadata::Symptom { duration, character, aggravating, relieving, timing_pattern, notes, .. } = &sym.metadata {
+            assert_eq!(duration.as_deref(), Some("3 hours"));
+            assert_eq!(character.as_deref(), Some("throbbing"));
+            assert_eq!(aggravating.as_deref(), Some("light, noise"));
+            assert_eq!(relieving.as_deref(), Some("rest, dark room"));
+            assert_eq!(timing_pattern.as_deref(), Some("afternoon"));
+            assert_eq!(notes.as_deref(), Some("occurs after stress"));
+        } else {
+            panic!("Expected Symptom metadata");
+        }
+    }
+
+    #[test]
+    fn test_appointment_post_notes() {
+        let conn = setup_db();
+        insert_professional(&conn, "prof-1", "Dr. Smith", "Cardiology");
+
+        conn.execute(
+            "INSERT INTO appointments (id, professional_id, date, type, pre_summary_generated, post_notes)
+             VALUES ('appt-1', 'prof-1', '2026-01-25', 'completed', 1, 'Patient doing well')",
+            [],
+        ).unwrap();
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let appt = events.iter().find(|e| e.event_type == EventType::Appointment).unwrap();
+        if let EventMetadata::Appointment { pre_summary_generated, post_notes, .. } = &appt.metadata {
+            assert_eq!(*pre_summary_generated, Some(true));
+            assert_eq!(post_notes.as_deref(), Some("Patient doing well"));
+        } else {
+            panic!("Expected Appointment metadata");
+        }
+    }
+
+    #[test]
+    fn test_medication_route_fields() {
+        let conn = setup_db();
+        insert_document(&conn, "doc-1", "Rx", "2026-01-01", None);
+
+        conn.execute(
+            "INSERT INTO medications (id, generic_name, dose, frequency, frequency_type, status, start_date, document_id, route, is_otc, condition, administration_instructions)
+             VALUES ('med-1', 'Ibuprofen', '400mg', 'every 6 hours', 'as_needed', 'active', '2026-01-01', 'doc-1', 'oral', 1, 'headache', 'Take with food')",
+            [],
+        ).unwrap();
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let med = events.iter().find(|e| e.event_type == EventType::MedicationStart).unwrap();
+        if let EventMetadata::Medication { route, frequency_type, is_otc, condition, administration_instructions, .. } = &med.metadata {
+            assert_eq!(route.as_deref(), Some("oral"));
+            assert_eq!(frequency_type.as_deref(), Some("as_needed"));
+            assert_eq!(*is_otc, Some(true));
+            assert_eq!(condition.as_deref(), Some("headache"));
+            assert_eq!(administration_instructions.as_deref(), Some("Take with food"));
+        } else {
+            panic!("Expected Medication metadata");
+        }
+    }
+
+    #[test]
+    fn test_filter_coherence_alerts_dismissed() {
+        let conn = setup_db();
+        insert_coherence_alert(&conn, "ca-1", "conflict", "critical", "2026-01-15", false);
+        insert_coherence_alert(&conn, "ca-2", "dose", "standard", "2026-01-16", true);
+
+        // Default: exclude dismissed
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+        let alerts: Vec<_> = events.iter().filter(|e| e.event_type == EventType::CoherenceAlert).collect();
+        assert_eq!(alerts.len(), 1);
+
+        // Include dismissed
+        let filter_incl = TimelineFilter {
+            include_dismissed_alerts: Some(true),
+            ..Default::default()
+        };
+        let events_incl = assemble_timeline_events(&conn, &filter_incl).unwrap();
+        let alerts_incl: Vec<_> = events_incl.iter().filter(|e| e.event_type == EventType::CoherenceAlert).collect();
+        assert_eq!(alerts_incl.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_by_new_event_types() {
+        let conn = setup_db();
+        insert_coherence_alert(&conn, "ca-1", "conflict", "critical", "2026-01-15", false);
+        insert_vital_sign(&conn, "vs-1", "heart_rate", 72.0, None, "bpm", "2026-01-20");
+
+        // Filter only VitalSign
+        let filter = TimelineFilter {
+            event_types: Some(vec![EventType::VitalSign]),
+            ..Default::default()
+        };
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::VitalSign);
+
+        // Filter only CoherenceAlert
+        let filter2 = TimelineFilter {
+            event_types: Some(vec![EventType::CoherenceAlert]),
+            ..Default::default()
+        };
+        let events2 = assemble_timeline_events(&conn, &filter2).unwrap();
+        assert_eq!(events2.len(), 1);
+        assert_eq!(events2[0].event_type, EventType::CoherenceAlert);
+    }
+
+    #[test]
+    fn test_event_counts_with_new_types() {
+        let conn = setup_db();
+        insert_coherence_alert(&conn, "ca-1", "conflict", "critical", "2026-01-15", false);
+        insert_coherence_alert(&conn, "ca-2", "dose", "standard", "2026-01-16", true); // dismissed
+        insert_vital_sign(&conn, "vs-1", "heart_rate", 72.0, None, "bpm", "2026-01-20");
+        insert_vital_sign(&conn, "vs-2", "blood_pressure", 120.0, Some(80.0), "mmHg", "2026-01-21");
+
+        let counts = compute_event_counts(&conn).unwrap();
+        assert_eq!(counts.coherence_alerts, 1); // Only non-dismissed
+        assert_eq!(counts.vital_signs, 2);
+    }
+
+    #[test]
+    fn test_severity_from_alert_level() {
+        assert_eq!(fetch::severity_from_alert_level("critical"), EventSeverity::Critical);
+        assert_eq!(fetch::severity_from_alert_level("standard"), EventSeverity::Moderate);
+        assert_eq!(fetch::severity_from_alert_level("info"), EventSeverity::Low);
+        assert_eq!(fetch::severity_from_alert_level("unknown"), EventSeverity::Low);
+    }
+
+    #[test]
+    fn test_symptom_diagnosis_correlation() {
+        let conn = setup_db();
+        insert_professional(&conn, "prof-1", "Dr. Chen", "Endo");
+        insert_document(&conn, "doc-1", "Note", "2026-01-01", Some("prof-1"));
+
+        conn.execute(
+            "INSERT INTO diagnoses (id, name, date_diagnosed, status, diagnosing_professional_id, document_id)
+             VALUES ('dx-1', 'Migraine', '2026-01-01', 'active', 'prof-1', 'doc-1')",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO symptoms (id, category, specific, severity, onset_date, recorded_date, source, related_diagnosis_id)
+             VALUES ('sym-1', 'Neurological', 'Headache', 4, '2026-01-15', '2026-01-15', 'patient_reported', 'dx-1')",
+            [],
+        ).unwrap();
+
+        let corrs = fetch_explicit_correlations(&conn).unwrap();
+        let diag_links: Vec<_> = corrs.iter()
+            .filter(|c| c.correlation_type == CorrelationType::SymptomLinkedToDiagnosis)
+            .collect();
+        assert_eq!(diag_links.len(), 1);
+        assert_eq!(diag_links[0].source_id, "sym-1");
+        assert_eq!(diag_links[0].target_id, "dx-1");
+        assert!(diag_links[0].description.contains("Headache"));
+        assert!(diag_links[0].description.contains("Migraine"));
+    }
+
+    #[test]
+    fn test_vital_sign_without_secondary() {
+        let conn = setup_db();
+        insert_vital_sign(&conn, "vs-1", "heart_rate", 72.0, None, "bpm", "2026-01-20");
+
+        let filter = TimelineFilter::default();
+        let events = assemble_timeline_events(&conn, &filter).unwrap();
+
+        let vital = events.iter().find(|e| e.event_type == EventType::VitalSign).unwrap();
+        assert_eq!(vital.title, "Heart Rate");
+        assert_eq!(vital.subtitle.as_deref(), Some("72 bpm"));
     }
 }

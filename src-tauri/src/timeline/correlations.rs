@@ -70,10 +70,11 @@ pub fn detect_correlations(events: &[TimelineEvent]) -> Vec<TimelineCorrelation>
     correlations
 }
 
-/// Fetches explicit symptom-medication links stored via related_medication_id.
+/// Fetches explicit symptom-medication and symptom-diagnosis links.
 pub fn fetch_explicit_correlations(
     conn: &Connection,
 ) -> Result<Vec<TimelineCorrelation>, DatabaseError> {
+    // Symptom → Medication links via related_medication_id
     let mut stmt = conn.prepare(
         "SELECT s.id AS symptom_id, s.specific,
                 m.id AS med_id, m.generic_name
@@ -95,6 +96,37 @@ pub fn fetch_explicit_correlations(
         })
     })?;
 
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(DatabaseError::from)
+    let mut results: Vec<TimelineCorrelation> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(DatabaseError::from)?;
+
+    // Symptom → Diagnosis links via related_diagnosis_id
+    let mut stmt2 = conn.prepare(
+        "SELECT s.id AS symptom_id, s.specific,
+                dg.id AS diag_id, dg.name AS diag_name
+         FROM symptoms s
+         JOIN diagnoses dg ON s.related_diagnosis_id = dg.id
+         WHERE s.related_diagnosis_id IS NOT NULL",
+    )?;
+
+    let diag_rows = stmt2.query_map([], |row| {
+        Ok(TimelineCorrelation {
+            source_id: row.get::<_, String>("symptom_id")?,
+            target_id: row.get::<_, String>("diag_id")?,
+            correlation_type: CorrelationType::SymptomLinkedToDiagnosis,
+            description: format!(
+                "{} linked to {}",
+                row.get::<_, String>("specific")?,
+                row.get::<_, String>("diag_name")?,
+            ),
+        })
+    })?;
+
+    results.extend(
+        diag_rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(DatabaseError::from)?,
+    );
+
+    Ok(results)
 }

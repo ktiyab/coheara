@@ -22,13 +22,15 @@ export const PADDING_Y = 16;
 
 /** Event type → lane index mapping (top to bottom) */
 const LANE_ORDER: Record<string, number> = {
-  appointment: 0,
-  medication: 1,
-  diagnosis: 2,
-  lab: 3,
-  symptom: 4,
-  procedure: 5,
-  document: 6,
+  insight: 0,
+  appointment: 1,
+  medication: 2,
+  diagnosis: 3,
+  lab: 4,
+  symptom: 5,
+  vital: 6,
+  procedure: 7,
+  document: 8,
 };
 
 const LANE_COUNT = Object.keys(LANE_ORDER).length;
@@ -39,9 +41,11 @@ export const CANVAS_HEIGHT =
 
 /** Color palette for event types — soft pastels per design language */
 export const EVENT_COLORS: Record<string, { fill: string; stroke: string; label: string }> = {
+  insight:     { fill: '#FFFBEB', stroke: '#D97706', label: 'Insights' },
   medication:  { fill: '#DBEAFE', stroke: '#3B82F6', label: 'Medications' },
   lab:         { fill: '#DCFCE7', stroke: '#22C55E', label: 'Lab Results' },
   symptom:     { fill: '#FFF7ED', stroke: '#F97316', label: 'Symptoms' },
+  vital:       { fill: '#EEF2FF', stroke: '#6366F1', label: 'Vitals' },
   procedure:   { fill: '#F3E8FF', stroke: '#A855F7', label: 'Procedures' },
   appointment: { fill: '#CCFBF1', stroke: '#14B8A6', label: 'Appointments' },
   document:    { fill: '#F5F5F4', stroke: '#A8A29E', label: 'Documents' },
@@ -50,11 +54,13 @@ export const EVENT_COLORS: Record<string, { fill: string; stroke: string; label:
 
 /** Lane labels in display order */
 export const LANE_LABELS = [
+  'Insights',
   'Appointments',
   'Medications',
   'Diagnoses',
   'Lab Results',
   'Symptoms',
+  'Vitals',
   'Procedures',
   'Documents',
 ];
@@ -74,6 +80,8 @@ export function eventColorGroup(eventType: EventType): string {
     case 'Appointment': return 'appointment';
     case 'Document': return 'document';
     case 'Diagnosis': return 'diagnosis';
+    case 'CoherenceAlert': return 'insight';
+    case 'VitalSign': return 'vital';
   }
 }
 

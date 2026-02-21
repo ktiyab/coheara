@@ -77,7 +77,8 @@ pub(super) fn fetch_medication_starts(
     let sql = format!(
         "SELECT m.id, m.generic_name, m.brand_name, m.dose, m.frequency,
                 m.status, m.start_date, m.reason_start,
-                m.prescriber_id, p.name AS prof_name, m.document_id
+                m.prescriber_id, p.name AS prof_name, m.document_id,
+                m.route, m.frequency_type, m.is_otc, m.condition, m.administration_instructions
          FROM medications m
          LEFT JOIN professionals p ON m.prescriber_id = p.id
          WHERE m.start_date IS NOT NULL{}",
@@ -103,6 +104,11 @@ pub(super) fn fetch_medication_starts(
                 frequency: row.get("frequency")?,
                 status: row.get("status")?,
                 reason: row.get("reason_start")?,
+                route: row.get("route")?,
+                frequency_type: row.get("frequency_type")?,
+                is_otc: Some(row.get::<_, i32>("is_otc")? != 0),
+                condition: row.get("condition")?,
+                administration_instructions: row.get("administration_instructions")?,
             },
         })
     })?;
@@ -119,7 +125,8 @@ pub(super) fn fetch_medication_stops(
     let sql = format!(
         "SELECT m.id, m.generic_name, m.brand_name, m.dose, m.frequency,
                 m.status, m.end_date, m.reason_stop,
-                m.prescriber_id, p.name AS prof_name, m.document_id
+                m.prescriber_id, p.name AS prof_name, m.document_id,
+                m.route, m.frequency_type, m.is_otc, m.condition, m.administration_instructions
          FROM medications m
          LEFT JOIN professionals p ON m.prescriber_id = p.id
          WHERE m.status = 'stopped' AND m.end_date IS NOT NULL{}",
@@ -145,6 +152,11 @@ pub(super) fn fetch_medication_stops(
                 frequency: row.get("frequency")?,
                 status: row.get("status")?,
                 reason: row.get("reason_stop")?,
+                route: row.get("route")?,
+                frequency_type: row.get("frequency_type")?,
+                is_otc: Some(row.get::<_, i32>("is_otc")? != 0),
+                condition: row.get("condition")?,
+                administration_instructions: row.get("administration_instructions")?,
             },
         })
     })?;
@@ -263,7 +275,10 @@ pub(super) fn fetch_symptom_events(
     let bounds = DateBoundQuery::new("s.onset_date", date_from, date_to);
     let sql = format!(
         "SELECT s.id, s.category, s.specific, s.severity, s.body_region,
-                s.still_active, s.onset_date, s.related_medication_id
+                s.still_active, s.onset_date, s.related_medication_id,
+                s.duration, s.character, s.aggravating, s.relieving,
+                s.timing_pattern, s.resolved_date, s.notes, s.source,
+                s.related_diagnosis_id
          FROM symptoms s
          WHERE 1=1{}",
         bounds.sql_suffix()
@@ -292,6 +307,16 @@ pub(super) fn fetch_symptom_events(
                 severity: sev as u8,
                 body_region: row.get("body_region")?,
                 still_active: still_active_int != 0,
+                duration: row.get("duration")?,
+                character: row.get("character")?,
+                aggravating: row.get("aggravating")?,
+                relieving: row.get("relieving")?,
+                timing_pattern: row.get("timing_pattern")?,
+                resolved_date: row.get("resolved_date")?,
+                notes: row.get("notes")?,
+                source: row.get("source")?,
+                related_medication_id: row.get("related_medication_id")?,
+                related_diagnosis_id: row.get("related_diagnosis_id")?,
             },
         })
     })?;
@@ -349,7 +374,8 @@ pub(super) fn fetch_appointment_events(
     let bounds = DateBoundQuery::new("a.date", date_from, date_to);
     let sql = format!(
         "SELECT a.id, a.date, a.type AS appt_type,
-                a.professional_id, p.name AS prof_name, p.specialty
+                a.professional_id, p.name AS prof_name, p.specialty,
+                a.pre_summary_generated, a.post_notes
          FROM appointments a
          JOIN professionals p ON a.professional_id = p.id
          WHERE 1=1{}",
@@ -373,6 +399,8 @@ pub(super) fn fetch_appointment_events(
             metadata: EventMetadata::Appointment {
                 appointment_type: appt_type,
                 professional_specialty: row.get("specialty")?,
+                pre_summary_generated: Some(row.get::<_, i32>("pre_summary_generated")? != 0),
+                post_notes: row.get("post_notes")?,
             },
         })
     })?;
@@ -461,6 +489,159 @@ pub(super) fn fetch_diagnosis_events(
                 name,
                 icd_code: row.get("icd_code")?,
                 status: row.get("status")?,
+            },
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+pub(super) fn severity_from_alert_level(level: &str) -> EventSeverity {
+    match level {
+        "critical" => EventSeverity::Critical,
+        "standard" => EventSeverity::Moderate,
+        "info" => EventSeverity::Low,
+        _ => EventSeverity::Low,
+    }
+}
+
+fn format_alert_title(alert_type: &str) -> String {
+    match alert_type {
+        "conflict" => "Medication Conflict".into(),
+        "gap" => "Coverage Gap".into(),
+        "drift" => "Treatment Drift".into(),
+        "ambiguity" => "Ambiguous Information".into(),
+        "duplicate" => "Duplicate Therapy".into(),
+        "allergy" => "Allergy Alert".into(),
+        "dose" => "Dosage Concern".into(),
+        "critical" => "Critical Alert".into(),
+        "temporal" => "Timing Alert".into(),
+        _ => {
+            let formatted = alert_type.replace('_', " ");
+            let mut chars = formatted.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+            }
+        }
+    }
+}
+
+pub(super) fn fetch_coherence_alert_events(
+    conn: &Connection,
+    date_from: &Option<String>,
+    date_to: &Option<String>,
+    include_dismissed: bool,
+) -> Result<Vec<TimelineEvent>, DatabaseError> {
+    let bounds = DateBoundQuery::new("ca.detected_at", date_from, date_to);
+    let dismissed_clause = if include_dismissed { "" } else { " AND ca.dismissed = 0" };
+    let sql = format!(
+        "SELECT ca.id, ca.alert_type, ca.severity, ca.entity_ids,
+                ca.patient_message, ca.detected_at, ca.dismissed,
+                ca.two_step_confirmed
+         FROM coherence_alerts ca
+         WHERE 1=1{dismissed_clause}{}",
+        bounds.sql_suffix()
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(bounds.param_refs().as_slice(), |row| {
+        let alert_type: String = row.get("alert_type")?;
+        let severity_str: String = row.get("severity")?;
+        let entity_ids_json: Option<String> = row.get("entity_ids")?;
+        let entity_ids: Vec<String> = entity_ids_json
+            .and_then(|j| serde_json::from_str(&j).ok())
+            .unwrap_or_default();
+        let dismissed_int: i32 = row.get("dismissed")?;
+        let confirmed_int: i32 = row.get("two_step_confirmed")?;
+        let patient_message: Option<String> = row.get("patient_message")?;
+
+        Ok(TimelineEvent {
+            id: row.get::<_, String>("id")?,
+            event_type: EventType::CoherenceAlert,
+            date: row.get::<_, String>("detected_at")?,
+            title: format_alert_title(&alert_type),
+            subtitle: patient_message.clone(),
+            professional_id: None,
+            professional_name: None,
+            document_id: None,
+            severity: Some(severity_from_alert_level(&severity_str)),
+            metadata: EventMetadata::CoherenceAlert {
+                alert_type,
+                severity: severity_str,
+                patient_message,
+                entity_ids,
+                dismissed: dismissed_int != 0,
+                two_step_confirmed: confirmed_int != 0,
+            },
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
+fn format_vital_type(vital_type: &str) -> String {
+    match vital_type {
+        "blood_pressure" => "Blood Pressure".into(),
+        "heart_rate" => "Heart Rate".into(),
+        "temperature" => "Temperature".into(),
+        "weight" => "Weight".into(),
+        "blood_glucose" => "Blood Glucose".into(),
+        "oxygen_saturation" => "Oxygen Saturation".into(),
+        _ => {
+            let formatted = vital_type.replace('_', " ");
+            let mut chars = formatted.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+            }
+        }
+    }
+}
+
+pub(super) fn fetch_vital_sign_events(
+    conn: &Connection,
+    date_from: &Option<String>,
+    date_to: &Option<String>,
+) -> Result<Vec<TimelineEvent>, DatabaseError> {
+    let bounds = DateBoundQuery::new("vs.recorded_at", date_from, date_to);
+    let sql = format!(
+        "SELECT vs.id, vs.vital_type, vs.value_primary, vs.value_secondary,
+                vs.unit, vs.recorded_at, vs.notes, vs.source
+         FROM vital_signs vs
+         WHERE 1=1{}",
+        bounds.sql_suffix()
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(bounds.param_refs().as_slice(), |row| {
+        let vital_type: String = row.get("vital_type")?;
+        let value_primary: f64 = row.get("value_primary")?;
+        let value_secondary: Option<f64> = row.get("value_secondary")?;
+        let unit: String = row.get("unit")?;
+
+        let subtitle = match value_secondary {
+            Some(sec) => format!("{}/{} {}", value_primary, sec, unit),
+            None => format!("{} {}", value_primary, unit),
+        };
+
+        Ok(TimelineEvent {
+            id: row.get::<_, String>("id")?,
+            event_type: EventType::VitalSign,
+            date: row.get::<_, String>("recorded_at")?,
+            title: format_vital_type(&vital_type),
+            subtitle: Some(subtitle),
+            professional_id: None,
+            professional_name: None,
+            document_id: None,
+            severity: None,
+            metadata: EventMetadata::VitalSign {
+                vital_type,
+                value_primary,
+                value_secondary,
+                unit,
+                notes: row.get("notes")?,
+                source: row.get("source")?,
             },
         })
     })?;

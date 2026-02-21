@@ -25,6 +25,9 @@ pub fn assemble_timeline_events(
     events.extend(fetch_appointment_events(conn, &date_from, &date_to)?);
     events.extend(fetch_document_events(conn, &date_from, &date_to)?);
     events.extend(fetch_diagnosis_events(conn, &date_from, &date_to)?);
+    let include_dismissed = filter.include_dismissed_alerts.unwrap_or(false);
+    events.extend(fetch_coherence_alert_events(conn, &date_from, &date_to, include_dismissed)?);
+    events.extend(fetch_vital_sign_events(conn, &date_from, &date_to)?);
 
     // Apply event_type filter
     if let Some(ref types) = filter.event_types {
@@ -91,6 +94,8 @@ pub fn compute_event_counts(conn: &Connection) -> Result<EventCounts, DatabaseEr
         appointments: count("SELECT COUNT(*) FROM appointments")?,
         documents: count("SELECT COUNT(*) FROM documents")?,
         diagnoses: count("SELECT COUNT(*) FROM diagnoses WHERE date_diagnosed IS NOT NULL")?,
+        coherence_alerts: count("SELECT COUNT(*) FROM coherence_alerts WHERE dismissed = 0")?,
+        vital_signs: count("SELECT COUNT(*) FROM vital_signs")?,
     })
 }
 

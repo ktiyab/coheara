@@ -75,6 +75,8 @@
       case 'MedicationStart': return '+';
       case 'MedicationStop': return '\u00d7';
       case 'MedicationDoseChange': return '\u0394';
+      case 'CoherenceAlert': return '!';
+      case 'VitalSign': return '\u2665';
       default: return '';
     }
   }
@@ -155,7 +157,7 @@
       {/each}
 
       <!-- Horizontal lane separator lines -->
-      {#each Array(7) as _, laneIdx}
+      {#each Array(LANE_LABELS.length) as _, laneIdx}
         <line
           x1={0}
           y1={HEADER_HEIGHT + PADDING_Y + laneIdx * (LANE_HEIGHT + LANE_GAP)}

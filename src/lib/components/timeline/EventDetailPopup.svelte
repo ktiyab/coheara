@@ -14,11 +14,12 @@
   interface Props {
     event: TimelineEvent;
     correlations: TimelineCorrelation[];
+    allEvents?: TimelineEvent[];
     anchor: { x: number; y: number };
     onClose: () => void;
     onScrollToEvent: (eventId: string) => void;
   }
-  let { event, correlations, anchor, onClose, onScrollToEvent }: Props = $props();
+  let { event, correlations, allEvents = [], anchor, onClose, onScrollToEvent }: Props = $props();
 
   let confirmingDelete = $state(false);
   let actionError = $state('');
@@ -135,6 +136,18 @@
       {#if event.metadata.brand_name}
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_brand')}</span> {event.metadata.brand_name}</p>
       {/if}
+      {#if event.metadata.route}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_route')}</span> {event.metadata.route}</p>
+      {/if}
+      {#if event.metadata.condition}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_condition')}</span> {event.metadata.condition}</p>
+      {/if}
+      {#if event.metadata.administration_instructions}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_instructions')}</span> {event.metadata.administration_instructions}</p>
+      {/if}
+      {#if event.metadata.is_otc}
+        <Badge variant="neutral" size="sm">{$t('timeline.event_otc')}</Badge>
+      {/if}
       {#if event.metadata.reason}
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_reason')}</span> {event.metadata.reason}</p>
       {/if}
@@ -165,11 +178,32 @@
       {#if event.metadata.body_region}
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_location')}</span> {event.metadata.body_region}</p>
       {/if}
+      {#if event.metadata.duration}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_duration')}</span> {event.metadata.duration}</p>
+      {/if}
+      {#if event.metadata.character}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_character')}</span> {event.metadata.character}</p>
+      {/if}
+      {#if event.metadata.aggravating}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_aggravating')}</span> {event.metadata.aggravating}</p>
+      {/if}
+      {#if event.metadata.relieving}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_relieving')}</span> {event.metadata.relieving}</p>
+      {/if}
+      {#if event.metadata.timing_pattern}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_timing')}</span> {event.metadata.timing_pattern}</p>
+      {/if}
+      {#if event.metadata.notes}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_notes')}</span> {event.metadata.notes}</p>
+      {/if}
       <p>
         <Badge variant={event.metadata.still_active ? 'warning' : 'success'} size="sm">
           {event.metadata.still_active ? $t('timeline.event_still_active') : $t('timeline.event_resolved')}
         </Badge>
       </p>
+      {#if event.metadata.resolved_date}
+        <p class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.event_resolved_date')} {event.metadata.resolved_date}</p>
+      {/if}
     {:else if event.metadata.kind === 'Procedure'}
       {#if event.metadata.facility}
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_facility')}</span> {event.metadata.facility}</p>
@@ -185,6 +219,14 @@
       {#if event.metadata.professional_specialty}
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_specialty')}</span> {event.metadata.professional_specialty}</p>
       {/if}
+      {#if event.metadata.pre_summary_generated}
+        <Badge variant="success" size="sm">{$t('timeline.event_prep_generated')}</Badge>
+      {/if}
+      {#if event.metadata.post_notes}
+        <div class="mt-1 p-2 bg-stone-50 dark:bg-gray-800 rounded-lg text-xs italic text-stone-600 dark:text-gray-300">
+          {event.metadata.post_notes}
+        </div>
+      {/if}
     {:else if event.metadata.kind === 'Document'}
       <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_type')}</span> {event.metadata.document_type}</p>
       <p>
@@ -197,6 +239,31 @@
         <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_icd')}</span> {event.metadata.icd_code}</p>
       {/if}
       <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_status')}</span> {event.metadata.status}</p>
+    {:else if event.metadata.kind === 'CoherenceAlert'}
+      <Badge variant={event.metadata.severity === 'critical' ? 'danger' : event.metadata.severity === 'standard' ? 'warning' : 'neutral'} size="sm">
+        {event.metadata.severity}
+      </Badge>
+      {#if event.metadata.patient_message}
+        <p class="mt-1">{event.metadata.patient_message}</p>
+      {/if}
+      {#if event.metadata.entity_ids.length > 0}
+        <p class="text-xs text-stone-500 dark:text-gray-400">
+          {$t('timeline.event_entities', { values: { count: event.metadata.entity_ids.length } })}
+        </p>
+      {/if}
+    {:else if event.metadata.kind === 'VitalSign'}
+      <p>
+        <span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_value')}</span>
+        {#if event.metadata.value_secondary !== null}
+          {event.metadata.value_primary}/{event.metadata.value_secondary} {event.metadata.unit}
+        {:else}
+          {event.metadata.value_primary} {event.metadata.unit}
+        {/if}
+      </p>
+      {#if event.metadata.notes}
+        <p><span class="text-stone-500 dark:text-gray-400">{$t('timeline.event_notes')}</span> {event.metadata.notes}</p>
+      {/if}
+      <p class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.event_source')}: {event.metadata.source}</p>
     {/if}
   </div>
 
@@ -245,23 +312,28 @@
       </Button>
     {:else if event.metadata.kind === 'Medication' || event.metadata.kind === 'DoseChange'}
       <Button variant="secondary" size="sm"
-        onclick={() => navigation.navigate('timeline', { filter: 'medication' })}>
-        {$t('timeline.event_go_to_source')}
+        onclick={() => navigation.navigate('chat', { prefill: $t('timeline.event_ask_med_prefill', { values: { name: event.title } }) })}>
+        {$t('timeline.event_ask_ai')}
       </Button>
     {:else if event.metadata.kind === 'Appointment'}
-      <Button variant="secondary" size="sm"
-        onclick={() => navigation.navigate('timeline', { filter: 'appointment' })}>
-        {$t('timeline.event_go_to_source')}
-      </Button>
       <Button variant="secondary" size="sm"
         onclick={() => navigation.navigate('chat', { prefill: $t('timeline.event_prepare_prefill', { values: { name: event.professional_name ?? event.title } }) })}>
         {$t('timeline.event_prepare_visit')}
       </Button>
-    {:else}
-      <!-- Lab, Procedure, Document, Diagnosis: navigate to timeline filtered -->
+    {:else if event.metadata.kind === 'CoherenceAlert'}
       <Button variant="secondary" size="sm"
-        onclick={() => navigation.navigate('timeline')}>
-        {$t('timeline.event_go_to_source')}
+        onclick={() => navigation.navigate('chat', { prefill: event.metadata.kind === 'CoherenceAlert' ? (event.metadata.patient_message ?? event.title) : event.title })}>
+        {$t('timeline.event_ask_ai')}
+      </Button>
+    {:else if event.metadata.kind === 'VitalSign'}
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('chat', { prefill: $t('timeline.event_ask_vital_prefill', { values: { type: event.title } }) })}>
+        {$t('timeline.event_ask_ai')}
+      </Button>
+    {:else}
+      <Button variant="secondary" size="sm"
+        onclick={() => navigation.navigate('chat', { prefill: event.title })}>
+        {$t('timeline.event_ask_ai')}
       </Button>
     {/if}
   </div>
