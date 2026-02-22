@@ -609,23 +609,34 @@ fn update_ocr_confidence(
 /// - LLM structuring: `OllamaClient` → `DocumentStructurer`
 ///
 /// Returns an error if required services are unavailable (no PDFium, no Ollama, no model).
-pub fn build_processor(model: &str) -> Result<DocumentProcessor, ProcessingError> {
+///
+/// R3: Two-model architecture — vision OCR model may differ from LLM structuring model.
+/// - `vision_model`: Used for PDF page → text extraction (DeepSeek-OCR preferred, MedGemma fallback)
+/// - `llm_model`: Used for text → structured entities extraction (MedGemma)
+pub fn build_processor(
+    vision_model: &str,
+    llm_model: &str,
+) -> Result<DocumentProcessor, ProcessingError> {
+    use crate::ollama_service::OllamaService;
     use crate::pipeline::extraction::pdfium::PdfiumRenderer;
     use crate::pipeline::extraction::vision_ocr::OllamaVisionOcr;
-    use crate::pipeline::structuring::ollama::OllamaClient;
 
     // R3: PDF rendering (PdfiumRenderer) + vision OCR extraction
     let pdf_renderer = PdfiumRenderer::new()
         .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
-    let vision_client = Arc::new(OllamaClient::default_local());
+    let vision_client = Arc::new(OllamaService::client());
     let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
-        Box::new(OllamaVisionOcr::new(vision_client, model.to_string()));
+        Box::new(OllamaVisionOcr::new(vision_client, vision_model.to_string()));
     let extractor = Box::new(DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr));
 
-    // LLM structuring (separate client instance)
-    let structuring_client = OllamaClient::default_local();
-    tracing::info!(model = %model, "Document processor using LLM model");
-    let structurer = Box::new(DocumentStructurer::new(Box::new(structuring_client), model));
+    // LLM structuring (separate client instance, same configuration)
+    let structuring_client = OllamaService::client();
+    tracing::info!(
+        vision_model = %vision_model,
+        llm_model = %llm_model,
+        "Document processor initialized (R3 two-model architecture)"
+    );
+    let structurer = Box::new(DocumentStructurer::new(Box::new(structuring_client), llm_model));
 
     Ok(DocumentProcessor::new(extractor, structurer))
 }

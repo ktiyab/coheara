@@ -16,6 +16,7 @@ use crate::db;
 use crate::device_manager::DeviceManager;
 use crate::pairing::PairingManager;
 use crate::distribution::DistributionServer;
+use crate::ollama_service::OllamaService;
 use crate::pipeline::structuring::preferences::ActiveModelResolver;
 use crate::wifi_transfer::TransferServer;
 
@@ -58,6 +59,8 @@ pub struct CoreState {
     audit: AuditLogger,
     /// L6-04: Model preference resolver (singleton, shared cache).
     model_resolver: ActiveModelResolver,
+    /// Centralized Ollama access — exclusive lock + operation tracking.
+    ollama_service: OllamaService,
     /// S.1: Whether AI generation has been verified since last check.
     /// Set to true by `verify_ai_status`, cleared on degraded/error events.
     ai_verified: AtomicBool,
@@ -78,6 +81,7 @@ impl CoreState {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
+            ollama_service: OllamaService::new(),
             ai_verified: AtomicBool::new(false),
         }
     }
@@ -251,6 +255,13 @@ impl CoreState {
     /// Access the shared model resolver.
     pub fn resolver(&self) -> &ActiveModelResolver {
         &self.model_resolver
+    }
+
+    // ── Ollama service ────────────────────────────────────
+
+    /// Access the centralized Ollama service for exclusive SLM access.
+    pub fn ollama(&self) -> &OllamaService {
+        &self.ollama_service
     }
 
     /// S.1: Check if AI generation has been verified.
@@ -467,6 +478,7 @@ mod tests {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
+            ollama_service: OllamaService::new(),
             ai_verified: AtomicBool::new(false),
         };
         assert!(state.check_timeout());

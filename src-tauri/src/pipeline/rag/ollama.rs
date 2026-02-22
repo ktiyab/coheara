@@ -29,7 +29,7 @@ impl OllamaRagGenerator {
     /// Use `ActiveModelResolver` to resolve the model name before calling this.
     /// Returns `None` if the model is not actually available on Ollama.
     pub fn with_resolved_model(model: String) -> Option<Self> {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         match client.is_model_available(&model) {
             Ok(true) => {
                 tracing::info!(model = %model, "Ollama RAG generator: model confirmed");

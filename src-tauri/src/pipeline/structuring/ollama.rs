@@ -5,32 +5,29 @@ use super::StructuringError;
 use super::ollama_types::{
     GenerationOptions, ModelCapability, ModelDetail, ModelInfo, ModelPreference,
     OllamaError, OllamaHealth, OllamaShowResponse, OllamaTagsResponse, PullProgress,
-    VisionGenerateRequest, VisionGenerationOptions, VISION_MODEL_PREFIXES,
+    VisionChatMessage, VisionChatRequest, VisionGenerateRequest, VisionGenerationOptions,
+    VISION_MODEL_PREFIXES,
     extract_model_component, recommended_model_names, validate_base_url, validate_model_name,
 };
 use super::types::{LlmClient, VisionClient};
 
-/// Default generation timeout in seconds.
-/// MedGemma cold start can take ~5 minutes (observed 4m59s in R-MOD-04).
-/// 600s provides sufficient headroom for cold start + generation.
-const DEFAULT_GENERATE_TIMEOUT_SECS: u64 = 600;
-
 /// Ollama HTTP client for local LLM inference.
 ///
-/// Single shared HTTP client with per-request timeouts:
-/// - Generation: `timeout_secs` (default 600s — MedGemma cold start can take ~5min)
-/// - Health/list/show: 5s (quick fail if unreachable)
-/// - Delete: 30s (filesystem operation)
+/// Completion-based operations — no artificial request timeouts.
+/// Operations run until Ollama responds (success or error).
+///
+/// - `connect_timeout(10s)`: Fast detection of "Ollama not running"
+/// - Health/list/show: 5s per-request timeout (management operations)
+/// - Delete: 30s per-request timeout (filesystem operation)
 /// - Pull: no timeout (downloads are arbitrarily long)
+/// - Generation/vision: no timeout (inference takes as long as needed)
 ///
 /// SD-03: Blocking client stays blocking. Tauri commands run on a threadpool.
 /// Async is only used for streaming pull (via tokio::spawn in IPC layer).
 pub struct OllamaClient {
     base_url: String,
-    /// Single shared HTTP client — per-request timeouts applied at call sites.
+    /// Single shared HTTP client — connect_timeout only, no global request timeout.
     client: reqwest::blocking::Client,
-    /// Default generation timeout in seconds.
-    timeout_secs: u64,
     /// Generation parameters (temperature, top_p, top_k, etc.).
     options: GenerationOptions,
 }
@@ -38,20 +35,20 @@ pub struct OllamaClient {
 impl OllamaClient {
     /// Create a new OllamaClient pointing at a local Ollama instance.
     ///
-    /// SD-02: Single client, per-request timeouts.
-    /// - `timeout_secs`: applied to generation requests
+    /// SD-02: Single client with connect_timeout for fast failure detection.
+    /// No request timeouts — inference operations complete or fail naturally.
     /// - Health/list/show: 5s hardcoded at call sites
     /// - Delete: 30s hardcoded at call sites
     /// - Pull: no timeout (applied at call site)
-    pub fn new(base_url: &str, timeout_secs: u64) -> Self {
+    pub fn new(base_url: &str) -> Self {
         let client = reqwest::blocking::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client");
 
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             client,
-            timeout_secs,
             options: GenerationOptions::default(),
         }
     }
@@ -67,9 +64,9 @@ impl OllamaClient {
         &self.options
     }
 
-    /// Default Ollama instance at localhost:11434 with 10-minute generation timeout.
+    /// Default Ollama instance at localhost:11434.
     pub fn default_local() -> Self {
-        Self::new("http://localhost:11434", DEFAULT_GENERATE_TIMEOUT_SECS)
+        Self::new("http://localhost:11434")
     }
 
     /// Create an OllamaClient from the `OLLAMA_HOST` environment variable.
@@ -89,7 +86,7 @@ impl OllamaClient {
                 match validate_base_url(&url) {
                     Ok(()) => {
                         tracing::info!(ollama_host = %url, "Using OLLAMA_HOST from environment");
-                        Self::new(&url, DEFAULT_GENERATE_TIMEOUT_SECS)
+                        Self::new(&url)
                     }
                     Err(_) => {
                         tracing::warn!(
@@ -496,17 +493,11 @@ impl OllamaClient {
         let response = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(self.timeout_secs))
             .json(&body)
             .send()
             .map_err(|e| {
-                if e.is_connect() {
+                if e.is_connect() || e.is_timeout() {
                     StructuringError::OllamaConnection(self.base_url.clone())
-                } else if e.is_timeout() {
-                    StructuringError::HttpClient(format!(
-                        "Streaming request timed out after {}s",
-                        self.timeout_secs
-                    ))
                 } else {
                     StructuringError::HttpClient(e.to_string())
                 }
@@ -580,11 +571,8 @@ impl OllamaClient {
 /// which covers even high-DPI page renders (200 DPI A4 ≈ 1-3 MB PNG).
 const MAX_IMAGE_SIZE_BYTES: usize = 20 * 1024 * 1024;
 
-/// Vision OCR timeout: 120s per image.
-///
-/// Shorter than text generation (600s) because vision OCR processes a single
-/// page image. MedGemma on CPU: ~30-60s per page. DeepSeek-OCR: ~10-30s.
-const VISION_GENERATE_TIMEOUT_SECS: u64 = 120;
+// No per-request timeout for vision operations — inference runs to completion.
+// connect_timeout(10s) on the HTTP client handles "Ollama not running" detection.
 
 impl OllamaClient {
     /// Detect whether a model supports vision (image) inputs.
@@ -638,7 +626,7 @@ impl VisionClient for OllamaClient {
     /// - Image size guard: rejects images > 20 MB base64
     /// - Deterministic: temperature=0.0, num_predict=8192
     /// - Security: `keep_alive=0` unloads model after inference (SEC-02-G09)
-    /// - Timeout: 120s (single-page OCR, not multi-page generation)
+    /// - No request timeout: inference runs to completion (connect_timeout only)
     fn generate_with_images(
         &self,
         model: &str,
@@ -688,7 +676,6 @@ impl VisionClient for OllamaClient {
         let response = self
             .client
             .post(&url)
-            .timeout(std::time::Duration::from_secs(VISION_GENERATE_TIMEOUT_SECS))
             .json(&request)
             .send()
             .map_err(|e| {
@@ -713,6 +700,7 @@ impl VisionClient for OllamaClient {
                 model = %model,
                 status = status.as_u16(),
                 elapsed_ms = %start.elapsed().as_millis(),
+                body = %body,
                 "Ollama generate_with_images: non-success status"
             );
             return Err(OllamaError::ApiError {
@@ -738,6 +726,136 @@ impl VisionClient for OllamaClient {
         );
 
         Ok(parsed.response)
+    }
+
+    /// R3: Chat-based vision inference via `/api/chat`.
+    ///
+    /// Required by chat-template models (MedGemma, LLaVA, Gemma) that expect
+    /// messages with roles. The generate endpoint returns 500 for these models.
+    ///
+    /// Key behaviors (same as generate_with_images):
+    /// - Image size guard: rejects images > 20 MB base64
+    /// - Deterministic: temperature=0.0, num_predict=8192
+    /// - Security: `keep_alive=0` unloads model after inference
+    /// - No request timeout: inference runs to completion
+    fn chat_with_images(
+        &self,
+        model: &str,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<String, OllamaError> {
+        validate_model_name(model)?;
+        let _span = tracing::info_span!(
+            "ollama_chat_with_images",
+            model = %model,
+            prompt_len = user_prompt.len(),
+            image_count = images.len(),
+        )
+        .entered();
+        let start = std::time::Instant::now();
+        tracing::info!("Ollama chat_with_images starting");
+
+        // Guard: reject oversized images
+        for (i, img) in images.iter().enumerate() {
+            if img.len() > MAX_IMAGE_SIZE_BYTES {
+                tracing::warn!(
+                    image_index = i,
+                    size = img.len(),
+                    max = MAX_IMAGE_SIZE_BYTES,
+                    "Image exceeds maximum size"
+                );
+                return Err(OllamaError::ImageTooLarge(img.len()));
+            }
+        }
+
+        // Build messages array
+        let mut messages = Vec::new();
+
+        if let Some(sys) = system {
+            messages.push(VisionChatMessage {
+                role: "system".to_string(),
+                content: sys.to_string(),
+                images: None,
+            });
+        }
+
+        messages.push(VisionChatMessage {
+            role: "user".to_string(),
+            content: user_prompt.to_string(),
+            images: Some(images.to_vec()),
+        });
+
+        let request = VisionChatRequest {
+            model: model.to_string(),
+            messages,
+            stream: false,
+            options: Some(VisionGenerationOptions {
+                temperature: 0.0,
+                num_predict: 8192,
+            }),
+            keep_alive: Some("0".to_string()),
+        };
+
+        let url = format!("{}/api/chat", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .map_err(|e| {
+                let err = if e.is_connect() || e.is_timeout() {
+                    OllamaError::NotReachable
+                } else {
+                    OllamaError::Network(e.to_string())
+                };
+                tracing::warn!(
+                    model = %model,
+                    elapsed_ms = %start.elapsed().as_millis(),
+                    error = %e,
+                    "Ollama chat_with_images failed"
+                );
+                err
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            tracing::warn!(
+                model = %model,
+                status = status.as_u16(),
+                elapsed_ms = %start.elapsed().as_millis(),
+                body = %body,
+                "Ollama chat_with_images: non-success status"
+            );
+            return Err(OllamaError::ApiError {
+                status: status.as_u16(),
+                message: body,
+            });
+        }
+
+        #[derive(Deserialize)]
+        struct ChatMessage {
+            content: String,
+        }
+        #[derive(Deserialize)]
+        struct ChatResponse {
+            message: ChatMessage,
+        }
+
+        let parsed: ChatResponse = response
+            .json()
+            .map_err(|e| OllamaError::Network(format!("Failed to parse chat response: {e}")))?;
+
+        tracing::info!(
+            model = %model,
+            elapsed_ms = %start.elapsed().as_millis(),
+            response_len = parsed.message.content.len(),
+            "Ollama chat_with_images complete"
+        );
+
+        Ok(parsed.message.content)
     }
 }
 
@@ -773,6 +891,23 @@ impl VisionClient for MockVisionClient {
         &self,
         _model: &str,
         _prompt: &str,
+        images: &[String],
+        _system: Option<&str>,
+    ) -> Result<String, OllamaError> {
+        if self.enforce_size_limit {
+            for img in images {
+                if img.len() > MAX_IMAGE_SIZE_BYTES {
+                    return Err(OllamaError::ImageTooLarge(img.len()));
+                }
+            }
+        }
+        Ok(self.response.clone())
+    }
+
+    fn chat_with_images(
+        &self,
+        _model: &str,
+        _user_prompt: &str,
         images: &[String],
         _system: Option<&str>,
     ) -> Result<String, OllamaError> {
@@ -877,24 +1012,15 @@ impl LlmClient for OllamaClient {
             };
 
             let response = match self.client.post(&url)
-                .timeout(std::time::Duration::from_secs(self.timeout_secs))
                 .json(&body)
                 .send()
             {
                 Ok(resp) => resp,
                 Err(e) => {
-                    if e.is_connect() {
-                        // Connection refused — Ollama is not running, don't retry
-                        tracing::warn!(model = %model, error = %e, "Ollama generate: connection refused, not retrying");
+                    if e.is_connect() || e.is_timeout() {
+                        // Connection refused or connect timeout — Ollama is not running, don't retry
+                        tracing::warn!(model = %model, error = %e, "Ollama generate: connection failed, not retrying");
                         return Err(StructuringError::OllamaConnection(self.base_url.clone()));
-                    }
-                    if e.is_timeout() {
-                        // Timeout is retryable
-                        last_error = Some(StructuringError::HttpClient(format!(
-                            "Request timed out after {}s",
-                            self.timeout_secs
-                        )));
-                        continue;
                     }
                     // Other network errors — retry
                     last_error = Some(StructuringError::HttpClient(e.to_string()));
@@ -1075,14 +1201,13 @@ mod tests {
 
     #[test]
     fn ollama_client_constructor() {
-        let client = OllamaClient::new("http://localhost:11434", 120);
+        let client = OllamaClient::new("http://localhost:11434");
         assert_eq!(client.base_url, "http://localhost:11434");
-        assert_eq!(client.timeout_secs, 120);
     }
 
     #[test]
     fn ollama_client_trims_trailing_slash() {
-        let client = OllamaClient::new("http://localhost:11434/", 60);
+        let client = OllamaClient::new("http://localhost:11434/");
         assert_eq!(client.base_url, "http://localhost:11434");
     }
 
@@ -1090,12 +1215,6 @@ mod tests {
     fn default_local_uses_standard_port() {
         let client = OllamaClient::default_local();
         assert_eq!(client.base_url, "http://localhost:11434");
-    }
-
-    #[test]
-    fn default_local_uses_600s_timeout() {
-        let client = OllamaClient::default_local();
-        assert_eq!(client.timeout_secs, 600);
     }
 
     #[test]
@@ -1132,7 +1251,7 @@ mod tests {
 
     #[test]
     fn generate_streaming_rejects_invalid_model_name() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let (tx, _rx) = std::sync::mpsc::channel();
         let result = client.generate_streaming("../evil", "prompt", "system", tx);
         assert!(result.is_err());
@@ -1140,7 +1259,7 @@ mod tests {
 
     #[test]
     fn generate_streaming_fails_when_unreachable() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let (tx, _rx) = std::sync::mpsc::channel();
         let result = client.generate_streaming("test-model", "prompt", "system", tx);
         assert!(result.is_err());
@@ -1230,7 +1349,7 @@ mod tests {
 
     #[test]
     fn vision_generate_rejects_invalid_model_name() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let images = vec!["base64data".to_string()];
         let result = client.generate_with_images("../evil", "prompt", &images, None);
         assert!(matches!(result, Err(OllamaError::InvalidModelName(_))));
@@ -1238,7 +1357,7 @@ mod tests {
 
     #[test]
     fn vision_generate_rejects_oversized_image() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let huge_image = "x".repeat(MAX_IMAGE_SIZE_BYTES + 1);
         let images = vec![huge_image];
         let result =
@@ -1248,7 +1367,7 @@ mod tests {
 
     #[test]
     fn vision_generate_fails_when_unreachable() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let images = vec!["base64data".to_string()];
         let result =
             client.generate_with_images("deepseek-ocr", "prompt", &images, None);
@@ -1258,21 +1377,21 @@ mod tests {
     #[test]
     fn detect_capability_recognizes_deepseek_ocr() {
         // Uses name prefix heuristic — no network call needed
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let cap = client.detect_capability("deepseek-ocr").unwrap();
         assert_eq!(cap, ModelCapability::Vision);
     }
 
     #[test]
     fn detect_capability_recognizes_medgemma() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let cap = client.detect_capability("MedAIBase/MedGemma1.5:4b").unwrap();
         assert_eq!(cap, ModelCapability::Vision);
     }
 
     #[test]
     fn detect_capability_recognizes_llava() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let cap = client.detect_capability("llava:13b").unwrap();
         assert_eq!(cap, ModelCapability::Vision);
     }
@@ -1280,15 +1399,14 @@ mod tests {
     #[test]
     fn detect_capability_defaults_text_only_for_unknown() {
         // Unknown model + unreachable Ollama → conservative TextOnly
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let cap = client.detect_capability("llama3:8b").unwrap();
         assert_eq!(cap, ModelCapability::TextOnly);
     }
 
     #[test]
-    fn vision_constants_reasonable() {
+    fn vision_max_image_size_reasonable() {
         assert_eq!(MAX_IMAGE_SIZE_BYTES, 20 * 1024 * 1024, "Max image size should be 20 MB");
-        assert_eq!(VISION_GENERATE_TIMEOUT_SECS, 120, "Vision timeout should be 120s");
     }
 
     // ── resolve_model tests (B10) ──
@@ -1297,7 +1415,7 @@ mod tests {
 
     #[test]
     fn resolve_model_returns_not_reachable_without_ollama() {
-        let client = OllamaClient::new("http://localhost:99999", 1);
+        let client = OllamaClient::new("http://localhost:99999");
         let pref = ModelPreference {
             user_selected: Some("medgemma:4b".into()),
             recommended: vec![],

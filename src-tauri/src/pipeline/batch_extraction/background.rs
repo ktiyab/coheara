@@ -137,7 +137,13 @@ fn try_run_batch(app: &AppHandle) -> Result<(), String> {
         run_config.clone(),
     );
 
-    let llm = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    // Acquire exclusive Ollama access for batch extraction
+    let _ollama_guard = state.ollama().acquire(
+        crate::ollama_service::OperationKind::BatchExtraction,
+        &run_config.model_name,
+    ).map_err(|e| format!("Ollama busy: {e}"))?;
+
+    let llm = crate::ollama_service::OllamaService::client();
 
     let patient_context = load_patient_context(&conn).unwrap_or_default();
 
@@ -173,7 +179,7 @@ fn try_run_batch(app: &AppHandle) -> Result<(), String> {
 fn resolve_model(app: &AppHandle) -> Result<String, String> {
     let state: tauri::State<'_, Arc<CoreState>> = app.state();
     let conn = state.open_db().map_err(|e| e.to_string())?;
-    let client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let client = crate::ollama_service::OllamaService::client();
 
     let model = state
         .resolver()

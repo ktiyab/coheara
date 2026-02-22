@@ -312,16 +312,31 @@ pub async fn process_document(
         let conn = open_database(session.db_path(), Some(session.key_bytes()))
             .map_err(|e| format!("Database error: {e}"))?;
 
-        // Resolve active model via preferences (L6-04)
-        let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
-        let resolved = state
+        // Resolve models via preferences (L6-04, R3)
+        let ollama = crate::ollama_service::OllamaService::client();
+        let llm_model = state
             .resolver()
             .resolve(&conn, &ollama)
             .map_err(|e| format!("No AI model available: {e}"))?;
+        let vision_model = state
+            .resolver()
+            .resolve_for_role(
+                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
+                &conn,
+                &ollama,
+            )
+            .unwrap_or_else(|_| llm_model.clone());
 
-        // Build the document processor with the resolved model + stage tracker
-        let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
-            .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+        // Acquire exclusive Ollama access for the entire pipeline
+        let _ollama_guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::DocumentOcr,
+            &vision_model.name,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
+
+        // Build the document processor with resolved models + stage tracker
+        let mut processor =
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+                .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
         let tracker: StageTracker =
             std::sync::Arc::new(std::sync::atomic::AtomicU8::new(STAGE_IMPORTING));
@@ -455,16 +470,31 @@ pub async fn process_documents_batch(
         let conn = open_database(session.db_path(), Some(session.key_bytes()))
             .map_err(|e| format!("Database error: {e}"))?;
 
-        // Resolve active model via preferences (L6-04)
-        let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
-        let resolved = state
+        // Resolve models via preferences (L6-04, R3)
+        let ollama = crate::ollama_service::OllamaService::client();
+        let llm_model = state
             .resolver()
             .resolve(&conn, &ollama)
             .map_err(|e| format!("No AI model available: {e}"))?;
+        let vision_model = state
+            .resolver()
+            .resolve_for_role(
+                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
+                &conn,
+                &ollama,
+            )
+            .unwrap_or_else(|_| llm_model.clone());
+
+        // Acquire exclusive Ollama access for the entire batch
+        let _ollama_guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::DocumentOcr,
+            &vision_model.name,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
         // Build processor once for the batch
-        let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
-            .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+        let mut processor =
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+                .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
         let total = file_paths.len();
         let mut results = Vec::with_capacity(total);
@@ -687,15 +717,30 @@ pub async fn reprocess_document(
             status: ImportStatus::Staged,
         };
 
-        // Resolve model + build processor
-        let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
-        let resolved = state
+        // Resolve models + build processor (L6-04, R3)
+        let ollama = crate::ollama_service::OllamaService::client();
+        let llm_model = state
             .resolver()
             .resolve(&conn, &ollama)
             .map_err(|e| format!("No AI model available: {e}"))?;
+        let vision_model = state
+            .resolver()
+            .resolve_for_role(
+                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
+                &conn,
+                &ollama,
+            )
+            .unwrap_or_else(|_| llm_model.clone());
 
-        let mut processor = crate::pipeline::processor::build_processor(&resolved.name)
-            .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+        // Acquire exclusive Ollama access for reprocessing
+        let _ollama_guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::DocumentOcr,
+            &vision_model.name,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
+
+        let mut processor =
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+                .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
         // Reset pipeline status to Imported before reprocessing
         if let Err(e) = crate::db::repository::update_pipeline_status(

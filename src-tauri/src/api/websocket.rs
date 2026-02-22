@@ -404,7 +404,7 @@ async fn handle_chat_query(
         }
 
         // 5. Resolve active model via preferences (L6-04), then try RAG pipeline
-        let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        let ollama_client = crate::ollama_service::OllamaService::client();
         let resolved_model = core
             .resolver()
             .resolve(&conn, &ollama_client)

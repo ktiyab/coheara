@@ -22,6 +22,7 @@ pub mod timeline; // L4-04: Timeline View
 pub mod sync; // M0-04: Sync Engine
 pub mod trust; // L5-01: Trust & Safety
 pub mod suggestions; // LP-05: Intelligent Chat Suggestions
+pub mod ollama_service; // Centralized SLM access controller
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -60,6 +61,7 @@ pub fn run() {
             commands::health_check,
             commands::check_ai_status,
             commands::verify_ai_status,
+            commands::ollama_current_operation,
             commands::profile::list_profiles,
             commands::profile::create_profile,
             commands::profile::unlock_profile,

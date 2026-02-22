@@ -78,9 +78,7 @@ pub async fn check_ai_status(
 ) -> Result<AiStatus, String> {
     let state = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        use crate::pipeline::structuring::ollama::OllamaClient;
-
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
 
         // Check Ollama reachability via health check (L6-01)
         let health = client.health_check().ok();
@@ -152,10 +150,9 @@ pub async fn verify_ai_status(
 ) -> Result<AiStatus, String> {
     let state = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        use crate::pipeline::structuring::ollama::OllamaClient;
         use crate::pipeline::structuring::types::LlmClient;
 
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
 
         // Quick health check first
         let health = client.health_check().ok();
@@ -180,57 +177,96 @@ pub async fn verify_ai_status(
 
         let model_name = active_model.as_ref().map(|m| m.name.clone());
 
-        // Attempt verification if model is resolved
-        let verified = if let Some(ref name) = model_name {
-            match client.generate(
+        // Try to acquire Ollama exclusively for verification — skip if busy
+        let guard = model_name.as_ref().and_then(|name| {
+            state.ollama().try_acquire(
+                crate::ollama_service::OperationKind::ModelVerification,
                 name,
-                "Reply with exactly: OK",
-                "You are a test. Reply only with OK.",
-            ) {
-                Ok(response) => response.trim().contains("OK"),
-                Err(e) => {
-                    tracing::warn!(model = %name, error = %e, "S.1: AI verification failed");
-                    false
+            )
+        });
+
+        // Attempt verification only if we got the lock (Ollama not busy)
+        let verified = match (&guard, &model_name) {
+            (Some(_), Some(name)) => {
+                match client.generate(
+                    name,
+                    "Reply with exactly: OK",
+                    "You are a test. Reply only with OK.",
+                ) {
+                    Ok(response) => response.trim().contains("OK"),
+                    Err(e) => {
+                        tracing::warn!(model = %name, error = %e, "S.1: AI verification failed");
+                        false
+                    }
                 }
             }
-        } else {
-            false
+            (None, Some(_)) => {
+                // Ollama is busy with a real operation — the running operation IS the proof
+                tracing::info!(
+                    busy_with = ?state.ollama().current_operation(),
+                    "Ollama busy, skipping verification — active use implies working"
+                );
+                // Return current verified state without changing it
+                return build_status(&state, ollama_available, active_model);
+            }
+            _ => false,
         };
 
         state.set_ai_verified(verified);
-        let embedder_type = detect_embedder_type();
-
-        let level = match (ollama_available, &active_model) {
-            (false, _) => StatusLevel::Error,
-            (true, None) => StatusLevel::Reachable,
-            (true, Some(_)) if verified => StatusLevel::Verified,
-            (true, Some(_)) => StatusLevel::Configured,
-        };
-
-        let summary = match (&level, &active_model, embedder_type.as_str()) {
-            (StatusLevel::Verified, Some(model), "onnx") => format!("AI verified — {} + ONNX embeddings", model.name),
-            (StatusLevel::Verified, Some(model), _) => format!("AI verified — {} (semantic search limited)", model.name),
-            (StatusLevel::Configured, Some(model), _) => format!("AI configured — {} (generation not verified)", model.name),
-            (StatusLevel::Reachable, _, _) => "Ollama running — no model selected. Set up AI in Settings.".to_string(),
-            _ => "Ollama not detected — install Ollama and pull a model".to_string(),
-        };
-
-        AiStatus {
-            ollama_available,
-            active_model,
-            embedder_type,
-            summary,
-            level,
-        }
+        build_status(&state, ollama_available, active_model)
     })
     .await
     .unwrap_or_else(|_| AiStatus {
         ollama_available: false,
         active_model: None,
         embedder_type: "mock".to_string(),
-        summary: "Status verification failed".to_string(),
+        summary: "Status check failed".to_string(),
         level: StatusLevel::Error,
     }))
+}
+
+/// Build AiStatus from current state.
+fn build_status(
+    state: &Arc<CoreState>,
+    ollama_available: bool,
+    active_model: Option<crate::pipeline::structuring::preferences::ResolvedModel>,
+) -> AiStatus {
+    let verified = state.is_ai_verified();
+    let embedder_type = detect_embedder_type();
+
+    let level = match (ollama_available, &active_model) {
+        (false, _) => StatusLevel::Error,
+        (true, None) => StatusLevel::Reachable,
+        (true, Some(_)) if verified => StatusLevel::Verified,
+        (true, Some(_)) => StatusLevel::Configured,
+    };
+
+    let summary = match (&level, &active_model, embedder_type.as_str()) {
+        (StatusLevel::Verified, Some(model), "onnx") => format!("AI verified — {} + ONNX embeddings", model.name),
+        (StatusLevel::Verified, Some(model), _) => format!("AI verified — {} (semantic search limited)", model.name),
+        (StatusLevel::Configured, Some(model), _) => format!("AI configured — {} (generation not verified)", model.name),
+        (StatusLevel::Reachable, _, _) => "Ollama running — no model selected. Set up AI in Settings.".to_string(),
+        _ => "Ollama not detected — install Ollama and pull a model".to_string(),
+    };
+
+    AiStatus {
+        ollama_available,
+        active_model,
+        embedder_type,
+        summary,
+        level,
+    }
+}
+
+/// Query the current Ollama operation (if any).
+///
+/// Returns `None` if Ollama is idle, or the active operation's kind, model, and start time.
+/// Used by the frontend AI status indicator to show "Processing document..." etc.
+#[tauri::command]
+pub fn ollama_current_operation(
+    state: State<'_, Arc<CoreState>>,
+) -> Option<crate::ollama_service::ActiveOperation> {
+    state.ollama().current_operation()
 }
 
 /// Detect which embedding backend will be used at runtime.

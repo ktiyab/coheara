@@ -100,13 +100,20 @@ pub async fn send_chat_message(
         }
 
         // 4. Resolve active model via preferences (L6-04), then attempt RAG pipeline
-        let ollama_client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        let ollama_client = crate::ollama_service::OllamaService::client();
         let resolved_model = state
             .resolver()
             .resolve(&conn, &ollama_client)
             .ok()
             .map(|r| r.name);
         let db_key = state.db_key().ok();
+
+        // Acquire exclusive Ollama access for chat generation
+        let model_for_guard = resolved_model.as_deref().unwrap_or("unknown");
+        let _ollama_guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::ChatGeneration,
+            model_for_guard,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
         // Set up token streaming: tokens flow from RAG → channel → Tauri events
         let (token_tx, token_rx) = std::sync::mpsc::channel::<String>();
@@ -130,6 +137,8 @@ pub async fn send_chat_message(
                 let _ = forwarder.join();
                 // 5. Filter RAG response through safety layers (emits Citations + Done)
                 emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
+                // Implicit verification: successful generation proves model works
+                state.set_ai_verified(true);
             }
             None => {
                 // Drop sender so forwarder thread exits

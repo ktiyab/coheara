@@ -186,8 +186,14 @@ pub async fn trigger_extraction_batch(
             config.clone(),
         );
 
+        // Acquire exclusive Ollama access for batch extraction
+        let _ollama_guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::BatchExtraction,
+            &config.model_name,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
+
         // Create the LLM client
-        let llm = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+        let llm = crate::ollama_service::OllamaService::client();
 
         let progress_fn = |event: BatchStatusEvent| {
             let _ = app.emit("extraction-progress", &event);
@@ -219,7 +225,7 @@ pub async fn trigger_extraction_batch(
 /// Resolve the active model name from preferences.
 fn resolve_model_name(state: &Arc<CoreState>) -> Result<String, String> {
     let conn = state.open_db().map_err(|e| e.to_string())?;
-    let client = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    let client = crate::ollama_service::OllamaService::client();
 
     let model = state
         .resolver()

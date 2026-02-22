@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::core_state::CoreState;
-use crate::pipeline::structuring::ollama::OllamaClient;
 use crate::pipeline::structuring::ollama_types::{
     ModelDetail, ModelInfo, OllamaHealth, PullProgress,
     RecommendedModel, recommended_models, validate_model_name,
@@ -18,7 +17,6 @@ use crate::pipeline::structuring::preferences::{
     PreferenceError, PreferenceSource, ResolvedModel,
     classify_model, validate_preference_key,
 };
-use crate::pipeline::structuring::types::LlmClient;
 
 /// Frontend-facing pull progress event payload.
 ///
@@ -44,7 +42,7 @@ static PULL_CANCEL: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None
 #[tauri::command]
 pub async fn ollama_health_check() -> Result<OllamaHealth, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         client.health_check().map_err(|e| e.to_string())
     })
     .await
@@ -59,7 +57,7 @@ pub async fn ollama_health_check() -> Result<OllamaHealth, String> {
 #[tauri::command]
 pub async fn list_ollama_models() -> Result<Vec<ModelInfo>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         client.list_models_detailed().map_err(|e| e.to_string())
     })
     .await
@@ -73,7 +71,7 @@ pub async fn list_ollama_models() -> Result<Vec<ModelInfo>, String> {
 #[tauri::command]
 pub async fn show_ollama_model(name: String) -> Result<ModelDetail, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         client.show_model(&name).map_err(|e| e.to_string())
     })
     .await
@@ -102,7 +100,7 @@ pub fn pull_ollama_model(app: AppHandle, name: String) -> Result<(), String> {
 
     let model_name = name.clone();
     std::thread::spawn(move || {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         let (progress_tx, progress_rx) = std::sync::mpsc::channel::<PullProgress>();
 
         // Spawn the pull in another thread (blocking I/O)
@@ -206,7 +204,7 @@ pub fn cancel_model_pull() -> Result<(), String> {
 #[tauri::command]
 pub async fn delete_ollama_model(name: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
         client.delete_model(&name).map_err(|e| e.to_string())
     })
     .await
@@ -270,7 +268,7 @@ pub async fn get_active_model(
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = state.open_db().map_err(|e| e.to_string())?;
-        let client = OllamaClient::default_local();
+        let client = crate::ollama_service::OllamaService::client();
 
         match state.resolver().resolve(&conn, &client) {
             Ok(resolved) => Ok(Some(resolved)),
@@ -342,10 +340,19 @@ const VERIFY_SYSTEM: &str = "You are being tested. Respond with only the word OK
 /// QA-L6-14: Returns bool success, not the raw response.
 /// Runs on a blocking thread to avoid freezing the UI (LLM generate call).
 #[tauri::command]
-pub async fn verify_ai_model(model_name: String) -> Result<bool, String> {
+pub async fn verify_ai_model(
+    model_name: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<bool, String> {
     validate_model_name(&model_name).map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let client = OllamaClient::default_local();
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        use crate::pipeline::structuring::types::LlmClient;
+        let _guard = state.ollama().acquire(
+            crate::ollama_service::OperationKind::ModelVerification,
+            &model_name,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
+        let client = crate::ollama_service::OllamaService::client();
         match client.generate(&model_name, VERIFY_PROMPT, VERIFY_SYSTEM) {
             Ok(response) => Ok(response.trim().contains("OK")),
             Err(e) => Err(e.to_string()),
@@ -423,9 +430,11 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn verify_rejects_invalid_model_name() {
-        let result = verify_ai_model("../../../etc/passwd".to_string()).await;
+    #[test]
+    fn verify_rejects_invalid_model_name() {
+        // verify_ai_model validates the model name before acquiring Ollama;
+        // test the validation directly since we can't create State<CoreState> in unit tests
+        let result = validate_model_name("../../../etc/passwd");
         assert!(result.is_err());
     }
 }
