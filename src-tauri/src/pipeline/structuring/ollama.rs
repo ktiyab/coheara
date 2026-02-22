@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 
@@ -46,6 +48,7 @@ impl OllamaClient {
         let client = reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .tcp_keepalive(std::time::Duration::from_secs(15))
+            .no_proxy()
             .build()
             .expect("Failed to create HTTP client");
 
@@ -485,7 +488,7 @@ impl OllamaClient {
             "prompt": prompt,
             "system": system,
             "stream": true,
-            "keep_alive": "0",
+            "keep_alive": "5m",
             "options": {
                 "temperature": self.options.temperature,
                 "top_p": self.options.top_p,
@@ -628,7 +631,8 @@ impl VisionClient for OllamaClient {
     /// Key behaviors:
     /// - Image size guard: rejects images > 20 MB base64
     /// - Deterministic: temperature=0.0, num_predict=8192
-    /// - Security: `keep_alive=0` unloads model after inference (SEC-02-G09)
+    /// - Streaming: collects NDJSON tokens internally (prevents Ollama scheduler timeout)
+    /// - keep_alive=5m: model stays loaded between pages of multi-page PDFs
     /// - No request timeout: inference runs to completion (connect_timeout only)
     fn generate_with_images(
         &self,
@@ -666,12 +670,12 @@ impl VisionClient for OllamaClient {
             prompt: prompt.to_string(),
             system: system.map(|s| s.to_string()),
             images: images.to_vec(),
-            stream: false,
+            stream: true,
             options: Some(VisionGenerationOptions {
                 temperature: 0.0,
                 num_predict: 8192,
             }),
-            keep_alive: Some("0".to_string()),
+            keep_alive: Some("5m".to_string()),
         };
 
         let url = format!("{}/api/generate", self.base_url);
@@ -691,6 +695,7 @@ impl VisionClient for OllamaClient {
                     model = %model,
                     elapsed_ms = %start.elapsed().as_millis(),
                     error = %e,
+                    cause = ?e.source(),
                     "Ollama generate_with_images failed"
                 );
                 err
@@ -712,23 +717,45 @@ impl VisionClient for OllamaClient {
             });
         }
 
+        // Collect streaming NDJSON tokens into a single response
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(response);
+        let mut full_response = String::new();
+
         #[derive(Deserialize)]
-        struct VisionResponse {
+        struct VisionStreamChunk {
+            #[serde(default)]
             response: String,
+            #[serde(default)]
+            done: bool,
         }
 
-        let parsed: VisionResponse = response
-            .json()
-            .map_err(|e| OllamaError::Network(format!("Failed to parse vision response: {e}")))?;
+        for line_result in reader.lines() {
+            let line = line_result.map_err(|e| OllamaError::Network(format!("Stream read error: {e}")))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<VisionStreamChunk>(&line) {
+                Ok(chunk) => {
+                    full_response.push_str(&chunk.response);
+                    if chunk.done {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(line = %line, error = %e, "Unparseable NDJSON chunk in generate_with_images");
+                }
+            }
+        }
 
         tracing::info!(
             model = %model,
             elapsed_ms = %start.elapsed().as_millis(),
-            response_len = parsed.response.len(),
+            response_len = full_response.len(),
             "Ollama generate_with_images complete"
         );
 
-        Ok(parsed.response)
+        Ok(full_response)
     }
 
     /// R3: Chat-based vision inference via `/api/chat`.
@@ -739,7 +766,8 @@ impl VisionClient for OllamaClient {
     /// Key behaviors (same as generate_with_images):
     /// - Image size guard: rejects images > 20 MB base64
     /// - Deterministic: temperature=0.0, num_predict=8192
-    /// - Security: `keep_alive=0` unloads model after inference
+    /// - Streaming: collects NDJSON tokens internally (prevents Ollama scheduler timeout)
+    /// - keep_alive=5m: model stays loaded between pages of multi-page PDFs
     /// - No request timeout: inference runs to completion
     fn chat_with_images(
         &self,
@@ -792,12 +820,12 @@ impl VisionClient for OllamaClient {
         let request = VisionChatRequest {
             model: model.to_string(),
             messages,
-            stream: false,
+            stream: true,
             options: Some(VisionGenerationOptions {
                 temperature: 0.0,
                 num_predict: 8192,
             }),
-            keep_alive: Some("0".to_string()),
+            keep_alive: Some("5m".to_string()),
         };
 
         let url = format!("{}/api/chat", self.base_url);
@@ -817,6 +845,7 @@ impl VisionClient for OllamaClient {
                     model = %model,
                     elapsed_ms = %start.elapsed().as_millis(),
                     error = %e,
+                    cause = ?e.source(),
                     "Ollama chat_with_images failed"
                 );
                 err
@@ -838,27 +867,50 @@ impl VisionClient for OllamaClient {
             });
         }
 
+        // Collect streaming NDJSON tokens into a single response
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(response);
+        let mut full_response = String::new();
+
         #[derive(Deserialize)]
-        struct ChatMessage {
+        struct ChatStreamChunk {
+            #[serde(default)]
+            message: ChatStreamMessage,
+            #[serde(default)]
+            done: bool,
+        }
+        #[derive(Deserialize, Default)]
+        struct ChatStreamMessage {
+            #[serde(default)]
             content: String,
         }
-        #[derive(Deserialize)]
-        struct ChatResponse {
-            message: ChatMessage,
-        }
 
-        let parsed: ChatResponse = response
-            .json()
-            .map_err(|e| OllamaError::Network(format!("Failed to parse chat response: {e}")))?;
+        for line_result in reader.lines() {
+            let line = line_result.map_err(|e| OllamaError::Network(format!("Stream read error: {e}")))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<ChatStreamChunk>(&line) {
+                Ok(chunk) => {
+                    full_response.push_str(&chunk.message.content);
+                    if chunk.done {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(line = %line, error = %e, "Unparseable NDJSON chunk in chat_with_images");
+                }
+            }
+        }
 
         tracing::info!(
             model = %model,
             elapsed_ms = %start.elapsed().as_millis(),
-            response_len = parsed.message.content.len(),
+            response_len = full_response.len(),
             "Ollama chat_with_images complete"
         );
 
-        Ok(parsed.message.content)
+        Ok(full_response)
     }
 }
 
@@ -933,10 +985,9 @@ struct OllamaGenerateRequest<'a> {
     system: &'a str,
     stream: bool,
     options: OllamaGenerateOptions,
-    /// SEC-02-G09: Unload model after each inference to clear context memory.
-    /// Ollama retains context in GPU/RAM between requests; setting keep_alive to "0"
-    /// forces immediate unload, preventing PHI from lingering in model memory.
-    /// Accepted trade-off: slightly slower cold-start on next request (~1-3s model reload).
+    /// Model stays loaded for 5 minutes between requests.
+    /// Prevents Ollama scheduler timeout during model loading (observed at ~30s on CPU).
+    /// Model auto-unloads after idle period, freeing RAM.
     keep_alive: &'a str,
 }
 
@@ -1011,7 +1062,7 @@ impl LlmClient for OllamaClient {
                     top_k: self.options.top_k,
                     num_predict: self.options.num_predict,
                 },
-                keep_alive: "0",
+                keep_alive: "5m",
             };
 
             let response = match self.client.post(&url)
