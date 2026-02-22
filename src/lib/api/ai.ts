@@ -12,7 +12,8 @@ import type {
 	RecommendedModel,
 	OllamaHealth,
 	ResolvedModel,
-	ModelPullProgress
+	ModelPullProgress,
+	HardwareStatus
 } from '$lib/types/ai';
 
 // ── L6-01: Ollama Integration ──────────────────────────────
@@ -77,6 +78,12 @@ export async function getUserPreference(key: string): Promise<string | null> {
 
 export async function verifyAiModel(modelName: string): Promise<boolean> {
 	return invoke<boolean>('verify_ai_model', { modelName });
+}
+
+// ── T7: Hardware Detection ────────────────────────────────
+
+export async function getHardwareProfile(): Promise<HardwareStatus> {
+	return invoke<HardwareStatus>('get_hardware_profile');
 }
 
 // ── Tauri Events ───────────────────────────────────────────

@@ -182,6 +182,7 @@ do_rebuild() {
     [[ -d "$generated_dir" ]] && log_warn "  • i18n generated locales"
     [[ -d "$LINUX_DEV_DIR" ]] && log_warn "  • $LINUX_DEV_DIR (WSL2 synced copy)"
     [[ -d "/tmp/coheara-vite-cache" ]] && log_warn "  • /tmp/coheara-vite-cache (Vite cache)"
+    [[ -d "$TAURI_DIR/target" ]] && log_warn "  • Rust build artifacts (cargo clean)"
     echo ""
 
     read -rp "  Proceed with hard reset? [y/N]: " answer
@@ -226,53 +227,71 @@ do_rebuild() {
         log_ok "Deleted /tmp/coheara-vite-cache"
     fi
 
+    # 7. Rust build artifacts (full clean, forces fresh compilation)
+    if [[ -d "$TAURI_DIR/target" ]]; then
+        rm -rf "$TAURI_DIR/target"
+        log_ok "Deleted Rust target/ (full rebuild on next compile)"
+    fi
+
     echo ""
     log_ok "Hard reset complete — everything will be rebuilt fresh"
     echo ""
 }
 
-# ── Tessdata bootstrap ────────────────────────────────────────────────────
-ensure_tessdata() {
-    local tessdata_dir=""
+# ── PDFium bootstrap ─────────────────────────────────────────────────────
+# R3: pdfium-render requires the PDFium dynamic library at runtime.
+# Downloads pre-built binary from bblanchon/pdfium-binaries (Chromium PDFium).
+PDFIUM_VERSION="chromium/7690"
+PDFIUM_CACHE_DIR="$TAURI_DIR/resources/pdfium"
 
-    # Locate tessdata directory: TESSDATA_PREFIX > system paths
-    if [[ -n "$TESSDATA_PREFIX" && -d "$TESSDATA_PREFIX" ]]; then
-        tessdata_dir="$TESSDATA_PREFIX"
-    else
-        local candidates=(
-            "/usr/share/tesseract-ocr/5/tessdata"
-            "/usr/share/tesseract-ocr/4.00/tessdata"
-            "/usr/share/tessdata"
-            "/usr/local/share/tessdata"
-        )
-        for candidate in "${candidates[@]}"; do
-            if [[ -d "$candidate" ]]; then
-                tessdata_dir="$candidate"
-                break
+ensure_pdfium() {
+    local lib_name="libpdfium.so"
+    local platform="linux-x64"
+    case "$(uname -s)" in
+        Darwin)
+            lib_name="libpdfium.dylib"
+            if [[ "$(uname -m)" == "arm64" ]]; then
+                platform="mac-arm64"
+            else
+                platform="mac-x64"
             fi
-        done
-    fi
+            ;;
+    esac
 
-    if [[ -z "$tessdata_dir" ]]; then
-        log_warn "Tessdata directory not found — OCR will be unavailable for scanned documents"
-        log_info "Install: sudo apt install tesseract-ocr"
+    local lib_path="$PDFIUM_CACHE_DIR/lib/$lib_name"
+
+    # Skip if already cached
+    if [[ -f "$lib_path" ]]; then
+        export PDFIUM_DYNAMIC_LIB_PATH="$lib_path"
+        log_ok "PDFium ready: $lib_path"
         return
     fi
 
-    local base_url="https://github.com/tesseract-ocr/tessdata_best/raw/main"
-    for lang in eng fra deu; do
-        if [[ ! -f "$tessdata_dir/$lang.traineddata" ]]; then
-            log_info "Downloading $lang.traineddata..."
-            if curl -fsSL -o "$tessdata_dir/$lang.traineddata" "$base_url/$lang.traineddata" 2>/dev/null; then
-                log_ok "Downloaded $lang.traineddata"
-            else
-                log_warn "Failed to download $lang.traineddata (try: sudo apt install tesseract-ocr-$lang)"
-            fi
-        fi
-    done
+    log_step "Downloading PDFium ($platform)"
+    mkdir -p "$PDFIUM_CACHE_DIR"
 
-    export TESSDATA_PREFIX="$tessdata_dir"
-    log_ok "Tessdata ready: $tessdata_dir"
+    local url="https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION}/pdfium-${platform}.tgz"
+    local tmp_file
+    tmp_file=$(mktemp /tmp/pdfium-XXXXXX.tgz)
+
+    if curl -fsSL -o "$tmp_file" "$url"; then
+        tar xzf "$tmp_file" -C "$PDFIUM_CACHE_DIR"
+        rm -f "$tmp_file"
+        if [[ -f "$lib_path" ]]; then
+            export PDFIUM_DYNAMIC_LIB_PATH="$lib_path"
+            log_ok "PDFium downloaded: $lib_path"
+        else
+            log_error "PDFium archive extracted but $lib_name not found in $PDFIUM_CACHE_DIR"
+            log_info "Expected: $lib_path"
+            ls -la "$PDFIUM_CACHE_DIR/" 2>/dev/null
+            return 1
+        fi
+    else
+        rm -f "$tmp_file"
+        log_error "Failed to download PDFium from $url"
+        log_info "Manually download and set PDFIUM_DYNAMIC_LIB_PATH=/path/to/$lib_name"
+        return 1
+    fi
 }
 
 # ── Dependency bootstrap ──────────────────────────────────────────────────
@@ -290,8 +309,8 @@ ensure_deps() {
         cd "$PROJECT_ROOT" && node src/lib/i18n/build-locales.js >&2
     fi
 
-    # Ensure tessdata for OCR (full-stack mode needs it)
-    ensure_tessdata
+    # Ensure PDFium for vision-based PDF extraction (R3)
+    ensure_pdfium
 }
 
 # Resolve which directory to run Vite from
@@ -530,8 +549,8 @@ cmd_setup() {
     node src/lib/i18n/build-locales.js
     log_ok "i18n locales built"
 
-    # 4. Ensure Tesseract tessdata for OCR
-    ensure_tessdata
+    # 4. Ensure PDFium for vision-based PDF extraction (R3)
+    ensure_pdfium
 
     # 5. Check Rust toolchain
     if [[ -n "$CARGO" && -x "$CARGO" ]]; then

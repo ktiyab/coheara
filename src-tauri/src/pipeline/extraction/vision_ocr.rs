@@ -92,17 +92,18 @@ impl VisionOcrEngine for OllamaVisionOcr {
         let base64_image = base64::engine::general_purpose::STANDARD.encode(image_bytes);
         let images = vec![base64_image];
 
-        // Select prompt based on model
+        // Select prompt based on model — both use /api/chat (Ollama standard for vision)
         let (prompt, system) = if self.is_deepseek_ocr() {
+            // DeepSeek-OCR: <|grounding|> token in user message, no system prompt
             (DEEPSEEK_OCR_PROMPT, None)
         } else {
+            // MedGemma / generic: system prompt + extraction instruction
             (GENERIC_USER_PROMPT, Some(GENERIC_SYSTEM_PROMPT))
         };
 
-        // Call vision model
         let raw_response = self
             .vision_client
-            .generate_with_images(&self.model_name, prompt, &images, system)
+            .chat_with_images(&self.model_name, prompt, &images, system)
             .map_err(|e| ExtractionError::OcrProcessing(format!("Vision OCR failed: {e}")))?;
 
         // Parse classification tag from response
@@ -460,6 +461,15 @@ mod tests {
             ) -> Result<String, OllamaError> {
                 Err(OllamaError::NotReachable)
             }
+            fn chat_with_images(
+                &self,
+                _model: &str,
+                _user_prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Err(OllamaError::NotReachable)
+            }
         }
 
         let ocr = OllamaVisionOcr::new(
@@ -470,5 +480,81 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Vision OCR failed"), "Error: {err}");
+    }
+
+    #[test]
+    fn medgemma_uses_chat_endpoint() {
+        // MedGemma should call chat_with_images, not generate_with_images.
+        // We verify by using a client that fails on generate but succeeds on chat.
+        struct ChatOnlyVisionClient;
+        impl VisionClient for ChatOnlyVisionClient {
+            fn generate_with_images(
+                &self,
+                _model: &str,
+                _prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Err(OllamaError::ApiError {
+                    status: 500,
+                    message: "generate not supported for this model".into(),
+                })
+            }
+            fn chat_with_images(
+                &self,
+                _model: &str,
+                _user_prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Ok("# Prescription\nMetformin 500mg\n[DOCUMENT]".into())
+            }
+        }
+
+        let ocr = OllamaVisionOcr::new(
+            Arc::new(ChatOnlyVisionClient),
+            "MedAIBase/MedGemma1.5:4b".to_string(),
+        );
+        let result = ocr.extract_text_from_image(b"fake-pdf-page").unwrap();
+        assert_eq!(result.content_type, ImageContentType::Document);
+        assert!(result.text.contains("Metformin 500mg"));
+    }
+
+    #[test]
+    fn deepseek_uses_chat_endpoint() {
+        // DeepSeek-OCR also uses /api/chat (Ollama standard for vision models).
+        // We verify by using a client that fails on generate but succeeds on chat.
+        struct ChatOnlyVisionClient;
+        impl VisionClient for ChatOnlyVisionClient {
+            fn generate_with_images(
+                &self,
+                _model: &str,
+                _prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Err(OllamaError::ApiError {
+                    status: 500,
+                    message: "generate should not be called".into(),
+                })
+            }
+            fn chat_with_images(
+                &self,
+                _model: &str,
+                _user_prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Ok("# Lab Results\nWBC 7.2\n[DOCUMENT]".into())
+            }
+        }
+
+        let ocr = OllamaVisionOcr::new(
+            Arc::new(ChatOnlyVisionClient),
+            "deepseek-ocr:latest".to_string(),
+        );
+        let result = ocr.extract_text_from_image(b"fake-scan").unwrap();
+        assert_eq!(result.content_type, ImageContentType::Document);
+        assert!(result.text.contains("WBC 7.2"));
     }
 }

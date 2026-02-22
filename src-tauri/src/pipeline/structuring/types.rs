@@ -177,15 +177,33 @@ pub trait LlmClient {
 /// Separate from `LlmClient` for backward compatibility — existing code
 /// that only needs text generation continues to use `LlmClient`.
 /// Vision operations go through this trait.
+///
+/// Two API modes:
+/// - `generate_with_images`: Uses `/api/generate` — for models that need raw prompt
+///   (e.g., DeepSeek-OCR with `<|grounding|>` token)
+/// - `chat_with_images`: Uses `/api/chat` — for chat-template models (MedGemma, LLaVA)
+///   that expect messages-based format with proper role context
 pub trait VisionClient: Send + Sync {
     /// Generate text from a prompt with one or more base64-encoded images.
     ///
-    /// `images` contains base64-encoded PNG/JPEG bytes.
-    /// `system` is an optional system prompt (Some for generic models, None for DeepSeek-OCR).
+    /// Uses `/api/generate` endpoint. Best for models with raw prompt interfaces
+    /// (DeepSeek-OCR). Chat-template models may fail with this endpoint.
     fn generate_with_images(
         &self,
         model: &str,
         prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<String, super::ollama_types::OllamaError>;
+
+    /// Chat with a model using images in the messages format.
+    ///
+    /// Uses `/api/chat` endpoint. Required for chat-template vision models
+    /// (MedGemma, LLaVA, Gemma) that expect `{role, content, images}` messages.
+    fn chat_with_images(
+        &self,
+        model: &str,
+        user_prompt: &str,
         images: &[String],
         system: Option<&str>,
     ) -> Result<String, super::ollama_types::OllamaError>;

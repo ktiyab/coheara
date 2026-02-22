@@ -48,7 +48,9 @@
       "resources/mobile-pwa/**/*",
       "resources/mobile-apk/**/*",
       "resources/medication_aliases.json",
-      "resources/dose_ranges.json"
+      "resources/dose_ranges.json",
+      "resources/pdfium/lib/*",
+      "resources/pdfium/bin/*"
     ]
   }
 }

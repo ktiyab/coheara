@@ -116,6 +116,8 @@ function Invoke-Rebuild {
     if (Test-Path $svelteKitDir) { Log-Warn "  * .svelte-kit\ (SvelteKit cache)" }
     if (Test-Path $nodeModulesDir) { Log-Warn "  * node_modules\ (npm packages)" }
     if (Test-Path $generatedDir) { Log-Warn "  * i18n generated locales" }
+    $targetDir = Join-Path $TauriDir "target"
+    if (Test-Path $targetDir) { Log-Warn "  * Rust build artifacts (target/)" }
     Write-Host ""
 
     $answer = Read-Host "  Proceed with hard reset? [y/N]"
@@ -148,47 +150,62 @@ function Invoke-Rebuild {
         Log-Ok "Deleted i18n generated locales"
     }
 
+    # 5. Rust build artifacts (full clean, forces fresh compilation)
+    $targetDir = Join-Path $TauriDir "target"
+    if (Test-Path $targetDir) {
+        Remove-Item $targetDir -Recurse -Force
+        Log-Ok "Deleted Rust target/ (full rebuild on next compile)"
+    }
+
     Write-Host ""
     Log-Ok "Hard reset complete - everything will be rebuilt fresh"
     Write-Host ""
 }
 
-# ── Tessdata bootstrap ────────────────────────────────────────────────────
-function Ensure-Tessdata {
-    # Locate tessdata directory: TESSDATA_PREFIX > vcpkg default > VCPKG_ROOT
-    $tessdataDir = $null
-    if ($env:TESSDATA_PREFIX -and (Test-Path $env:TESSDATA_PREFIX)) {
-        $tessdataDir = $env:TESSDATA_PREFIX
-    } elseif (Test-Path "C:\vcpkg\installed\x64-windows-static-md\share\tessdata") {
-        $tessdataDir = "C:\vcpkg\installed\x64-windows-static-md\share\tessdata"
-    } elseif ($env:VCPKG_ROOT) {
-        $candidate = Join-Path $env:VCPKG_ROOT "installed\x64-windows-static-md\share\tessdata"
-        if (Test-Path $candidate) { $tessdataDir = $candidate }
-    }
+# ── PDFium bootstrap ─────────────────────────────────────────────────────
+# R3: pdfium-render requires the PDFium dynamic library at runtime.
+# Downloads pre-built binary from bblanchon/pdfium-binaries (Chromium PDFium).
+$PdfiumVersion = "chromium/7690"
+$PdfiumCacheDir = Join-Path $TauriDir "resources\pdfium"
 
-    if (-not $tessdataDir) {
-        Log-Warn "Tessdata directory not found - OCR will be unavailable for scanned documents"
-        Log-Info "Install Tesseract: vcpkg install tesseract:x64-windows-static-md"
+function Ensure-Pdfium {
+    $libName = "pdfium.dll"
+    $platform = "win-x64"
+    $libPath = Join-Path $PdfiumCacheDir "bin\$libName"
+
+    # Skip if already cached
+    if (Test-Path $libPath) {
+        $env:PDFIUM_DYNAMIC_LIB_PATH = $libPath
+        Log-Ok "PDFium ready: $libPath"
         return
     }
 
-    $baseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main"
-    foreach ($lang in @("eng", "fra", "deu")) {
-        $target = Join-Path $tessdataDir "$lang.traineddata"
-        if (-not (Test-Path $target)) {
-            Log-Info "Downloading $lang.traineddata..."
-            try {
-                Invoke-WebRequest -Uri "$baseUrl/$lang.traineddata" -OutFile $target -UseBasicParsing
-                Log-Ok "Downloaded $lang.traineddata"
-            } catch {
-                Log-Warn "Failed to download $lang.traineddata: $_"
-            }
-        }
-    }
+    Log-Step "Downloading PDFium ($platform)"
+    New-Item -ItemType Directory -Path $PdfiumCacheDir -Force | Out-Null
 
-    # Set TESSDATA_PREFIX so the Rust runtime can find tessdata
-    $env:TESSDATA_PREFIX = $tessdataDir
-    Log-Ok "Tessdata ready: $tessdataDir"
+    $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/$PdfiumVersion/pdfium-$platform.tgz"
+    $tmpFile = Join-Path $env:TEMP "pdfium-$([guid]::NewGuid().ToString('N').Substring(0,8)).tgz"
+
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
+        & tar xzf $tmpFile -C $PdfiumCacheDir
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+
+        if (Test-Path $libPath) {
+            $env:PDFIUM_DYNAMIC_LIB_PATH = $libPath
+            Log-Ok "PDFium downloaded: $libPath"
+        } else {
+            Log-Error "PDFium archive extracted but $libName not found in $PdfiumCacheDir"
+            Log-Info "Expected: $libPath"
+            if (Test-Path $PdfiumCacheDir) { Get-ChildItem $PdfiumCacheDir | Format-Table Name }
+            throw "PDFium extraction failed"
+        }
+    } catch {
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        Log-Error "Failed to download PDFium from $url"
+        Log-Info "Manually download and set PDFIUM_DYNAMIC_LIB_PATH=\path\to\$libName"
+        throw
+    }
 }
 
 # ── Dependency bootstrap ──────────────────────────────────────────────────
@@ -219,8 +236,8 @@ function Ensure-Deps {
         try { & node src/lib/i18n/build-locales.js } finally { Pop-Location }
     }
 
-    # Ensure tessdata for OCR (full-stack mode needs it)
-    Ensure-Tessdata
+    # Ensure PDFium for vision-based PDF extraction (R3)
+    Ensure-Pdfium
 }
 
 # ── Commands ──────────────────────────────────────────────────────────────
@@ -397,8 +414,8 @@ function Invoke-Setup {
         Log-Ok "i18n locales built"
     } finally { Pop-Location }
 
-    # 4. Ensure Tesseract tessdata for OCR
-    Ensure-Tessdata
+    # 4. Ensure PDFium for vision-based PDF extraction (R3)
+    Ensure-Pdfium
 
     # 5. Check Rust toolchain
     if ($CargoPath) {

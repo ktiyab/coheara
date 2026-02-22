@@ -18,6 +18,8 @@
     "stage_failed": "Fehlgeschlagen",
     "analyzing_ai": "KI-Analyse läuft...",
     "elapsed": "Vergangen: {time}",
+    "page_progress": "Seite {current} von {total}",
+    "estimated_remaining": "~{time} verbleibend",
     "ai_analysis_note": "Die KI-Analyse kann eine Minute pro Dokument dauern.",
     "success_single": "Dokument bereit zur Überprüfung",
     "success_plural": "{count} Dokumente bereit zur Überprüfung",

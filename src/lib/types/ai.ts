@@ -72,6 +72,20 @@ export interface ModelPullProgress {
 	error_message: string | null;
 }
 
+// ── Hardware Profile ────────────────────────────────────────
+
+export type GpuTier = 'full_gpu' | 'partial_gpu' | 'cpu_only';
+
+export interface HardwareStatus {
+	gpu_tier: GpuTier;
+	gpu_available: boolean;
+	vram_bytes: number;
+	total_model_bytes: number;
+	processor_label: string;
+	detected_at: string;
+	estimated_tok_per_sec: number;
+}
+
 // ── Derived helpers ─────────────────────────────────────────
 
 /** Medical model name prefixes — mirrors Rust MEDICAL_MODEL_PREFIXES. */

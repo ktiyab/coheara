@@ -12,6 +12,15 @@ use crate::core_state::CoreState;
 use crate::db::sqlite::open_database;
 use crate::pipeline::import::importer::{import_file, ImportResult, ImportStatus};
 use crate::pipeline::processor::{stage_name, stage_pct_range, StageTracker, STAGE_IMPORTING};
+use crate::pipeline_config::PipelineConfig;
+
+/// Detect hardware and derive pipeline configuration.
+///
+/// Falls back to CPU-only config if detection fails (conservative).
+fn detect_pipeline_config(ollama: &crate::pipeline::structuring::ollama::OllamaClient) -> PipelineConfig {
+    let profile = crate::hardware::detect_hardware(ollama);
+    crate::pipeline_config::derive_config(&profile)
+}
 
 /// Import a document from a local file path.
 ///
@@ -211,9 +220,24 @@ struct ProgressMonitor {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Optional enhanced progress data for the monitor.
+struct ProgressEnhancement {
+    /// Shared page counter (updated by extractor during per-page OCR).
+    page_tracker: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// Total pages in the document.
+    page_total: u32,
+    /// Total estimated processing time (seconds).
+    total_estimate_secs: u64,
+}
+
 impl ProgressMonitor {
     /// Start a progress monitor thread that emits heartbeat events.
-    fn start(app: &AppHandle, file_name: &str, tracker: StageTracker) -> Self {
+    fn start(
+        app: &AppHandle,
+        file_name: &str,
+        tracker: StageTracker,
+        enhancement: Option<ProgressEnhancement>,
+    ) -> Self {
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
         let emit_app = app.clone();
         let emit_name = file_name.to_string();
@@ -221,6 +245,7 @@ impl ProgressMonitor {
         let handle = std::thread::spawn(move || {
             let mut last_stage: u8 = u8::MAX; // force initial transition
             let mut pct: u8 = 5;
+            let start_time = std::time::Instant::now();
 
             loop {
                 match shutdown_rx.recv_timeout(std::time::Duration::from_millis(500)) {
@@ -237,12 +262,28 @@ impl ProgressMonitor {
                             last_stage = current;
                         }
 
+                        // Enhanced progress: page tracking + time estimation
+                        let (page_current, page_total, remaining_secs) =
+                            if let Some(ref enh) = enhancement {
+                                let pg = enh
+                                    .page_tracker
+                                    .load(std::sync::atomic::Ordering::Relaxed);
+                                let elapsed = start_time.elapsed().as_secs();
+                                let remaining = enh.total_estimate_secs.saturating_sub(elapsed);
+                                (Some(pg), Some(enh.page_total), Some(remaining))
+                            } else {
+                                (None, None, None)
+                            };
+
                         let _ = emit_app.emit(
                             "processing-progress",
                             ProcessingProgressEvent {
                                 stage: stage_name(current).into(),
                                 file_name: emit_name.clone(),
                                 progress_pct: Some(pct),
+                                page_current,
+                                page_total,
+                                estimated_remaining_secs: remaining_secs,
                                 ..Default::default()
                             },
                         );
@@ -333,10 +374,37 @@ pub async fn process_document(
             &vision_model.name,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Build the document processor with resolved models + stage tracker
+        // Pre-warm vision model to avoid cold-start timeout during inference.
+        // If warm fails, log and continue — the real call will fail with a clearer error.
+        if let Err(e) = ollama.warm_model(&vision_model.name) {
+            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
+        }
+        // Pre-warm LLM model too if different from vision model
+        if llm_model.name != vision_model.name {
+            if let Err(e) = ollama.warm_model(&llm_model.name) {
+                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+            }
+        }
+
+        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        let pipeline_config = detect_pipeline_config(&ollama);
+
+        // Build the document processor with resolved models + hardware-tiered config
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+
+        // CPU swap strategy: unload vision model, warm LLM between stages
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+            let swap_vision = vision_model.name.clone();
+            let swap_llm = llm_model.name.clone();
+            processor.set_between_stages_hook(Box::new(move || {
+                let client = crate::ollama_service::OllamaService::client();
+                tracing::info!("CPU swap: unloading vision model, warming LLM");
+                let _ = client.unload_model(&swap_vision);
+                let _ = client.warm_model(&swap_llm);
+            }));
+        }
 
         let tracker: StageTracker =
             std::sync::Arc::new(std::sync::atomic::AtomicU8::new(STAGE_IMPORTING));
@@ -354,7 +422,7 @@ pub async fn process_document(
         );
 
         // Start RAII progress monitor — Drop stops the thread automatically
-        let _monitor = ProgressMonitor::start(&app, &file_name, tracker);
+        let _monitor = ProgressMonitor::start(&app, &file_name, tracker, None);
 
         // Run the full pipeline (import → extract → structure)
         let output = match processor.process_file(path, session, &conn) {
@@ -491,10 +559,35 @@ pub async fn process_documents_batch(
             &vision_model.name,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Build processor once for the batch
+        // Pre-warm models to avoid cold-start timeout during inference
+        if let Err(e) = ollama.warm_model(&vision_model.name) {
+            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
+        }
+        if llm_model.name != vision_model.name {
+            if let Err(e) = ollama.warm_model(&llm_model.name) {
+                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+            }
+        }
+
+        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        let pipeline_config = detect_pipeline_config(&ollama);
+
+        // Build processor once for the batch with hardware-tiered config
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+
+        // CPU swap strategy: unload vision model, warm LLM between stages
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+            let swap_vision = vision_model.name.clone();
+            let swap_llm = llm_model.name.clone();
+            processor.set_between_stages_hook(Box::new(move || {
+                let client = crate::ollama_service::OllamaService::client();
+                tracing::info!("CPU swap: unloading vision model, warming LLM");
+                let _ = client.unload_model(&swap_vision);
+                let _ = client.warm_model(&swap_llm);
+            }));
+        }
 
         let total = file_paths.len();
         let mut results = Vec::with_capacity(total);
@@ -539,7 +632,7 @@ pub async fn process_documents_batch(
                 },
             );
 
-            let _monitor = ProgressMonitor::start(&app, &file_name, tracker);
+            let _monitor = ProgressMonitor::start(&app, &file_name, tracker, None);
 
             match processor.process_file(path, session, &conn) {
                 Ok(output) => {
@@ -738,9 +831,34 @@ pub async fn reprocess_document(
             &vision_model.name,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
+        // Pre-warm models to avoid cold-start timeout during inference
+        if let Err(e) = ollama.warm_model(&vision_model.name) {
+            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
+        }
+        if llm_model.name != vision_model.name {
+            if let Err(e) = ollama.warm_model(&llm_model.name) {
+                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+            }
+        }
+
+        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        let pipeline_config = detect_pipeline_config(&ollama);
+
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
+
+        // CPU swap strategy: unload vision model, warm LLM between stages
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+            let swap_vision = vision_model.name.clone();
+            let swap_llm = llm_model.name.clone();
+            processor.set_between_stages_hook(Box::new(move || {
+                let client = crate::ollama_service::OllamaService::client();
+                tracing::info!("CPU swap: unloading vision model, warming LLM");
+                let _ = client.unload_model(&swap_vision);
+                let _ = client.warm_model(&swap_llm);
+            }));
+        }
 
         // Reset pipeline status to Imported before reprocessing
         if let Err(e) = crate::db::repository::update_pipeline_status(
@@ -769,7 +887,7 @@ pub async fn reprocess_document(
         );
 
         // Start RAII progress monitor — Drop stops the thread automatically
-        let _monitor = ProgressMonitor::start(&app, &doc.title, tracker);
+        let _monitor = ProgressMonitor::start(&app, &doc.title, tracker, None);
 
         // Process using the imported document path
         let output = match processor.process_imported(&import_result, session, &conn) {
@@ -871,6 +989,15 @@ struct ProcessingProgressEvent {
     /// P.5: Whether the error is retryable.
     #[serde(skip_serializing_if = "Option::is_none")]
     is_retryable: Option<bool>,
+    /// T6: Current page being processed (during extraction).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_current: Option<u32>,
+    /// T6: Total pages in the document.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_total: Option<u32>,
+    /// T6: Estimated remaining time (seconds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    estimated_remaining_secs: Option<u64>,
 }
 
 /// Batch progress event emitted during multi-file processing (E2E-B02).

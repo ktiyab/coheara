@@ -106,6 +106,18 @@
     "nonmedical_privacy": "Vos données restent privées et sécurisées dans tous les cas.",
     "choose_medical": "Choisir un modèle médical",
     "use_anyway": "Utiliser quand même",
-    "fallback_toast": "Votre modèle préféré n'était pas disponible. Utilisation de {name} à la place."
+    "fallback_toast": "Votre modèle préféré n'était pas disponible. Utilisation de {name} à la place.",
+    "hardware_heading": "STATUT MATÉRIEL",
+    "hardware_gpu": "GPU",
+    "hardware_vram": "VRAM",
+    "hardware_processor": "Processeur",
+    "hardware_speed": "Vitesse estimée",
+    "hardware_speed_value": "{tokPerSec} tok/s",
+    "hardware_full_gpu": "GPU complet",
+    "hardware_partial_gpu": "GPU partiel",
+    "hardware_cpu_only": "CPU uniquement",
+    "hardware_na": "N/D",
+    "hardware_refresh": "Actualiser",
+    "hardware_refreshing": "Détection..."
   }
 }

@@ -362,6 +362,45 @@ pub async fn verify_ai_model(
     .map_err(|e| format!("Task failed: {e}"))?
 }
 
+// ── Hardware Detection ──────────────────────────────────────
+
+/// Response struct for the hardware profile IPC command.
+/// Enriches `HardwareProfile` with derived GPU tier and estimated speed.
+#[derive(serde::Serialize)]
+pub struct HardwareStatus {
+    pub gpu_tier: crate::hardware::GpuTier,
+    pub gpu_available: bool,
+    pub vram_bytes: u64,
+    pub total_model_bytes: u64,
+    pub processor_label: String,
+    pub detected_at: String,
+    pub estimated_tok_per_sec: f32,
+}
+
+/// Detect hardware profile (GPU/CPU tier, VRAM, estimated speed).
+///
+/// Queries Ollama `/api/ps` for running models to determine GPU availability.
+/// Returns enriched status with derived GPU tier and estimated inference speed.
+#[tauri::command]
+pub async fn get_hardware_profile() -> Result<HardwareStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = crate::ollama_service::OllamaService::client();
+        let profile = crate::hardware::detect_hardware(&client);
+        let config = crate::pipeline_config::derive_config(&profile);
+        Ok(HardwareStatus {
+            gpu_tier: profile.gpu_tier(),
+            gpu_available: profile.gpu_available,
+            vram_bytes: profile.vram_bytes,
+            total_model_bytes: profile.total_model_bytes,
+            processor_label: profile.processor_label,
+            detected_at: profile.detected_at,
+            estimated_tok_per_sec: config.estimated_tok_per_sec,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

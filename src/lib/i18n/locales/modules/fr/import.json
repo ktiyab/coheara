@@ -18,6 +18,8 @@
     "stage_failed": "Échec",
     "analyzing_ai": "Analyse par l'IA...",
     "elapsed": "Temps écoulé : {time}",
+    "page_progress": "Page {current} sur {total}",
+    "estimated_remaining": "~{time} restant",
     "ai_analysis_note": "L'analyse par l'IA peut prendre une minute par document.",
     "success_single": "Document prêt pour vérification",
     "success_plural": "{count} documents prêts pour vérification",

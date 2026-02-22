@@ -18,6 +18,8 @@
     "stage_failed": "Failed",
     "analyzing_ai": "Analyzing with AI...",
     "elapsed": "Elapsed: {time}",
+    "page_progress": "Page {current} of {total}",
+    "estimated_remaining": "~{time} remaining",
     "ai_analysis_note": "AI analysis may take a minute per document.",
     "success_single": "Document ready for review",
     "success_plural": "{count} documents ready for review",

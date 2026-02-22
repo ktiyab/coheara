@@ -31,6 +31,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import HardwareStatusCard from '$lib/components/settings/HardwareStatusCard.svelte';
   import { CloseIcon } from '$lib/components/icons/md';
 
   let recommended = $state<RecommendedModel[]>([]);
@@ -428,6 +429,9 @@
           </div>
         </section>
       {/if}
+
+      <!-- Hardware status (T7) -->
+      <HardwareStatusCard />
     </div>
   {/if}
 </div>

@@ -82,6 +82,12 @@ export interface ProcessingProgressEvent {
   document_id: string | null;
   progress_pct: number | null;
   error: string | null;
+  /** Current page being processed (during extraction). */
+  page_current?: number;
+  /** Total pages in the document. */
+  page_total?: number;
+  /** Estimated remaining time (seconds). */
+  estimated_remaining_secs?: number;
 }
 
 /** Batch progress event emitted during multi-file processing. */

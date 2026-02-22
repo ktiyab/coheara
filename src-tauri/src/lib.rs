@@ -22,6 +22,9 @@ pub mod timeline; // L4-04: Timeline View
 pub mod sync; // M0-04: Sync Engine
 pub mod trust; // L5-01: Trust & Safety
 pub mod suggestions; // LP-05: Intelligent Chat Suggestions
+pub mod hardware; // GPU/CPU hardware detection via Ollama /api/ps
+pub mod pipeline_config; // Hardware-tiered pipeline configuration
+pub mod time_estimation; // Hardware-aware processing time estimates
 pub mod ollama_service; // Centralized SLM access controller
 
 use std::sync::Arc;
@@ -174,6 +177,8 @@ pub fn run() {
             commands::ai_setup::get_user_preference_cmd,
             // L6-03: AI Setup Wizard
             commands::ai_setup::verify_ai_model,
+            // T7: Hardware Detection
+            commands::ai_setup::get_hardware_profile,
             // LP-01: Night Batch Extraction Pipeline
             commands::extraction::get_pending_extractions,
             commands::extraction::get_pending_extraction_count,

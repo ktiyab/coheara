@@ -90,6 +90,35 @@ pub struct VisionGenerationOptions {
     pub temperature: f32,
     /// Maximum tokens — 8192 for DeepSeek-OCR context window.
     pub num_predict: i32,
+    /// Context window size (hardware-tiered). None = model default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_ctx: Option<u32>,
+}
+
+/// R3: Chat-based vision request for `/api/chat`.
+///
+/// Required by chat-template models (MedGemma, LLaVA, Gemma) that expect
+/// messages-based format. The generate endpoint returns 500 for these models
+/// when images are provided.
+#[derive(Debug, Clone, Serialize)]
+pub struct VisionChatRequest {
+    pub model: String,
+    pub messages: Vec<VisionChatMessage>,
+    pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<VisionGenerationOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<String>,
+}
+
+/// A single message in a vision chat request.
+#[derive(Debug, Clone, Serialize)]
+pub struct VisionChatMessage {
+    pub role: String,
+    pub content: String,
+    /// Base64-encoded images (only for user messages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<String>>,
 }
 
 /// Known vision-capable model name prefixes.
@@ -125,6 +154,21 @@ pub struct OllamaHealth {
     pub reachable: bool,
     pub version: Option<String>,
     pub models_count: usize,
+}
+
+/// A model currently loaded in Ollama's memory (from `/api/ps`).
+///
+/// Used by hardware detection to determine GPU vs CPU allocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunningModelInfo {
+    /// Model name (e.g., "medgemma:4b").
+    pub name: String,
+    /// Total model size in memory (bytes).
+    pub size: u64,
+    /// Size loaded into VRAM (bytes). 0 = CPU-only.
+    pub size_vram: u64,
+    /// Processor label from Ollama (e.g., "100% GPU", "CPU").
+    pub processor: String,
 }
 
 /// Progress event from model pull (NDJSON from POST `/api/pull`).
@@ -190,6 +234,8 @@ pub struct GenerationOptions {
     /// Maximum tokens in the generated response.
     /// None = model default (typically 2048).
     pub num_predict: Option<i32>,
+    /// Context window size (hardware-tiered). None = model default.
+    pub num_ctx: Option<u32>,
 }
 
 impl Default for GenerationOptions {
@@ -200,6 +246,7 @@ impl Default for GenerationOptions {
             top_p: 0.9,
             top_k: 40,
             num_predict: None,
+            num_ctx: None,
         }
     }
 }
@@ -870,6 +917,7 @@ mod tests {
             top_p: 0.9,
             top_k: 50,
             num_predict: Some(2048),
+            num_ctx: Some(4096),
         };
         let json = serde_json::to_value(&opts).unwrap();
         // f32 precision: compare as f64 with tolerance

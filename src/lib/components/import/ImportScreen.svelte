@@ -46,6 +46,11 @@
   let elapsedSeconds = $state(0);
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
+  // T6: Enhanced progress tracking
+  let pageCurrent = $state<number | undefined>(undefined);
+  let pageTotal = $state<number | undefined>(undefined);
+  let estimatedRemainingSecs = $state<number | undefined>(undefined);
+
   // Q.5: Cancel state (user abandoned processing)
   let cancelled = $state(false);
 
@@ -148,6 +153,10 @@
       if (p.progress_pct !== null) {
         progressPct = p.progress_pct;
       }
+      // T6: Enhanced progress
+      pageCurrent = p.page_current;
+      pageTotal = p.page_total;
+      estimatedRemainingSecs = p.estimated_remaining_secs;
       if (p.stage === 'failed' && p.error) {
         errorMessage = p.error;
         ai.handleOperationFailure(new Error(p.error));
@@ -244,6 +253,9 @@
     outcomes = [];
     errorMessage = null;
     elapsedSeconds = 0;
+    pageCurrent = undefined;
+    pageTotal = undefined;
+    estimatedRemainingSecs = undefined;
   }
 
   let successCount = $derived(outcomes.filter((o) => o.import_status === 'Staged').length);
@@ -349,9 +361,23 @@
           </p>
         {/if}
 
-        <p class="text-sm font-medium text-[var(--color-interactive-hover)] mb-4">
+        <p class="text-sm font-medium text-[var(--color-interactive-hover)] mb-2">
           {stageLabel(progressStage)}
         </p>
+
+        <!-- T6: Page progress + time remaining -->
+        {#if pageCurrent !== undefined && pageTotal !== undefined && pageTotal > 0}
+          <p class="text-xs text-stone-500 dark:text-gray-400 mb-1">
+            {$t('import.page_progress', { values: { current: pageCurrent, total: pageTotal } })}
+          </p>
+        {/if}
+        {#if estimatedRemainingSecs !== undefined && estimatedRemainingSecs > 0}
+          <p class="text-xs text-stone-500 dark:text-gray-400 mb-3">
+            {$t('import.estimated_remaining', { values: { time: formatElapsed(estimatedRemainingSecs) } })}
+          </p>
+        {:else}
+          <div class="mb-3"></div>
+        {/if}
 
         <!-- Q.4: Indeterminate bar during structuring, determinate otherwise -->
         {#if progressStage === 'structuring'}

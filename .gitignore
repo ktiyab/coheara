@@ -36,6 +36,9 @@ Thumbs.db
 # Generated locale files (SE-002: built from modules/)
 src/lib/i18n/locales/_generated/
 
+# PDFium binary cache (R3: downloaded by dev/build scripts)
+src-tauri/resources/pdfium/
+
 # Local build output
 package/
 

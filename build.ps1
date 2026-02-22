@@ -4,7 +4,7 @@
     Coheara Local Build System for Windows (.msi + .exe installers)
 .DESCRIPTION
     Mirrors build.sh but targets Windows with NSIS and MSI bundles.
-    Requires: Node.js 20+, Rust 1.80+, Perl (for OpenSSL), JDK 21+, Android SDK, vcpkg (for Tesseract).
+    Requires: Node.js 20+, Rust 1.80+, Perl (for OpenSSL), JDK 21+, Android SDK.
 .EXAMPLE
     .\build.ps1 desktop -NoSign         # First build (unsigned, no credentials)
     .\build.ps1 desktop -SkipMobile     # Desktop only (use pre-staged mobile artifacts)
@@ -166,146 +166,6 @@ function Load-Credentials {
 
 # ── Auto-install Helpers ──────────────────────────────────────────────────
 
-function Find-Git {
-    # Check PATH first
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if ($git) { return $git.Source }
-
-    # Search common Windows install locations
-    $candidates = @(
-        "$env:ProgramFiles\Git\cmd\git.exe",
-        "${env:ProgramFiles(x86)}\Git\cmd\git.exe",
-        "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe",
-        "$env:USERPROFILE\scoop\shims\git.exe"
-    )
-    foreach ($path in $candidates) {
-        if (Test-Path $path) { return $path }
-    }
-
-    return $null
-}
-
-function Install-Git {
-    # Try winget first (available on Windows 10 1809+ and Windows 11)
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host ""
-        Log-Warn "Git is required but not found in PATH."
-        Write-Host "  This will install Git for Windows via winget (~2 min)" -ForegroundColor Yellow
-        Write-Host ""
-        $answer = Read-Host "  Install Git automatically? [Y/n]"
-        if ($answer -and $answer -notin @("Y", "y", "yes", "Yes")) {
-            return $null
-        }
-
-        Log-Step "Installing Git via winget"
-        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        & winget install Git.Git --accept-package-agreements --accept-source-agreements
-        $exitCode = $LASTEXITCODE; $ErrorActionPreference = $prevEAP
-        if ($exitCode -ne 0) { Log-Error "Failed to install Git via winget"; return $null }
-
-        # Refresh PATH to find newly installed git
-        $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
-        $gitPath = Find-Git
-        if ($gitPath) {
-            Log-Ok "Git installed successfully"
-            return $gitPath
-        }
-
-        # winget sometimes needs a new shell — check default location
-        $defaultGit = "$env:ProgramFiles\Git\cmd\git.exe"
-        if (Test-Path $defaultGit) {
-            $gitDir = Split-Path $defaultGit -Parent
-            $env:PATH = "$gitDir;$env:PATH"
-            Log-Ok "Git installed successfully (added to PATH for this session)"
-            return $defaultGit
-        }
-
-        Log-Error "Git was installed but could not be found. Please restart PowerShell and retry."
-        return $null
-    }
-
-    Log-Error "Git is not installed and winget is not available for auto-install."
-    Write-Host "  Install Git manually: https://git-scm.com/download/win" -ForegroundColor Yellow
-    return $null
-}
-
-function Find-LibClang {
-    # Check LIBCLANG_PATH env var
-    if ($env:LIBCLANG_PATH -and (Test-Path (Join-Path $env:LIBCLANG_PATH "libclang.dll"))) {
-        return $true
-    }
-
-    # Search common locations
-    $candidates = @(
-        "$env:ProgramFiles\LLVM\bin",
-        "${env:ProgramFiles(x86)}\LLVM\bin",
-        "$env:ProgramFiles\LLVM\lib",
-        "$env:LOCALAPPDATA\Programs\LLVM\bin"
-    )
-
-    # Also check Visual Studio Clang tools
-    $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path $vsWhere) {
-        $vsPath = & $vsWhere -latest -property installationPath 2>$null
-        if ($vsPath) {
-            $candidates += "$vsPath\VC\Tools\Llvm\x64\bin"
-            $candidates += "$vsPath\VC\Tools\Llvm\bin"
-        }
-    }
-
-    foreach ($dir in $candidates) {
-        if (Test-Path (Join-Path $dir "libclang.dll")) {
-            $env:LIBCLANG_PATH = $dir
-            Log-Info "Found libclang at $dir"
-            return $true
-        }
-    }
-
-    return $false
-}
-
-function Install-Llvm {
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Log-Error "LLVM/libclang is not installed and winget is not available."
-        Write-Host "  Install LLVM manually: https://releases.llvm.org/" -ForegroundColor Yellow
-        return $false
-    }
-
-    Write-Host ""
-    Log-Warn "LLVM/libclang is required for Rust FFI binding generation."
-    Write-Host "  This will install LLVM via winget (~2 min)" -ForegroundColor Yellow
-    Write-Host ""
-    $answer = Read-Host "  Install LLVM automatically? [Y/n]"
-    if ($answer -and $answer -notin @("Y", "y", "yes", "Yes")) {
-        return $false
-    }
-
-    Log-Step "Installing LLVM via winget"
-    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    & winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
-    $exitCode = $LASTEXITCODE; $ErrorActionPreference = $prevEAP
-    if ($exitCode -ne 0) { Log-Error "Failed to install LLVM via winget"; return $false }
-
-    # Refresh PATH and find libclang
-    $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [Environment]::GetEnvironmentVariable("PATH", "User")
-
-    if (Find-LibClang) {
-        Log-Ok "LLVM installed successfully (LIBCLANG_PATH=$($env:LIBCLANG_PATH))"
-        return $true
-    }
-
-    # winget installs to Program Files by default
-    $defaultPath = "$env:ProgramFiles\LLVM\bin"
-    if (Test-Path (Join-Path $defaultPath "libclang.dll")) {
-        $env:LIBCLANG_PATH = $defaultPath
-        Log-Ok "LLVM installed successfully (LIBCLANG_PATH=$defaultPath)"
-        return $true
-    }
-
-    Log-Error "LLVM was installed but libclang.dll could not be found. Please restart PowerShell and retry."
-    return $false
-}
-
 function Find-Perl {
     # Check PATH first
     $perl = Get-Command perl -ErrorAction SilentlyContinue
@@ -370,112 +230,61 @@ function Install-Perl {
     return $null
 }
 
-function Install-VcpkgTesseract {
-    $vcpkgRoot = "C:\vcpkg"
+# ── PDFium bootstrap ─────────────────────────────────────────────────────
+# R3: pdfium-render requires the PDFium dynamic library at runtime.
+# Downloads pre-built binary from bblanchon/pdfium-binaries (Chromium PDFium).
+$PdfiumVersion = "chromium/7690"
+$PdfiumCacheDir = Join-Path $TauriDir "resources\pdfium"
 
-    Write-Host ""
-    Log-Warn "Tesseract OCR is required for the desktop build (OCR module)."
-    Write-Host "  This will:" -ForegroundColor Yellow
-    Write-Host "    1. Clone vcpkg to $vcpkgRoot (~1 min)" -ForegroundColor Yellow
-    Write-Host "    2. Install tesseract:x64-windows-static-md (~5 min)" -ForegroundColor Yellow
-    Write-Host ""
-    $answer = Read-Host "  Install vcpkg + Tesseract automatically? [Y/n]"
-    if ($answer -and $answer -notin @("Y", "y", "yes", "Yes")) {
-        return $false
-    }
+function Ensure-Pdfium {
+    $libName = "pdfium.dll"
+    $platform = "win-x64"
+    $libPath = Join-Path $PdfiumCacheDir "bin\$libName"
 
-    # Find or install git (needed by vcpkg)
-    $gitExe = Find-Git
-    if (-not $gitExe) {
-        $gitExe = Install-Git
-        if (-not $gitExe) { return $false }
-    }
-
-    # Temporarily allow stderr output from native commands to flow through
-    # (PowerShell 5.1 treats stderr as errors when ErrorActionPreference=Stop)
-    $prevEAP = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-
-    # Clone vcpkg if needed
-    if (-not (Test-Path $vcpkgRoot)) {
-        Log-Step "Cloning vcpkg to $vcpkgRoot"
-        & $gitExe clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
-        if ($LASTEXITCODE -ne 0) {
-            $ErrorActionPreference = $prevEAP
-            Log-Error "Failed to clone vcpkg"
-            return $false
-        }
-    }
-
-    # Bootstrap if needed
-    $vcpkgExe = Join-Path $vcpkgRoot "vcpkg.exe"
-    if (-not (Test-Path $vcpkgExe)) {
-        Log-Step "Bootstrapping vcpkg"
-        & (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -disableMetrics
-        if ($LASTEXITCODE -ne 0) {
-            $ErrorActionPreference = $prevEAP
-            Log-Error "Failed to bootstrap vcpkg"
-            return $false
-        }
-    }
-
-    # Set environment for this session + persist for future sessions
-    $env:VCPKG_ROOT = $vcpkgRoot
-    $env:PATH = "$vcpkgRoot;$env:PATH"
-    [Environment]::SetEnvironmentVariable("VCPKG_ROOT", $vcpkgRoot, "User")
-    Log-Ok "VCPKG_ROOT set to $vcpkgRoot (persisted for future sessions)"
-
-    # Install Tesseract
-    Log-Step "Installing Tesseract via vcpkg (this may take several minutes)"
-    & $vcpkgExe install tesseract:x64-windows-static-md
-    if ($LASTEXITCODE -ne 0) {
-        $ErrorActionPreference = $prevEAP
-        Log-Error "Failed to install Tesseract via vcpkg"
-        return $false
-    }
-
-    # Restore strict error handling
-    $ErrorActionPreference = $prevEAP
-
-    Log-Ok "vcpkg + Tesseract installed successfully"
-    return $true
-}
-
-# ── Tessdata bootstrap ────────────────────────────────────────────────────
-function Ensure-Tessdata {
-    # Locate tessdata directory: TESSDATA_PREFIX > vcpkg default > VCPKG_ROOT
-    $tessdataDir = $null
-    if ($env:TESSDATA_PREFIX -and (Test-Path $env:TESSDATA_PREFIX)) {
-        $tessdataDir = $env:TESSDATA_PREFIX
-    } elseif (Test-Path "C:\vcpkg\installed\x64-windows-static-md\share\tessdata") {
-        $tessdataDir = "C:\vcpkg\installed\x64-windows-static-md\share\tessdata"
-    } elseif ($env:VCPKG_ROOT) {
-        $candidate = Join-Path $env:VCPKG_ROOT "installed\x64-windows-static-md\share\tessdata"
-        if (Test-Path $candidate) { $tessdataDir = $candidate }
-    }
-
-    if (-not $tessdataDir) {
-        Log-Warn "Tessdata directory not found - OCR will be unavailable for scanned documents"
-        Log-Info "Install Tesseract: vcpkg install tesseract:x64-windows-static-md"
+    # Skip if already cached
+    if (Test-Path $libPath) {
+        $env:PDFIUM_DYNAMIC_LIB_PATH = $libPath
+        Log-Ok "PDFium ready: $libPath"
         return
     }
 
-    $baseUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main"
-    foreach ($lang in @("eng", "fra", "deu")) {
-        $target = Join-Path $tessdataDir "$lang.traineddata"
-        if (-not (Test-Path $target)) {
-            Log-Info "Downloading $lang.traineddata..."
-            try {
-                Invoke-WebRequest -Uri "$baseUrl/$lang.traineddata" -OutFile $target -UseBasicParsing
-                Log-Ok "Downloaded $lang.traineddata"
-            } catch {
-                Log-Warn "Failed to download $lang.traineddata: $_"
-            }
-        }
-    }
+    Log-Step "Downloading PDFium ($platform)"
+    New-Item -ItemType Directory -Path $PdfiumCacheDir -Force | Out-Null
 
-    $env:TESSDATA_PREFIX = $tessdataDir
-    Log-Ok "Tessdata ready: $tessdataDir"
+    $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/$PdfiumVersion/pdfium-$platform.tgz"
+    $tmpFile = Join-Path $env:TEMP "pdfium-$([guid]::NewGuid().ToString('N').Substring(0,8)).tgz"
+
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing
+        & tar xzf $tmpFile -C $PdfiumCacheDir
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+
+        if (Test-Path $libPath) {
+            $env:PDFIUM_DYNAMIC_LIB_PATH = $libPath
+            Log-Ok "PDFium downloaded: $libPath"
+        } else {
+            Log-Error "PDFium archive extracted but $libName not found in $PdfiumCacheDir"
+            Log-Info "Expected: $libPath"
+            if (Test-Path $PdfiumCacheDir) { Get-ChildItem $PdfiumCacheDir | Format-Table Name }
+            throw "PDFium extraction failed"
+        }
+    } catch {
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        Log-Error "Failed to download PDFium from $url"
+        Log-Info "Manually download and set PDFIUM_DYNAMIC_LIB_PATH=\path\to\$libName"
+        throw
+    }
+}
+
+function Stage-Pdfium {
+    $libName = "pdfium.dll"
+    $libSrc = Join-Path $PdfiumCacheDir "bin\$libName"
+    $targetDir = Join-Path $TauriDir "target\release"
+
+    if ((Test-Path $libSrc) -and (Test-Path $targetDir)) {
+        Copy-Item $libSrc (Join-Path $targetDir $libName) -Force
+        Log-Ok "PDFium staged alongside binary: $targetDir\$libName"
+    }
 }
 
 # ── Dependency Checking ────────────────────────────────────────────────────
@@ -507,26 +316,6 @@ function Check-Dependencies {
             # Try checking for cl.exe in PATH
             if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
                 $missing += "Visual Studio Build Tools with C++ workload (https://visualstudio.microsoft.com/downloads/#build-tools)"
-            }
-        }
-
-        # Check for vcpkg Tesseract (needed for OCR)
-        $tesseractFound = $false
-        if ($env:VCPKG_ROOT -and (Test-Path (Join-Path $env:VCPKG_ROOT "installed\x64-windows-static-md\lib\tesseract*.lib"))) {
-            $tesseractFound = $true
-        } elseif (Get-Command tesseract -ErrorAction SilentlyContinue) {
-            $tesseractFound = $true
-        }
-        if (-not $tesseractFound) {
-            if (-not (Install-VcpkgTesseract)) {
-                $missing += "Tesseract OCR (install via: vcpkg install tesseract:x64-windows-static-md)"
-            }
-        }
-
-        # Check for libclang (needed by bindgen for FFI generation)
-        if (-not (Find-LibClang)) {
-            if (-not (Install-Llvm)) {
-                $missing += "LLVM/libclang (install via: winget install LLVM.LLVM)"
             }
         }
 
@@ -938,8 +727,8 @@ function Invoke-Setup {
         Log-Ok "i18n locales built"
     } finally { Pop-Location }
 
-    # 4. Ensure Tesseract tessdata for OCR
-    Ensure-Tessdata
+    # 4. Ensure PDFium for vision-based PDF extraction (R3)
+    Ensure-Pdfium
 
     # 5. Check Rust toolchain
     if ($CargoPath) {
@@ -965,7 +754,7 @@ function Invoke-Setup {
 function Invoke-Desktop {
     Detect-PrestagedMobile
     Check-Dependencies "desktop"
-    Ensure-Tessdata
+    Ensure-Pdfium
     Load-Credentials
     Build-Frontend
     if (-not $MobileSkipped) {
@@ -974,6 +763,7 @@ function Invoke-Desktop {
         Stage-MobileResources
     }
     Build-Desktop
+    Stage-Pdfium
     Collect-Artifacts
 }
 
@@ -992,7 +782,7 @@ function Invoke-Android {
 function Invoke-All {
     Detect-PrestagedMobile
     Check-Dependencies "all"
-    Ensure-Tessdata
+    Ensure-Pdfium
     Load-Credentials
     Build-Frontend
     if (-not $MobileSkipped) {
@@ -1001,6 +791,7 @@ function Invoke-All {
         Stage-MobileResources
     }
     Build-Desktop
+    Stage-Pdfium
     Collect-Artifacts
 }
 

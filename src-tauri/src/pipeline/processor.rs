@@ -323,6 +323,9 @@ pub struct DocumentProcessor {
     extractor: Box<dyn TextExtractor + Send + Sync>,
     structurer: Box<dyn MedicalStructurer + Send + Sync>,
     stage_tracker: Option<StageTracker>,
+    /// Hook called between extraction and structuring stages.
+    /// Used by CPU swap strategy to unload vision model and warm LLM model.
+    between_stages_fn: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl DocumentProcessor {
@@ -334,6 +337,7 @@ impl DocumentProcessor {
             extractor,
             structurer,
             stage_tracker: None,
+            between_stages_fn: None,
         }
     }
 
@@ -341,6 +345,12 @@ impl DocumentProcessor {
     /// The command layer reads this from the heartbeat thread.
     pub fn set_stage_tracker(&mut self, tracker: StageTracker) {
         self.stage_tracker = Some(tracker);
+    }
+
+    /// Set a hook called between extraction and structuring.
+    /// Used by CPU swap strategy to unload vision model and warm LLM.
+    pub fn set_between_stages_hook(&mut self, f: Box<dyn Fn() + Send + Sync>) {
+        self.between_stages_fn = Some(f);
     }
 
     /// Full pipeline from a source file path.
@@ -516,6 +526,11 @@ impl DocumentProcessor {
             );
         }
 
+        // CPU swap: unload vision model, warm LLM model between stages
+        if let Some(ref hook) = self.between_stages_fn {
+            hook();
+        }
+
         // Update stage tracker → Structuring
         if let Some(ref tracker) = self.stage_tracker {
             tracker.store(STAGE_STRUCTURING, Ordering::Relaxed);
@@ -613,9 +628,11 @@ fn update_ocr_confidence(
 /// R3: Two-model architecture — vision OCR model may differ from LLM structuring model.
 /// - `vision_model`: Used for PDF page → text extraction (DeepSeek-OCR preferred, MedGemma fallback)
 /// - `llm_model`: Used for text → structured entities extraction (MedGemma)
+/// - `config`: Hardware-tiered pipeline configuration (context windows, keep_alive, etc.)
 pub fn build_processor(
     vision_model: &str,
     llm_model: &str,
+    config: &crate::pipeline_config::PipelineConfig,
 ) -> Result<DocumentProcessor, ProcessingError> {
     use crate::ollama_service::OllamaService;
     use crate::pipeline::extraction::pdfium::PdfiumRenderer;
@@ -624,17 +641,23 @@ pub fn build_processor(
     // R3: PDF rendering (PdfiumRenderer) + vision OCR extraction
     let pdf_renderer = PdfiumRenderer::new()
         .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
-    let vision_client = Arc::new(OllamaService::client());
+    let mut vision_client = OllamaService::client();
+    vision_client.set_vision_num_ctx(config.num_ctx_vision);
+    let vision_client = Arc::new(vision_client);
     let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
         Box::new(OllamaVisionOcr::new(vision_client, vision_model.to_string()));
     let extractor = Box::new(DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr));
 
-    // LLM structuring (separate client instance, same configuration)
-    let structuring_client = OllamaService::client();
+    // LLM structuring (separate client instance with hardware-tuned context window)
+    let mut structuring_opts = crate::pipeline::structuring::ollama_types::GenerationOptions::default();
+    structuring_opts.num_ctx = Some(config.num_ctx_structuring);
+    let structuring_client = OllamaService::client().with_options(structuring_opts);
     tracing::info!(
         vision_model = %vision_model,
         llm_model = %llm_model,
-        "Document processor initialized (R3 two-model architecture)"
+        num_ctx_vision = config.num_ctx_vision,
+        num_ctx_structuring = config.num_ctx_structuring,
+        "Document processor initialized (R3 two-model architecture, hardware-tiered)"
     );
     let structurer = Box::new(DocumentStructurer::new(Box::new(structuring_client), llm_model));
 
@@ -859,6 +882,33 @@ mod tests {
         assert_eq!(output.outcome.import_status, ImportStatus::Staged);
         assert!(output.outcome.extraction.is_some());
         assert!(output.outcome.structuring.is_some());
+    }
+
+    #[test]
+    fn between_stages_hook_is_called() {
+        let (_dir, session) = test_session();
+        let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
+
+        let mut processor = build_test_processor();
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = called.clone();
+        processor.set_between_stages_hook(Box::new(move || {
+            called_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        }));
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file = create_test_file(
+            tmp.path(),
+            "hook_test.txt",
+            "Metformin 500mg twice daily for type 2 diabetes.",
+        );
+
+        let output = processor.process_file(&file, &session, &conn).unwrap();
+        assert_eq!(output.outcome.import_status, ImportStatus::Staged);
+        assert!(
+            called.load(std::sync::atomic::Ordering::Relaxed),
+            "Between-stages hook should have been called"
+        );
     }
 
     #[test]
