@@ -99,7 +99,10 @@
     if (!isTauriEnv()) return;
 
     // Heartbeat: reset backend inactivity timer on user interaction.
-    // Debounced to 60s — timeout is 900s so this gives ~15 resets per window.
+    // Listens to pointerdown (clicks/taps), keydown, pointermove (mouse/pen/touch
+    // movement), and wheel (scroll wheel/trackpad). Debounced to 60s — timeout is
+    // 900s so this gives ~15 resets per window.
+    // Sources: MDN Pointer Events (10 event types), MDN Wheel Event (passive required).
     let lastHeartbeat = 0;
     const DEBOUNCE_MS = 60_000;
 
@@ -125,11 +128,15 @@
 
     window.addEventListener('pointerdown', heartbeat);
     window.addEventListener('keydown', heartbeat);
+    window.addEventListener('pointermove', heartbeat);
+    window.addEventListener('wheel', heartbeat, { passive: true });
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       window.removeEventListener('pointerdown', heartbeat);
       window.removeEventListener('keydown', heartbeat);
+      window.removeEventListener('pointermove', heartbeat);
+      window.removeEventListener('wheel', heartbeat);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   });

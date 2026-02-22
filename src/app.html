@@ -24,7 +24,9 @@
 		</script>
 		<div style="display: contents">%sveltekit.body%</div>
 
-		<!-- DEV DIAGNOSTICS: Visible error surface when JS fails silently -->
+		<!-- Boot-only error surface: catches JS failures during initial load.
+		     Scoped to boot window — removed after SvelteKit hydrates successfully.
+		     Post-boot errors are handled by svelte:boundary in +layout.svelte. -->
 		<div id="boot-fallback" style="display:none; position:fixed; inset:0; z-index:99999;
 			background:#fff; padding:2rem; font-family:system-ui,sans-serif; overflow:auto;">
 			<h1 style="color:#dc2626; margin:0 0 1rem">Coheara failed to start</h1>
@@ -36,36 +38,47 @@
 			</p>
 		</div>
 		<script>
-			// Surface JS errors visibly — no more silent white screens
+			// Boot-scoped error handler: catches failures ONLY during initial load.
+			// Once SvelteKit hydrates, listeners are removed so runtime errors
+			// never trigger this overlay. (MDN: unhandledrejection is cancelable.)
 			(function() {
 				var fallback = document.getElementById('boot-fallback');
 				var errorPre = document.getElementById('boot-error');
 				var errors = [];
+				var booted = false;
 
 				function show(msg) {
+					if (booted) return; // Post-boot errors handled by Svelte, not here
 					errors.push(msg);
 					errorPre.textContent = errors.join('\n\n');
 					fallback.style.display = 'block';
 				}
 
-				window.addEventListener('error', function(e) {
+				function onError(e) {
 					show('[ERROR] ' + e.message + '\n  at ' + (e.filename || '?') + ':' + e.lineno + ':' + e.colno);
-				});
+				}
 
-				window.addEventListener('unhandledrejection', function(e) {
+				function onRejection(e) {
 					var reason = e.reason;
 					var msg = reason instanceof Error
 						? reason.message + '\n' + (reason.stack || '')
 						: String(reason);
 					show('[UNHANDLED PROMISE] ' + msg);
-				});
+				}
 
-				// If SvelteKit mounts successfully, hide the fallback
-				// SvelteKit replaces %sveltekit.body% content on hydration
+				window.addEventListener('error', onError);
+				window.addEventListener('unhandledrejection', onRejection);
+
+				// Once SvelteKit hydrates, remove boot error listeners entirely.
+				// Post-boot runtime errors are handled by Svelte error boundaries,
+				// not by a permanent full-screen overlay that traps the app.
 				var observer = new MutationObserver(function() {
 					if (document.querySelector('[data-sveltekit-hydrated]') || document.querySelector('main')) {
+						booted = true;
 						fallback.style.display = 'none';
 						observer.disconnect();
+						window.removeEventListener('error', onError);
+						window.removeEventListener('unhandledrejection', onRejection);
 					}
 				});
 				observer.observe(document.body, { childList: true, subtree: true });

@@ -298,6 +298,11 @@ pub async fn delete_profile(
 /// IMP-002: Flushes audit buffer before locking to prevent data loss.
 #[tauri::command]
 pub fn check_inactivity(state: State<'_, Arc<CoreState>>) -> bool {
+    // Already locked — nothing to do. Prevents repeated lock() calls,
+    // failed audit flushes, and log noise on already-locked profiles.
+    if state.is_locked() {
+        return true;
+    }
     if state.check_timeout() {
         if let Err(e) = state.flush_and_prune_audit() {
             tracing::warn!("Failed to flush audit log on auto-lock: {e}");

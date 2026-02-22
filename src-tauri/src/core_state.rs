@@ -177,10 +177,29 @@ impl CoreState {
     }
 
     /// Check if the inactivity timeout has been exceeded.
+    ///
+    /// Guards against large jumps from system sleep/suspend: Rust std docs state
+    /// "It is not specified whether system suspends count as elapsed time or not."
+    /// On WSL2, a host sleep can produce a massive elapsed() value. If elapsed
+    /// exceeds timeout + 30 minutes, it's almost certainly a sleep/suspend — real
+    /// inactivity would be caught within ~30s of timeout (the frontend poll interval).
+    /// On jump detection, we reset the timer so the user gets a fresh window after wake.
+    const SLEEP_JUMP_MARGIN_SECS: u64 = 1800; // 30 minutes beyond timeout
+
     pub fn check_timeout(&self) -> bool {
         self.last_activity
             .lock()
-            .map(|last| last.elapsed().as_secs() > self.inactivity_timeout_secs)
+            .map(|mut last| {
+                let elapsed = last.elapsed().as_secs();
+                let timeout = self.inactivity_timeout_secs;
+                if elapsed > timeout + Self::SLEEP_JUMP_MARGIN_SECS {
+                    // Likely a sleep/suspend jump — reset timer, give user a fresh window
+                    *last = Instant::now();
+                    false
+                } else {
+                    elapsed > timeout
+                }
+            })
             .unwrap_or(false)
     }
 
