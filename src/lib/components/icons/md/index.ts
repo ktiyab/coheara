@@ -17,6 +17,7 @@ export { default as EditIcon } from './EditIcon.svelte';
 export { default as GlobeIcon } from './GlobeIcon.svelte';
 export { default as GroupIcon } from './GroupIcon.svelte';
 export { default as HeartIcon } from './HeartIcon.svelte';
+export { default as HistoryIcon } from './HistoryIcon.svelte';
 export { default as HomeIcon } from './HomeIcon.svelte';
 export { default as InfoIcon } from './InfoIcon.svelte';
 export { default as LinkIcon } from './LinkIcon.svelte';

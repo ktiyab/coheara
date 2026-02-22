@@ -26,7 +26,7 @@
   import ChatEmptyState from './ChatEmptyState.svelte';
   import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { BarsIcon } from '$lib/components/icons/md';
+  import { BarsIcon, PlusIcon } from '$lib/components/icons/md';
   import { soundManager } from '$lib/utils/sound';
 
   interface Props {
@@ -89,20 +89,20 @@
   }
 
   async function handleNewConversation() {
-    try {
-      const id = await startConversation();
-      currentConversationId = id;
-      messages = [];
-      streamingText = '';
-      pendingCitations = [];
-      responseConfidence = null;
-      streamError = null;
+    // UA02-05: Lazy creation — don't persist to DB until first message is sent.
+    // If current conversation is already empty, just stay on it.
+    if (currentConversationId && messages.length === 0) {
       showConversationList = false;
-      await loadConversations();
-      suggestions = await getPromptSuggestions();
-    } catch (e) {
-      console.error('Failed to start conversation:', e);
+      return;
     }
+    currentConversationId = null;
+    messages = [];
+    streamingText = '';
+    pendingCitations = [];
+    responseConfidence = null;
+    streamError = null;
+    showConversationList = false;
+    suggestions = await getPromptSuggestions().catch(() => []);
   }
 
   async function handleSelectConversation(convId: string) {
@@ -265,7 +265,7 @@
       onclick={handleNewConversation}
       aria-label={$t('chat.new_conversation')}
     >
-      <span class="text-xl">+</span>
+      <PlusIcon class="w-6 h-6" />
     </button>
   </header>
 

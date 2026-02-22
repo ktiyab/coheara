@@ -10,6 +10,7 @@
   import CreateProfile from './CreateProfile.svelte';
   import ProfilePicker from './ProfilePicker.svelte';
   import UnlockProfile from './UnlockProfile.svelte';
+  import LockScreen from './LockScreen.svelte';
   import RecoveryPhraseDisplay from './RecoveryPhraseDisplay.svelte';
   import RecoverProfile from './RecoverProfile.svelte';
   import WelcomeTour from './WelcomeTour.svelte';
@@ -170,17 +171,11 @@
 {:else if screen === 'welcome_tour'}
   <!-- Spec 45 [ON-02]: 3-slide welcome tour before home -->
   <WelcomeTour onComplete={() => screen = 'app'} />
-{:else if screen === 'picker'}
-  <ProfilePicker
+{:else if screen === 'picker' || (screen === 'unlock' && selectedProfile)}
+  <LockScreen
     {profiles}
-    onSelect={(p) => { selectedProfile = p; screen = 'unlock'; }}
-    onCreateNew={() => screen = 'profile_type_choice'}
-  />
-{:else if screen === 'unlock' && selectedProfile}
-  <UnlockProfile
-    profile={selectedProfile}
+    initialProfile={selectedProfile}
     onUnlocked={() => screen = 'app'}
-    onBack={() => { selectedProfile = null; screen = 'picker'; }}
     onForgotPassword={() => screen = 'recover'}
   />
 {:else if screen === 'recover' && selectedProfile}

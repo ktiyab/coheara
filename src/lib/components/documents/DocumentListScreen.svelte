@@ -85,7 +85,7 @@
   <!-- Header -->
   <header class="px-4 py-4 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
     <div class="flex items-center justify-between {documents.length > 0 ? 'mb-3' : ''}">
-      <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100">{$t('documents.list_heading')}</h1>
+      <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('documents.list_heading')}</h1>
       {#if documents.length > 0}
         <div class="flex items-center gap-2">
           <button

@@ -14,6 +14,7 @@
   import AppShell from '$lib/components/navigation/AppShell.svelte';
   import HomeScreen from '$lib/components/home/HomeScreen.svelte';
   import ChatScreen from '$lib/components/chat/ChatScreen.svelte';
+  import HistoryScreen from '$lib/components/chat/HistoryScreen.svelte';
   import ReviewScreen from '$lib/components/review/ReviewScreen.svelte';
   import TimelineScreen from '$lib/components/timeline/TimelineScreen.svelte';
   import TransferScreen from '$lib/components/transfer/TransferScreen.svelte';
@@ -105,6 +106,8 @@
       initialConversationId={navigation.screenParams.conversationId}
       prefill={navigation.screenParams.prefill}
     />
+  {:else if navigation.activeScreen === 'history'}
+    <HistoryScreen />
   {:else if navigation.activeScreen === 'review' && navigation.screenParams.documentId}
     <ReviewScreen
       documentId={navigation.screenParams.documentId}

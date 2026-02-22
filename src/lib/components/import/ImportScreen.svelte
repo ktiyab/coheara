@@ -262,7 +262,7 @@
   let failureCount = $derived(outcomes.length - successCount);
 </script>
 
-<div class="flex flex-col min-h-screen bg-stone-50 dark:bg-gray-950">
+<div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
   <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
     <BackButton />

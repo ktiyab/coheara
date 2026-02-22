@@ -1,8 +1,9 @@
-<!-- ME-02: Unpair device confirmation dialog -->
+<!-- UA02-12: Unpair confirmation dialog — Tailwind + dark mode -->
 <script lang="ts">
   import { tick } from 'svelte';
   import { t } from 'svelte-i18n';
   import { trapFocus, autoFocusFirst } from '$lib/utils/focus-trap';
+  import { WarningIcon } from '$lib/components/icons/md';
   import Button from '$lib/components/ui/Button.svelte';
 
   let {
@@ -25,69 +26,41 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" role="dialog" aria-modal="true"
-     aria-label={$t('devices.unpair_title', { values: { name: deviceName } })}
-     tabindex="-1"
-     bind:this={dialogEl}
-     onkeydown={(e) => { if (e.key === 'Escape') onCancel(); if (dialogEl) trapFocus(e, dialogEl); }}>
-  <div class="dialog">
-    <h3>{$t('devices.unpair_title', { values: { name: deviceName } })}</h3>
-    <div class="body">
+<div
+  class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+  role="dialog"
+  aria-modal="true"
+  aria-label={$t('devices.unpair_title', { values: { name: deviceName } })}
+  tabindex="-1"
+  bind:this={dialogEl}
+  onkeydown={(e) => { if (e.key === 'Escape') onCancel(); if (dialogEl) trapFocus(e, dialogEl); }}
+>
+  <div class="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-sm w-[90%] shadow-xl border border-stone-200 dark:border-gray-700">
+    <!-- Header with warning icon -->
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+        <WarningIcon class="w-5 h-5 text-red-500" />
+      </div>
+      <h3 class="text-base font-semibold text-stone-800 dark:text-gray-100">
+        {$t('devices.unpair_title', { values: { name: deviceName } })}
+      </h3>
+    </div>
+
+    <!-- Consequences -->
+    <div class="text-sm text-stone-600 dark:text-gray-300 space-y-2 mb-4">
       <p>{$t('devices.unpair_consequences')}</p>
-      <ul>
+      <ul class="list-disc pl-5 space-y-1 text-stone-500 dark:text-gray-400">
         <li>{$t('devices.unpair_disconnect')}</li>
         <li>{$t('devices.unpair_delete_data')}</li>
         <li>{$t('devices.unpair_revoke')}</li>
       </ul>
-      <p>{$t('devices.unpair_repaired_note')}</p>
+      <p class="text-xs text-stone-400 dark:text-gray-500">{$t('devices.unpair_repaired_note')}</p>
     </div>
-    <div class="actions">
+
+    <!-- Actions -->
+    <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={onCancel}>{$t('common.cancel')}</Button>
       <Button variant="danger" onclick={onConfirm}>{$t('devices.unpair_confirm')}</Button>
     </div>
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-  .dialog {
-    background: var(--bg-primary, white);
-    border-radius: 0.5rem;
-    padding: 1.5rem;
-    max-width: 24rem;
-    width: 90%;
-  }
-  .dialog h3 {
-    margin: 0 0 1rem;
-    font-size: 1.05rem;
-  }
-  .body {
-    font-size: 0.9rem;
-    color: var(--text-secondary, #475569);
-    line-height: 1.5;
-  }
-  .body p {
-    margin: 0 0 0.5rem;
-  }
-  .body ul {
-    margin: 0 0 0.75rem;
-    padding-left: 1.25rem;
-  }
-  .body li {
-    margin-bottom: 0.25rem;
-  }
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-</style>

@@ -14,15 +14,18 @@ import { browser } from '$app/environment';
 const SIDEBAR_SCREENS = new Set([
 	'home',
 	'chat',
+	'history',
 	'documents',
 	'timeline',
 	'settings',
-	'ai-settings'
+	'ai-settings',
+	'import',
+	'pairing'
 ]);
 
 /** Navigation sections for sidebar grouping. */
 export const NAV_SECTIONS = {
-	main: ['home', 'chat'],
+	main: ['home', 'chat', 'history'],
 	library: ['documents', 'timeline'],
 	system: ['settings'],
 } as const;

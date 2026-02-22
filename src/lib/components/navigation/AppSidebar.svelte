@@ -4,7 +4,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { lockProfile } from '$lib/api/profile';
-  import { HomeIcon, SearchIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, LockIcon } from '$lib/components/icons/md';
+  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, LockIcon } from '$lib/components/icons/md';
   import type { Component } from 'svelte';
 
   type NavItem = {
@@ -16,6 +16,7 @@
   const navItems: NavItem[] = [
     { id: 'home', key: 'nav.home', Icon: HomeIcon },
     { id: 'chat', key: 'nav.chat', Icon: SearchIcon },
+    { id: 'history', key: 'nav.history', Icon: HistoryIcon },
     { id: 'documents', key: 'nav.documents', Icon: DocsIcon },
     { id: 'timeline', key: 'nav.timeline', Icon: TimelineIcon },
     { id: 'settings', key: 'nav.settings', Icon: SettingsIcon },
@@ -48,9 +49,9 @@
       title={collapsed ? ($t('nav.expand_sidebar') ?? 'Expand sidebar') : ($t('nav.collapse_sidebar') ?? 'Collapse sidebar')}
     >
       {#if collapsed}
-        <ChevronRightIcon class="w-4 h-4" />
+        <ChevronRightIcon class="w-5 h-5" />
       {:else}
-        <ChevronLeftIcon class="w-4 h-4" />
+        <ChevronLeftIcon class="w-5 h-5" />
       {/if}
     </button>
   </div>
@@ -73,7 +74,7 @@
             title={collapsed ? ($t(item.key) ?? item.id) : undefined}
           >
             <span class="flex-shrink-0">
-              <item.Icon class="w-5 h-5" />
+              <item.Icon class="w-6 h-6" />
             </span>
             {#if !collapsed}
               <span class="text-sm truncate flex-1">{$t(item.key)}</span>
@@ -93,7 +94,7 @@
         onclick={async () => { await lockProfile(); }}
         title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
       >
-        <LockIcon class="w-5 h-5" />
+        <LockIcon class="w-6 h-6" />
       </button>
     {:else}
       <div class="px-3 py-2">
@@ -116,7 +117,7 @@
             title={$t('nav.settings') ?? 'Settings'}
             aria-label={$t('nav.settings') ?? 'Settings'}
           >
-            <SettingsIcon class="w-4 h-4" />
+            <SettingsIcon class="w-5 h-5" />
           </button>
           <button
             class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg
@@ -125,7 +126,7 @@
             title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
             aria-label={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
           >
-            <LockIcon class="w-4 h-4" />
+            <LockIcon class="w-5 h-5" />
           </button>
         </div>
       </div>

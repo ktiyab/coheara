@@ -1,8 +1,8 @@
-<!-- ME-02: Single paired device row -->
+<!-- UA02-12: Device card — WhatsApp Linked Devices style -->
 <script lang="ts">
   import { t, locale } from 'svelte-i18n';
   import type { DeviceSummary } from '$lib/types/devices';
-  import Button from '$lib/components/ui/Button.svelte';
+  import { PhoneIcon, DeleteIcon, WarningIcon } from '$lib/components/icons/md';
 
   let { device, onUnpair }: { device: DeviceSummary; onUnpair: (id: string) => void } = $props();
 
@@ -24,93 +24,62 @@
   const isInactive = $derived((device.days_inactive ?? 0) >= 30);
 </script>
 
-<div class="device-card" class:inactive={isInactive}>
-  <div class="device-header">
-    <span class="device-icon">
-      {#if device.device_model.toLowerCase().includes('iphone')}
-        {$t('devices.type_iphone')}
-      {:else}
-        {$t('devices.type_android')}
-      {/if}
-    </span>
-    <div class="device-info">
-      <h4>{device.device_name}</h4>
-      <p class="device-status">
-        <span class="status-dot" class:connected={device.is_connected}></span>
-        {lastSeenText()}
-      </p>
-      <p class="paired-date">{$t('devices.paired_date', { values: { date: formatDate(device.paired_at) } })}</p>
+<div
+  class="group relative flex items-center gap-3 px-4 py-3 min-h-[60px]
+         hover:bg-stone-50 dark:hover:bg-gray-800/50 transition-colors
+         {isInactive ? 'border-l-2 border-l-amber-400' : ''}"
+>
+  <!-- Device icon with status dot -->
+  <div class="relative flex-shrink-0">
+    <div class="w-10 h-10 rounded-full bg-stone-100 dark:bg-gray-800 flex items-center justify-center">
+      <PhoneIcon class="w-5 h-5 text-stone-500 dark:text-gray-400" />
     </div>
+    <!-- Status dot: green = connected, silver = offline -->
+    <span
+      class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-gray-900
+             {device.is_connected ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-gray-500'}"
+      aria-label={device.is_connected ? $t('devices.status_connected') : lastSeenText()}
+    ></span>
   </div>
 
+  <!-- Device info -->
+  <div class="flex-1 min-w-0">
+    <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">
+      {device.device_name}
+    </p>
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-stone-500 dark:text-gray-400 truncate">
+        {device.device_model}
+      </span>
+      <span class="text-stone-300 dark:text-gray-600">&middot;</span>
+      <span class="text-xs {device.is_connected ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-stone-500 dark:text-gray-400'}">
+        {lastSeenText()}
+      </span>
+    </div>
+    <p class="text-[11px] text-stone-400 dark:text-gray-500">
+      {$t('devices.paired_date', { values: { date: formatDate(device.paired_at) } })}
+    </p>
+  </div>
+
+  <!-- Inactive warning badge -->
   {#if isInactive}
-    <div class="inactive-warning">
-      {$t('devices.inactive_warning', { values: { days: device.days_inactive } })}
+    <div class="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 flex-shrink-0" title={$t('devices.inactive_warning', { values: { days: device.days_inactive } })}>
+      <WarningIcon class="w-3.5 h-3.5 text-amber-500" />
+      <span class="text-[10px] font-medium text-amber-600 dark:text-amber-400">{device.days_inactive}d</span>
     </div>
   {/if}
 
-  <Button variant="danger" size="sm" onclick={() => onUnpair(device.device_id)}>
-    {$t('devices.unpair_button')}
-  </Button>
+  <!-- Unpair button (hover-visible) -->
+  <button
+    class="flex-shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center
+           rounded-lg text-stone-400 dark:text-gray-500
+           hover:text-red-500 dark:hover:text-red-400
+           hover:bg-red-50 dark:hover:bg-red-900/20
+           opacity-0 group-hover:opacity-100 focus:opacity-100
+           transition-all"
+    onclick={() => onUnpair(device.device_id)}
+    aria-label={$t('devices.unpair_button')}
+  >
+    <DeleteIcon class="w-4.5 h-4.5" />
+  </button>
 </div>
-
-<style>
-  .device-card {
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 0.5rem;
-    padding: 1rem;
-    margin-bottom: 0.75rem;
-  }
-  .device-card.inactive {
-    border-color: var(--warning-color, #f59e0b);
-  }
-  .device-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .device-icon {
-    font-size: 0.75rem;
-    color: var(--text-secondary, #64748b);
-    min-width: 3.5rem;
-    text-align: center;
-    padding-top: 0.25rem;
-  }
-  .device-info {
-    flex: 1;
-  }
-  .device-info h4 {
-    margin: 0 0 0.25rem;
-    font-size: 0.95rem;
-  }
-  .device-status {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    margin: 0 0 0.125rem;
-    font-size: 0.85rem;
-    color: var(--text-secondary, #64748b);
-  }
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--text-secondary, #94a3b8);
-  }
-  .status-dot.connected {
-    background: var(--success-color, #22c55e);
-  }
-  .paired-date {
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--text-tertiary, #94a3b8);
-  }
-  .inactive-warning {
-    margin: 0.5rem 0;
-    padding: 0.5rem;
-    background: var(--warning-bg, #fffbeb);
-    color: var(--warning-color, #b45309);
-    border-radius: 0.25rem;
-    font-size: 0.8rem;
-  }
-</style>

@@ -77,7 +77,7 @@
     </Button>
 
   {:else if view === 'serving' && qrCode}
-    <div class="qr-container">
+    <div class="flex justify-center p-4 bg-white rounded-lg border border-stone-200 dark:border-gray-700 [&>svg]:w-[240px] [&>svg]:h-[240px]">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       {@html qrCode.svg}
     </div>
@@ -126,17 +126,3 @@
   {/if}
 </section>
 
-<style>
-  .qr-container {
-    display: flex;
-    justify-content: center;
-    padding: 1rem;
-    background: white;
-    border-radius: 0.5rem;
-    border: 1px solid var(--border-color, #e2e8f0);
-  }
-  .qr-container :global(svg) {
-    width: 240px;
-    height: 240px;
-  }
-</style>

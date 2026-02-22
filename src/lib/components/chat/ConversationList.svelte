@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import type { ConversationSummary } from '$lib/types/chat';
+  import { DeleteIcon } from '$lib/components/icons/md';
   import Button from '$lib/components/ui/Button.svelte';
 
   interface Props {
@@ -46,7 +47,7 @@
       </div>
     {:else}
       {#each conversations as conv (conv.id)}
-        <div class="relative" role="listitem">
+        <div class="group relative" role="listitem">
           <button
             class="w-full text-left px-4 py-3 border-b border-stone-100 dark:border-gray-800
                    hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors min-h-[60px]
@@ -58,25 +59,43 @@
                 <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{conv.title}</p>
                 <p class="text-xs text-stone-500 dark:text-gray-400 truncate mt-0.5">{conv.last_message_preview}</p>
               </div>
-              <span class="text-xs text-stone-500 dark:text-gray-400 flex-shrink-0">
-                {relativeTime(conv.last_message_at)}
-              </span>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-xs text-stone-500 dark:text-gray-400">
+                  {relativeTime(conv.last_message_at)}
+                </span>
+              </div>
             </div>
+          </button>
+
+          <!-- Delete trigger: visible on hover (desktop), always accessible via keyboard -->
+          <button
+            class="absolute right-2 top-1/2 -translate-y-1/2 min-h-[32px] min-w-[32px]
+                   flex items-center justify-center rounded-lg
+                   text-stone-400 dark:text-gray-500
+                   hover:text-[var(--color-danger)] hover:bg-stone-100 dark:hover:bg-gray-800
+                   opacity-0 group-hover:opacity-100 focus:opacity-100
+                   transition-all"
+            onclick={(e) => { e.stopPropagation(); confirmDeleteId = conv.id; }}
+            aria-label={$t('common.delete')}
+          >
+            <DeleteIcon class="w-4 h-4" />
           </button>
 
           {#if confirmDeleteId === conv.id}
             <div class="absolute inset-0 bg-white dark:bg-gray-900 flex items-center justify-between px-4
-                        border-b border-stone-100 dark:border-gray-800">
+                        border-b border-stone-100 dark:border-gray-800 z-10">
               <span class="text-xs text-stone-600 dark:text-gray-300">{$t('chat.delete_confirmation')}</span>
               <div class="flex gap-2">
                 <button
-                  class="px-3 py-1 text-xs text-stone-500 dark:text-gray-400 min-h-[32px]"
+                  class="px-3 py-1.5 text-xs text-stone-500 dark:text-gray-400 min-h-[32px] rounded-md
+                         hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
                   onclick={() => confirmDeleteId = null}
                 >
                   {$t('common.cancel')}
                 </button>
                 <button
-                  class="px-3 py-1 text-xs text-[var(--color-danger)] font-medium min-h-[32px]"
+                  class="px-3 py-1.5 text-xs text-white bg-[var(--color-danger)] font-medium min-h-[32px] rounded-md
+                         hover:opacity-90 transition-opacity"
                   onclick={() => { onDelete(conv.id); confirmDeleteId = null; }}
                 >
                   {$t('common.delete')}
