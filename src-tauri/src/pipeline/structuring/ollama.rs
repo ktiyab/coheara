@@ -17,6 +17,8 @@ use super::types::{LlmClient, VisionClient};
 /// Operations run until Ollama responds (success or error).
 ///
 /// - `connect_timeout(10s)`: Fast detection of "Ollama not running"
+/// - `tcp_keepalive(15s)`: Prevents WSL2/network bridge from dropping idle connections
+///   during long CPU inference (DeepSeek-OCR can take minutes per page)
 /// - Health/list/show: 5s per-request timeout (management operations)
 /// - Delete: 30s per-request timeout (filesystem operation)
 /// - Pull: no timeout (downloads are arbitrarily long)
@@ -43,6 +45,7 @@ impl OllamaClient {
     pub fn new(base_url: &str) -> Self {
         let client = reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
+            .tcp_keepalive(std::time::Duration::from_secs(15))
             .build()
             .expect("Failed to create HTTP client");
 
