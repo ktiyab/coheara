@@ -55,9 +55,13 @@ impl PdfiumRenderer {
 /// Load the PDFium dynamic library.
 ///
 /// Discovery order:
-/// 1. `PDFIUM_DYNAMIC_LIB_PATH` env var
+/// 1. `PDFIUM_DYNAMIC_LIB_PATH` env var (explicit path)
 /// 2. Alongside the running executable
-/// 3. System library search paths
+/// 3. Tauri bundled resources — platform-specific:
+///    - Windows/Linux: `<exe_dir>/resources/pdfium/{bin,lib}/`
+///    - macOS .app:    `<exe_dir>/../Resources/pdfium/{bin,lib}/`
+///    - Linux alt:     `<exe_dir>/../resources/pdfium/{bin,lib}/`
+/// 4. System library search paths
 fn load_pdfium() -> Result<Pdfium, ExtractionError> {
     // 1. Explicit path via env var
     if let Ok(path) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
@@ -71,20 +75,38 @@ fn load_pdfium() -> Result<Pdfium, ExtractionError> {
         return Ok(Pdfium::new(bindings));
     }
 
-    // 2. Alongside executable
+    // 2 + 3. Search candidate directories relative to executable.
+    // pdfium_platform_library_name_at_path() handles platform-specific names:
+    //   Windows → pdfium.dll | Linux → libpdfium.so | macOS → libpdfium.dylib
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let lib_path = Pdfium::pdfium_platform_library_name_at_path(
-                dir.to_string_lossy().as_ref(),
-            );
-            if let Ok(bindings) = Pdfium::bind_to_library(&lib_path) {
-                debug!("Loaded PDFium from executable directory");
-                return Ok(Pdfium::new(bindings));
+        if let Some(exe_dir) = exe.parent() {
+            let candidates = [
+                // Alongside executable (dev / portable)
+                exe_dir.to_path_buf(),
+                // Tauri resources — Windows & Linux
+                exe_dir.join("resources").join("pdfium").join("bin"),
+                exe_dir.join("resources").join("pdfium").join("lib"),
+                // Tauri resources — macOS .app bundle (exe in Contents/MacOS/)
+                exe_dir.join("..").join("Resources").join("pdfium").join("bin"),
+                exe_dir.join("..").join("Resources").join("pdfium").join("lib"),
+                // Linux alternative layout
+                exe_dir.join("..").join("resources").join("pdfium").join("bin"),
+                exe_dir.join("..").join("resources").join("pdfium").join("lib"),
+            ];
+
+            for dir in &candidates {
+                let lib_path = Pdfium::pdfium_platform_library_name_at_path(
+                    dir.to_string_lossy().as_ref(),
+                );
+                if let Ok(bindings) = Pdfium::bind_to_library(&lib_path) {
+                    debug!(dir = %dir.display(), "Loaded PDFium from candidate directory");
+                    return Ok(Pdfium::new(bindings));
+                }
             }
         }
     }
 
-    // 3. System library
+    // 4. System library
     let bindings =
         Pdfium::bind_to_system_library().map_err(|e| ExtractionError::PdfRendering {
             page: 0,
