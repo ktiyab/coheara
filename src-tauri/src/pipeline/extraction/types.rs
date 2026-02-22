@@ -20,9 +20,14 @@ pub struct ExtractionResult {
 /// How text was extracted
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ExtractionMethod {
-    PdfDirect,
-    TesseractOcr,
+    /// R3: Vision model read page image → structured Markdown.
+    VisionOcr,
+    /// Plain text file — direct read, no model needed.
     PlainTextRead,
+    /// Legacy: Digital PDF text operators (kept for deserialization compat).
+    PdfDirect,
+    /// Legacy: Tesseract OCR from image (kept for deserialization compat).
+    TesseractOcr,
 }
 
 /// Per-page extraction result
@@ -65,64 +70,102 @@ pub enum ExtractionWarning {
     TableContinuation,
 }
 
-/// Per-word OCR result with optional spatial data.
-#[derive(Debug, Clone)]
-pub struct OcrWordResult {
-    pub text: String,
-    pub confidence: f32,
-    pub bounding_box: Option<BoundingBox>,
-}
-
-/// Raw OCR result from the engine
-#[derive(Debug)]
-pub struct OcrPageResult {
-    pub text: String,
-    pub confidence: f32,
-    pub word_confidences: Vec<OcrWordResult>,
-}
-
-/// Image quality assessment result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageQuality {
-    pub resolution: String,
-    pub contrast: String,
-    pub estimated_confidence: f32,
-}
-
-/// OCR engine abstraction (allows mocking for tests)
-pub trait OcrEngine {
-    fn ocr_image(&self, image_bytes: &[u8]) -> Result<OcrPageResult, ExtractionError>;
-
-    fn ocr_image_with_lang(
-        &self,
-        image_bytes: &[u8],
-        lang: &str,
-    ) -> Result<OcrPageResult, ExtractionError>;
-}
-
-/// PDF text extraction abstraction
-pub trait PdfExtractor {
-    fn extract_text(&self, pdf_bytes: &[u8]) -> Result<Vec<PageExtraction>, ExtractionError>;
-
-    fn page_count(&self, pdf_bytes: &[u8]) -> Result<usize, ExtractionError>;
-}
-
 /// PDF page-to-image renderer abstraction.
-/// Renders individual PDF pages to image bytes for OCR processing.
-pub trait PdfPageRenderer {
+/// Renders individual PDF pages to image bytes for vision model OCR.
+///
+/// Production: `PdfiumRenderer` (pdfium-render via PDFium).
+/// Testing: `MockPdfPageRenderer` (returns minimal PNG).
+pub trait PdfPageRenderer: Send + Sync {
     /// Render a single PDF page to image bytes (PNG format).
     /// `page_number` is 0-indexed.
-    /// `dpi` controls resolution (300 recommended for OCR).
+    /// `dpi` controls resolution (200 for vision model, was 300 for Tesseract).
     fn render_page(
         &self,
         pdf_bytes: &[u8],
         page_number: usize,
         dpi: u32,
     ) -> Result<Vec<u8>, ExtractionError>;
+
+    /// Count pages in a PDF document.
+    fn page_count(&self, pdf_bytes: &[u8]) -> Result<usize, ExtractionError>;
+}
+
+// ──────────────────────────────────────────────
+// R3: Vision OCR types
+// ──────────────────────────────────────────────
+
+/// Classification signal from the vision model's extraction pass.
+///
+/// DeepSeek-OCR (and MedGemma) are prompted to append a classification tag.
+/// The orchestrator uses this to route medical images to MedGemma interpretation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageContentType {
+    /// Text document: lab report, prescription, form, letter, insurance doc.
+    Document,
+    /// Medical image: X-ray, radiograph, CT scan, dermatology photo, pathology slide.
+    MedicalImage,
+}
+
+/// R3: Result from vision model OCR extraction.
+#[derive(Debug, Clone)]
+pub struct VisionOcrResult {
+    /// Extracted text as structured Markdown.
+    pub text: String,
+    /// Which model performed the extraction (e.g., "deepseek-ocr", "medgemma:4b").
+    pub model_used: String,
+    /// Heuristic confidence based on text length and structure quality.
+    pub confidence: f32,
+    /// Image classification from the extraction prompt.
+    /// `MedicalImage` signals the orchestrator to route to MedGemma interpretation.
+    pub content_type: ImageContentType,
+}
+
+/// R3: Result from medical image interpretation (MedGemma).
+///
+/// Used when an image contains medical imagery (radiographs, dermatology, pathology)
+/// rather than text documents. MedGemma interprets the image content.
+#[derive(Debug, Clone)]
+pub struct MedicalImageResult {
+    /// Medical findings as structured text.
+    pub findings: String,
+    /// Which model performed the interpretation.
+    pub model_used: String,
+    /// Confidence in the interpretation.
+    pub confidence: f32,
+}
+
+/// R3: Vision OCR engine — extracts TEXT from document images.
+///
+/// Specialist: DeepSeek-OCR (structured Markdown output).
+/// Fallback: MedGemma (adequate text extraction).
+///
+/// Implementations: `OllamaVisionOcr` (production), `MockVisionOcr` (testing).
+pub trait VisionOcrEngine: Send + Sync {
+    /// Extract text from a document image using a vision model.
+    /// Returns structured Markdown for documents with text content.
+    fn extract_text_from_image(
+        &self,
+        image_bytes: &[u8],
+    ) -> Result<VisionOcrResult, ExtractionError>;
+}
+
+/// R3: Medical image interpreter — UNDERSTANDS medical imagery.
+///
+/// MedGemma 1.5 is fine-tuned on X-rays, CT, MRI, dermatology, histopathology.
+/// Used when DeepSeek-OCR yields low text confidence (suggesting the image
+/// is a medical image, not a text document).
+///
+/// The orchestrator routes: if OCR confidence < threshold → MedGemma interpretation.
+pub trait MedicalImageInterpreter: Send + Sync {
+    /// Interpret a medical image and return findings.
+    fn interpret_medical_image(
+        &self,
+        image_bytes: &[u8],
+    ) -> Result<MedicalImageResult, ExtractionError>;
 }
 
 /// Main extraction orchestrator trait
-pub trait TextExtractor {
+pub trait TextExtractor: Send + Sync {
     fn extract(
         &self,
         document_id: &Uuid,

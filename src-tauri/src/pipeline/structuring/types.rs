@@ -171,3 +171,22 @@ pub trait LlmClient {
 
     fn list_models(&self) -> Result<Vec<String>, StructuringError>;
 }
+
+/// R3: Vision model client for image-based generation.
+///
+/// Separate from `LlmClient` for backward compatibility — existing code
+/// that only needs text generation continues to use `LlmClient`.
+/// Vision operations go through this trait.
+pub trait VisionClient: Send + Sync {
+    /// Generate text from a prompt with one or more base64-encoded images.
+    ///
+    /// `images` contains base64-encoded PNG/JPEG bytes.
+    /// `system` is an optional system prompt (Some for generic models, None for DeepSeek-OCR).
+    fn generate_with_images(
+        &self,
+        model: &str,
+        prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<String, super::ollama_types::OllamaError>;
+}

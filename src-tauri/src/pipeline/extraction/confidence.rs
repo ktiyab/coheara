@@ -1,4 +1,4 @@
-use super::types::{ExtractionMethod, ExtractionWarning, OcrPageResult, PageExtraction, RegionConfidence};
+use super::types::{ExtractionMethod, PageExtraction, RegionConfidence};
 
 /// Confidence thresholds used by UI and pipeline
 pub mod thresholds {
@@ -18,7 +18,10 @@ pub mod thresholds {
     pub const VERY_HIGH: f32 = 0.95;
 }
 
-/// Compute overall document confidence from per-page results
+/// Compute overall document confidence from per-page results.
+///
+/// R3: Added `VisionOcr` method — uses text-length-weighted average of per-page
+/// confidence from the vision model heuristic (computed in `vision_ocr.rs`).
 pub fn compute_overall_confidence(
     pages: &[PageExtraction],
     method: &ExtractionMethod,
@@ -27,17 +30,27 @@ pub fn compute_overall_confidence(
         return 0.0;
     }
 
-    // Digital PDFs: dynamic confidence based on text quality (EXT-01-G06)
-    if *method == ExtractionMethod::PdfDirect {
-        return compute_digital_pdf_confidence(pages);
-    }
+    match method {
+        // Digital PDFs: dynamic confidence based on text quality (EXT-01-G06)
+        ExtractionMethod::PdfDirect => compute_digital_pdf_confidence(pages),
 
-    // Plain text: always high confidence
-    if *method == ExtractionMethod::PlainTextRead {
-        return 0.99;
-    }
+        // Plain text: always high confidence
+        ExtractionMethod::PlainTextRead => 0.99,
 
-    // OCR: weighted average by text length
+        // R3 Vision OCR + legacy Tesseract OCR: weighted average by text length.
+        // Vision OCR per-page confidence comes from the text structure heuristic
+        // in `vision_ocr::estimate_confidence()`.
+        ExtractionMethod::VisionOcr | ExtractionMethod::TesseractOcr => {
+            compute_weighted_page_confidence(pages)
+        }
+    }
+}
+
+/// Weighted average of per-page confidence by text length.
+///
+/// Used for both VisionOcr and TesseractOcr methods.
+/// Pages with more text have more influence on overall confidence.
+fn compute_weighted_page_confidence(pages: &[PageExtraction]) -> f32 {
     let total_chars: usize = pages.iter().map(|p| p.text.len()).sum();
     if total_chars == 0 {
         return 0.0;
@@ -94,28 +107,6 @@ fn compute_digital_pdf_confidence(pages: &[PageExtraction]) -> f32 {
     0.60 + quality * 0.39
 }
 
-/// Analyze OCR result and generate warnings
-pub fn analyze_ocr_quality(result: &OcrPageResult) -> Vec<ExtractionWarning> {
-    let mut warnings = Vec::new();
-
-    if result.confidence < thresholds::LOW {
-        warnings.push(ExtractionWarning::BlurryImage);
-    }
-
-    // Check for signs of handwriting (majority of words below 0.40 confidence)
-    let total_words = result.word_confidences.len().max(1);
-    let low_conf_words = result
-        .word_confidences
-        .iter()
-        .filter(|w| w.confidence < 0.40)
-        .count();
-    if low_conf_words as f64 / total_words as f64 > 0.50 {
-        warnings.push(ExtractionWarning::HandwritingDetected);
-    }
-
-    warnings
-}
-
 /// Identify low-confidence regions for highlighting in the review screen
 pub fn flag_low_confidence_regions(
     page: &PageExtraction,
@@ -131,7 +122,6 @@ pub fn flag_low_confidence_regions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::types::OcrWordResult;
 
     fn make_page(text: &str, confidence: f32) -> PageExtraction {
         PageExtraction {
@@ -240,92 +230,44 @@ mod tests {
         assert_eq!(conf, 0.0);
     }
 
+    // ── R3: VisionOcr confidence tests ────────────
+
+    #[test]
+    fn vision_ocr_weighted_by_text_length() {
+        let pages = vec![
+            make_page(&"Structured Markdown content ".repeat(20), 0.85),
+            make_page("Short blurry text", 0.40),
+        ];
+        let conf = compute_overall_confidence(&pages, &ExtractionMethod::VisionOcr);
+        // Long page dominates: should be close to 0.85
+        assert!(conf > 0.75, "Expected > 0.75, got {conf}");
+    }
+
+    #[test]
+    fn vision_ocr_empty_pages_returns_zero() {
+        let conf = compute_overall_confidence(&[], &ExtractionMethod::VisionOcr);
+        assert_eq!(conf, 0.0);
+    }
+
+    #[test]
+    fn vision_ocr_all_empty_text_returns_zero() {
+        let pages = vec![make_page("", 0.0)];
+        let conf = compute_overall_confidence(&pages, &ExtractionMethod::VisionOcr);
+        assert_eq!(conf, 0.0);
+    }
+
+    #[test]
+    fn vision_ocr_single_high_confidence_page() {
+        let pages = vec![make_page(&"# Lab Report\n\nPatient: John Doe\n\n| Test | Value |\n|---|---|\n| Glucose | 95 mg/dL |\n".repeat(5), 0.90)];
+        let conf = compute_overall_confidence(&pages, &ExtractionMethod::VisionOcr);
+        assert!((conf - 0.90).abs() < f32::EPSILON);
+    }
+
     #[test]
     fn plain_text_always_high() {
         let pages = vec![make_page("Any text", 0.99)];
         let conf = compute_overall_confidence(&pages, &ExtractionMethod::PlainTextRead);
         assert!((conf - 0.99).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn blurry_image_warning_on_low_confidence() {
-        let result = OcrPageResult {
-            text: "blurry text".into(),
-            confidence: 0.25,
-            word_confidences: vec![
-                OcrWordResult { text: "blurry".into(), confidence: 0.20, bounding_box: None },
-                OcrWordResult { text: "text".into(), confidence: 0.30, bounding_box: None },
-            ],
-        };
-        let warnings = analyze_ocr_quality(&result);
-        assert!(warnings
-            .iter()
-            .any(|w| matches!(w, ExtractionWarning::BlurryImage)));
-    }
-
-    #[test]
-    fn handwriting_warning_on_many_low_confidence_words() {
-        let result = OcrPageResult {
-            text: "a b c d e".into(),
-            confidence: 0.35,
-            word_confidences: vec![
-                OcrWordResult { text: "a".into(), confidence: 0.10, bounding_box: None },
-                OcrWordResult { text: "b".into(), confidence: 0.15, bounding_box: None },
-                OcrWordResult { text: "c".into(), confidence: 0.20, bounding_box: None },
-                OcrWordResult { text: "d".into(), confidence: 0.60, bounding_box: None },
-                OcrWordResult { text: "e".into(), confidence: 0.30, bounding_box: None },
-            ],
-        };
-        let warnings = analyze_ocr_quality(&result);
-        assert!(warnings
-            .iter()
-            .any(|w| matches!(w, ExtractionWarning::HandwritingDetected)));
-    }
-
-    #[test]
-    fn no_handwriting_warning_on_clear_text() {
-        let result = OcrPageResult {
-            text: "clear text".into(),
-            confidence: 0.90,
-            word_confidences: vec![
-                OcrWordResult { text: "clear".into(), confidence: 0.92, bounding_box: None },
-                OcrWordResult { text: "text".into(), confidence: 0.88, bounding_box: None },
-            ],
-        };
-        let warnings = analyze_ocr_quality(&result);
-        assert!(!warnings
-            .iter()
-            .any(|w| matches!(w, ExtractionWarning::HandwritingDetected)));
-    }
-
-    #[test]
-    fn handwriting_detected_with_zero_confidence_words() {
-        // Tesseract returns -1 (mapped to 0.0) for unrecognizable handwriting
-        let result = OcrPageResult {
-            text: "scrawl illegible marks here now".into(),
-            confidence: 0.15,
-            word_confidences: vec![
-                OcrWordResult { text: "scrawl".into(), confidence: 0.0, bounding_box: None },
-                OcrWordResult { text: "illegible".into(), confidence: 0.0, bounding_box: None },
-                OcrWordResult { text: "marks".into(), confidence: 0.0, bounding_box: None },
-                OcrWordResult { text: "here".into(), confidence: 0.0, bounding_box: None },
-                OcrWordResult { text: "now".into(), confidence: 0.45, bounding_box: None },
-            ],
-        };
-        let warnings = analyze_ocr_quality(&result);
-        assert!(warnings.iter().any(|w| matches!(w, ExtractionWarning::HandwritingDetected)));
-    }
-
-    #[test]
-    fn no_handwriting_warning_with_empty_word_confidences() {
-        let result = OcrPageResult {
-            text: "".into(),
-            confidence: 0.0,
-            word_confidences: vec![],
-        };
-        let warnings = analyze_ocr_quality(&result);
-        // Empty text: should not trigger handwriting warning
-        assert!(!warnings.iter().any(|w| matches!(w, ExtractionWarning::HandwritingDetected)));
     }
 
     #[test]

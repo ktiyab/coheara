@@ -3,11 +3,12 @@ use std::io::BufRead;
 
 use super::StructuringError;
 use super::ollama_types::{
-    GenerationOptions, ModelDetail, ModelInfo, ModelPreference, OllamaError, OllamaHealth,
-    OllamaShowResponse, OllamaTagsResponse, PullProgress,
-    recommended_model_names, validate_base_url, validate_model_name,
+    GenerationOptions, ModelCapability, ModelDetail, ModelInfo, ModelPreference,
+    OllamaError, OllamaHealth, OllamaShowResponse, OllamaTagsResponse, PullProgress,
+    VisionGenerateRequest, VisionGenerationOptions, VISION_MODEL_PREFIXES,
+    extract_model_component, recommended_model_names, validate_base_url, validate_model_name,
 };
-use super::types::LlmClient;
+use super::types::{LlmClient, VisionClient};
 
 /// Default generation timeout in seconds.
 /// MedGemma cold start can take ~5 minutes (observed 4m59s in R-MOD-04).
@@ -569,6 +570,223 @@ impl OllamaClient {
     }
 }
 
+// ──────────────────────────────────────────────
+// R3: Vision model support
+// ──────────────────────────────────────────────
+
+/// Maximum base64-encoded image size: 20 MB.
+///
+/// Ollama has no documented limit, but 20 MB base64 ≈ 15 MB raw image,
+/// which covers even high-DPI page renders (200 DPI A4 ≈ 1-3 MB PNG).
+const MAX_IMAGE_SIZE_BYTES: usize = 20 * 1024 * 1024;
+
+/// Vision OCR timeout: 120s per image.
+///
+/// Shorter than text generation (600s) because vision OCR processes a single
+/// page image. MedGemma on CPU: ~30-60s per page. DeepSeek-OCR: ~10-30s.
+const VISION_GENERATE_TIMEOUT_SECS: u64 = 120;
+
+impl OllamaClient {
+    /// Detect whether a model supports vision (image) inputs.
+    ///
+    /// R3: Two-step detection:
+    /// 1. Fast heuristic — check model name against known vision prefixes.
+    /// 2. Slow fallback — query `/api/show` for projector/multimodal indicators.
+    ///
+    /// Conservative: returns `TextOnly` if detection fails (e.g., Ollama unreachable).
+    pub fn detect_capability(&self, model_name: &str) -> Result<ModelCapability, OllamaError> {
+        let component = extract_model_component(model_name);
+
+        // Fast path: known vision model prefixes
+        for prefix in VISION_MODEL_PREFIXES {
+            if component.starts_with(prefix) {
+                tracing::debug!(model = %model_name, "Vision capability detected via name prefix");
+                return Ok(ModelCapability::Vision);
+            }
+        }
+
+        // Slow path: query /api/show for multimodal indicators
+        match self.show_model(model_name) {
+            Ok(detail) => {
+                if let Some(ref modelfile) = detail.modelfile {
+                    let lower = modelfile.to_lowercase();
+                    // Projector layers indicate vision adapter (LLaVA-style)
+                    if lower.contains("projector")
+                        || lower.contains("mmproj")
+                        || lower.contains("vision")
+                    {
+                        tracing::debug!(model = %model_name, "Vision capability detected via modelfile");
+                        return Ok(ModelCapability::Vision);
+                    }
+                }
+                Ok(ModelCapability::TextOnly)
+            }
+            Err(e) => {
+                tracing::warn!(model = %model_name, error = %e, "Could not query model detail, assuming TextOnly");
+                Ok(ModelCapability::TextOnly)
+            }
+        }
+    }
+}
+
+impl VisionClient for OllamaClient {
+    /// Generate text from a prompt with base64-encoded images via Ollama `/api/generate`.
+    ///
+    /// R3: Used for document OCR (DeepSeek-OCR, MedGemma) and medical image interpretation.
+    ///
+    /// Key behaviors:
+    /// - Image size guard: rejects images > 20 MB base64
+    /// - Deterministic: temperature=0.0, num_predict=8192
+    /// - Security: `keep_alive=0` unloads model after inference (SEC-02-G09)
+    /// - Timeout: 120s (single-page OCR, not multi-page generation)
+    fn generate_with_images(
+        &self,
+        model: &str,
+        prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<String, OllamaError> {
+        validate_model_name(model)?;
+        let _span = tracing::info_span!(
+            "ollama_generate_with_images",
+            model = %model,
+            prompt_len = prompt.len(),
+            image_count = images.len(),
+        )
+        .entered();
+        let start = std::time::Instant::now();
+        tracing::info!("Ollama generate_with_images starting");
+
+        // Guard: reject oversized images
+        for (i, img) in images.iter().enumerate() {
+            if img.len() > MAX_IMAGE_SIZE_BYTES {
+                tracing::warn!(
+                    image_index = i,
+                    size = img.len(),
+                    max = MAX_IMAGE_SIZE_BYTES,
+                    "Image exceeds maximum size"
+                );
+                return Err(OllamaError::ImageTooLarge(img.len()));
+            }
+        }
+
+        let request = VisionGenerateRequest {
+            model: model.to_string(),
+            prompt: prompt.to_string(),
+            system: system.map(|s| s.to_string()),
+            images: images.to_vec(),
+            stream: false,
+            options: Some(VisionGenerationOptions {
+                temperature: 0.0,
+                num_predict: 8192,
+            }),
+            keep_alive: Some("0".to_string()),
+        };
+
+        let url = format!("{}/api/generate", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .timeout(std::time::Duration::from_secs(VISION_GENERATE_TIMEOUT_SECS))
+            .json(&request)
+            .send()
+            .map_err(|e| {
+                let err = if e.is_connect() || e.is_timeout() {
+                    OllamaError::NotReachable
+                } else {
+                    OllamaError::Network(e.to_string())
+                };
+                tracing::warn!(
+                    model = %model,
+                    elapsed_ms = %start.elapsed().as_millis(),
+                    error = %e,
+                    "Ollama generate_with_images failed"
+                );
+                err
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            tracing::warn!(
+                model = %model,
+                status = status.as_u16(),
+                elapsed_ms = %start.elapsed().as_millis(),
+                "Ollama generate_with_images: non-success status"
+            );
+            return Err(OllamaError::ApiError {
+                status: status.as_u16(),
+                message: body,
+            });
+        }
+
+        #[derive(Deserialize)]
+        struct VisionResponse {
+            response: String,
+        }
+
+        let parsed: VisionResponse = response
+            .json()
+            .map_err(|e| OllamaError::Network(format!("Failed to parse vision response: {e}")))?;
+
+        tracing::info!(
+            model = %model,
+            elapsed_ms = %start.elapsed().as_millis(),
+            response_len = parsed.response.len(),
+            "Ollama generate_with_images complete"
+        );
+
+        Ok(parsed.response)
+    }
+}
+
+// ──────────────────────────────────────────────
+// R3: Mock Vision Client (for testing)
+// ──────────────────────────────────────────────
+
+/// Mock vision client for testing — returns a configurable response.
+///
+/// Respects the image size guard to test error paths.
+pub struct MockVisionClient {
+    response: String,
+    /// If true, simulates the image size check.
+    enforce_size_limit: bool,
+}
+
+impl MockVisionClient {
+    pub fn new(response: &str) -> Self {
+        Self {
+            response: response.to_string(),
+            enforce_size_limit: true,
+        }
+    }
+
+    pub fn without_size_limit(mut self) -> Self {
+        self.enforce_size_limit = false;
+        self
+    }
+}
+
+impl VisionClient for MockVisionClient {
+    fn generate_with_images(
+        &self,
+        _model: &str,
+        _prompt: &str,
+        images: &[String],
+        _system: Option<&str>,
+    ) -> Result<String, OllamaError> {
+        if self.enforce_size_limit {
+            for img in images {
+                if img.len() > MAX_IMAGE_SIZE_BYTES {
+                    return Err(OllamaError::ImageTooLarge(img.len()));
+                }
+            }
+        }
+        Ok(self.response.clone())
+    }
+}
+
 /// Request body for Ollama /api/generate
 #[derive(Serialize)]
 struct OllamaGenerateRequest<'a> {
@@ -969,6 +1187,108 @@ mod tests {
             "from_env should use localhost: {}",
             client.base_url
         );
+    }
+
+    // ── R3: Vision client tests ──
+
+    #[test]
+    fn mock_vision_client_returns_configured_response() {
+        let client = MockVisionClient::new("# Extracted Markdown\n\nPatient: John Doe");
+        let images = vec!["base64data".to_string()];
+        let result = client
+            .generate_with_images("deepseek-ocr", "Extract text", &images, None)
+            .unwrap();
+        assert!(result.contains("Extracted Markdown"));
+    }
+
+    #[test]
+    fn mock_vision_client_rejects_oversized_image() {
+        let client = MockVisionClient::new("ok");
+        let huge_image = "x".repeat(MAX_IMAGE_SIZE_BYTES + 1);
+        let images = vec![huge_image];
+        let result = client.generate_with_images("model", "prompt", &images, None);
+        assert!(matches!(result, Err(OllamaError::ImageTooLarge(_))));
+    }
+
+    #[test]
+    fn mock_vision_client_accepts_image_at_limit() {
+        let client = MockVisionClient::new("ok");
+        let max_image = "x".repeat(MAX_IMAGE_SIZE_BYTES);
+        let images = vec![max_image];
+        let result = client.generate_with_images("model", "prompt", &images, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mock_vision_client_bypasses_size_limit_when_configured() {
+        let client = MockVisionClient::new("ok").without_size_limit();
+        let huge_image = "x".repeat(MAX_IMAGE_SIZE_BYTES + 1);
+        let images = vec![huge_image];
+        let result = client.generate_with_images("model", "prompt", &images, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn vision_generate_rejects_invalid_model_name() {
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let images = vec!["base64data".to_string()];
+        let result = client.generate_with_images("../evil", "prompt", &images, None);
+        assert!(matches!(result, Err(OllamaError::InvalidModelName(_))));
+    }
+
+    #[test]
+    fn vision_generate_rejects_oversized_image() {
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let huge_image = "x".repeat(MAX_IMAGE_SIZE_BYTES + 1);
+        let images = vec![huge_image];
+        let result =
+            client.generate_with_images("deepseek-ocr", "prompt", &images, None);
+        assert!(matches!(result, Err(OllamaError::ImageTooLarge(_))));
+    }
+
+    #[test]
+    fn vision_generate_fails_when_unreachable() {
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let images = vec!["base64data".to_string()];
+        let result =
+            client.generate_with_images("deepseek-ocr", "prompt", &images, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn detect_capability_recognizes_deepseek_ocr() {
+        // Uses name prefix heuristic — no network call needed
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let cap = client.detect_capability("deepseek-ocr").unwrap();
+        assert_eq!(cap, ModelCapability::Vision);
+    }
+
+    #[test]
+    fn detect_capability_recognizes_medgemma() {
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let cap = client.detect_capability("MedAIBase/MedGemma1.5:4b").unwrap();
+        assert_eq!(cap, ModelCapability::Vision);
+    }
+
+    #[test]
+    fn detect_capability_recognizes_llava() {
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let cap = client.detect_capability("llava:13b").unwrap();
+        assert_eq!(cap, ModelCapability::Vision);
+    }
+
+    #[test]
+    fn detect_capability_defaults_text_only_for_unknown() {
+        // Unknown model + unreachable Ollama → conservative TextOnly
+        let client = OllamaClient::new("http://localhost:99999", 1);
+        let cap = client.detect_capability("llama3:8b").unwrap();
+        assert_eq!(cap, ModelCapability::TextOnly);
+    }
+
+    #[test]
+    fn vision_constants_reasonable() {
+        assert_eq!(MAX_IMAGE_SIZE_BYTES, 20 * 1024 * 1024, "Max image size should be 20 MB");
+        assert_eq!(VISION_GENERATE_TIMEOUT_SECS, 120, "Vision timeout should be 120s");
     }
 
     // ── resolve_model tests (B10) ──

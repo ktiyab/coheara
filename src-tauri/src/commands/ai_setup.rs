@@ -378,9 +378,10 @@ mod tests {
     fn recommended_models_returns_medical_models() {
         let models = get_recommended_models();
         assert!(models.len() >= 2);
-        assert!(models.iter().all(|m| m.medical));
+        // R3: DeepSeek-OCR is recommended but not medical — at least one must be medical
+        assert!(models.iter().any(|m| m.medical));
         assert!(models.iter().any(|m| m.name.contains("medgemma")));
-        assert!(models.iter().all(|m| m.min_ram_gb >= 8));
+        assert!(models.iter().all(|m| m.min_ram_gb >= 4));
     }
 
     #[test]

@@ -62,6 +62,47 @@ pub fn clear_model_preference(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+// ──────────────────────────────────────────────
+// R3: OCR model preference (role-based)
+// ──────────────────────────────────────────────
+
+/// Get the stored OCR model preference.
+///
+/// R3: Separate from `active_model` — enables different models for
+/// text generation (MedGemma) vs vision OCR (DeepSeek-OCR).
+/// Returns `None` if no explicit OCR model is set (uses fallback chain).
+pub fn get_ocr_model_preference(conn: &Connection) -> Result<Option<String>, DatabaseError> {
+    let mut stmt =
+        conn.prepare("SELECT active_ocr_model FROM model_preferences WHERE id = 1")?;
+    match stmt.query_row([], |row| row.get::<_, Option<String>>(0)) {
+        Ok(val) => Ok(val),
+        Err(e) => Err(DatabaseError::from(e)),
+    }
+}
+
+/// Set the active OCR model preference.
+///
+/// R3: SEC-L6-13: Model name must be validated BEFORE calling this function.
+pub fn set_ocr_model_preference(
+    conn: &Connection,
+    model_name: &str,
+) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE model_preferences SET active_ocr_model = ?1 WHERE id = 1",
+        params![model_name],
+    )?;
+    Ok(())
+}
+
+/// Clear the OCR model preference (revert to fallback chain).
+pub fn clear_ocr_model_preference(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE model_preferences SET active_ocr_model = NULL WHERE id = 1",
+        [],
+    )?;
+    Ok(())
+}
+
 /// Get a user preference by key. Returns None if not set.
 ///
 /// SEC-L6-16: Key validation happens at the IPC layer, not here.

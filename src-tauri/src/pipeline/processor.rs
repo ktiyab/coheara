@@ -3,10 +3,10 @@
 //! Single entry point that drives the full document pipeline:
 //! import → extract → structure → (save pending review in command layer).
 //!
-//! Uses trait-based DI for all engines (OcrEngine, LlmClient, etc.)
+//! Uses trait-based DI for all engines (VisionOcrEngine, LlmClient, etc.)
 //! so the orchestrator remains fully testable with mock implementations.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
@@ -604,109 +604,32 @@ fn update_ocr_confidence(
 
 /// Build a `DocumentProcessor` with production implementations.
 ///
-/// - OCR: `BundledTesseract` (feature-gated) or `MockOcrEngine`
-/// - PDF: `PdfTextExtractor`
-/// - LLM: `OllamaClient` → `DocumentStructurer`
+/// - PDF renderer: `PdfiumRenderer` (renders any PDF page to PNG via PDFium)
+/// - Vision OCR: `OllamaVisionOcr` via the passed model
+/// - LLM structuring: `OllamaClient` → `DocumentStructurer`
 ///
-/// Returns an error if required services are unavailable (no Ollama, no model).
+/// Returns an error if required services are unavailable (no PDFium, no Ollama, no model).
 pub fn build_processor(model: &str) -> Result<DocumentProcessor, ProcessingError> {
-    let ocr = build_ocr_engine()?;
-    let pdf = Box::new(crate::pipeline::extraction::pdf::PdfTextExtractor);
-    let extractor = Box::new(
-        DocumentExtractor::new(ocr, pdf).with_pdf_renderer(Box::new(
-            crate::pipeline::extraction::pdf_renderer::LopdfImageExtractor,
-        )),
-    );
+    use crate::pipeline::extraction::pdfium::PdfiumRenderer;
+    use crate::pipeline::extraction::vision_ocr::OllamaVisionOcr;
+    use crate::pipeline::structuring::ollama::OllamaClient;
 
-    let ollama = crate::pipeline::structuring::ollama::OllamaClient::default_local();
+    // R3: PDF rendering (PdfiumRenderer) + vision OCR extraction
+    let pdf_renderer = PdfiumRenderer::new()
+        .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
+    let vision_client = Arc::new(OllamaClient::default_local());
+    let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
+        Box::new(OllamaVisionOcr::new(vision_client, model.to_string()));
+    let extractor = Box::new(DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr));
+
+    // LLM structuring (separate client instance)
+    let structuring_client = OllamaClient::default_local();
     tracing::info!(model = %model, "Document processor using LLM model");
-
-    let structurer = Box::new(DocumentStructurer::new(Box::new(ollama), model));
+    let structurer = Box::new(DocumentStructurer::new(Box::new(structuring_client), model));
 
     Ok(DocumentProcessor::new(extractor, structurer))
 }
 
-/// Build the OCR engine, respecting feature flags.
-fn build_ocr_engine(
-) -> Result<Box<dyn crate::pipeline::extraction::types::OcrEngine + Send + Sync>, ProcessingError>
-{
-    #[cfg(feature = "ocr")]
-    {
-        if let Ok(tessdata) = find_tessdata_dir() {
-            let mut engine = crate::pipeline::extraction::ocr::BundledTesseract::new(&tessdata)
-                .map_err(|e| ProcessingError::OcrInit(e.to_string()))?;
-
-            // EXT-02-G04: Load medical wordlist for improved OCR accuracy
-            let wordlist_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("resources")
-                .join("medical_wordlist.txt");
-            engine = engine.with_medical_wordlist(&wordlist_path);
-
-            tracing::info!(tessdata = %tessdata.display(), "Tesseract OCR initialized");
-            return Ok(Box::new(engine));
-        }
-        tracing::warn!("Tesseract data not found — images will not be OCR'd");
-    }
-
-    // Fallback: mock OCR (digital PDFs and plaintext still work)
-    tracing::info!("Using mock OCR engine — image OCR unavailable");
-    Ok(Box::new(
-        crate::pipeline::extraction::ocr::MockOcrEngine::new("[OCR not available]", 0.0),
-    ))
-}
-
-/// Locate tessdata directory from environment or system paths.
-#[cfg(feature = "ocr")]
-fn find_tessdata_dir() -> Result<PathBuf, ProcessingError> {
-    // 1. Check TESSDATA_PREFIX environment variable (cross-platform)
-    if let Ok(path) = std::env::var("TESSDATA_PREFIX") {
-        let p = PathBuf::from(&path);
-        if p.join("eng.traineddata").exists() {
-            return Ok(p);
-        }
-    }
-
-    // 2. Check VCPKG_ROOT for non-default vcpkg locations (Windows)
-    if let Ok(vcpkg_root) = std::env::var("VCPKG_ROOT") {
-        let p = PathBuf::from(&vcpkg_root)
-            .join("installed")
-            .join("x64-windows-static-md")
-            .join("share")
-            .join("tessdata");
-        if p.join("eng.traineddata").exists() {
-            return Ok(p);
-        }
-    }
-
-    // 3. Try platform-specific system paths
-    let candidates: &[&str] = if cfg!(target_os = "windows") {
-        &[
-            r"C:\vcpkg\installed\x64-windows-static-md\share\tessdata",
-            r"C:\Program Files\Tesseract-OCR\tessdata",
-            r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
-        ]
-    } else {
-        &[
-            "/usr/share/tesseract-ocr/5/tessdata",
-            "/usr/share/tesseract-ocr/4.00/tessdata",
-            "/usr/share/tessdata",
-            "/usr/local/share/tessdata",
-            "/opt/homebrew/share/tessdata",
-        ]
-    };
-
-    for path in candidates {
-        let p = PathBuf::from(path);
-        if p.join("eng.traineddata").exists() {
-            return Ok(p);
-        }
-    }
-
-    Err(ProcessingError::OcrInit(
-        "Tesseract data directory not found. Set TESSDATA_PREFIX or install tesseract-ocr-eng"
-            .into(),
-    ))
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -715,26 +638,14 @@ fn find_tessdata_dir() -> Result<PathBuf, ProcessingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use crate::crypto::profile;
     use crate::db::sqlite::open_database;
-    use crate::pipeline::extraction::ocr::MockOcrEngine;
-    use crate::pipeline::extraction::types::{PageExtraction, PdfExtractor};
+    use crate::pipeline::extraction::pdfium::MockPdfPageRenderer;
+    use crate::pipeline::extraction::vision_ocr::MockVisionOcr;
     use crate::pipeline::structuring::ollama::MockLlmClient;
     use crate::pipeline::structuring::types::ExtractedEntities;
-
-    // -- Mock PDF extractor (not exported from extraction module) -----------
-
-    struct TestPdfExtractor;
-
-    impl PdfExtractor for TestPdfExtractor {
-        fn extract_text(&self, _pdf_bytes: &[u8]) -> Result<Vec<PageExtraction>, ExtractionError> {
-            Ok(vec![])
-        }
-
-        fn page_count(&self, _pdf_bytes: &[u8]) -> Result<usize, ExtractionError> {
-            Ok(0)
-        }
-    }
 
     // -- Helpers -----------------------------------------------------------
 
@@ -798,9 +709,12 @@ mod tests {
     }
 
     fn build_test_processor() -> DocumentProcessor {
-        let ocr = Box::new(MockOcrEngine::new("Metformin 500mg twice daily", 0.85));
-        let pdf = Box::new(TestPdfExtractor);
-        let extractor = Box::new(DocumentExtractor::new(ocr, pdf));
+        let pdf_renderer = Box::new(MockPdfPageRenderer::new(1));
+        let vision_ocr = Box::new(
+            MockVisionOcr::new("Metformin 500mg twice daily", "mock-vision")
+                .with_confidence(0.85),
+        );
+        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr));
 
         let llm = Box::new(MockLlmClient::new(&mock_llm_response()));
         let structurer = Box::new(DocumentStructurer::new(llm, "medgemma:latest"));
@@ -989,9 +903,11 @@ mod tests {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
-        let ocr = Box::new(MockOcrEngine::new("Some medical text here", 0.85));
-        let pdf = Box::new(TestPdfExtractor);
-        let extractor = Box::new(DocumentExtractor::new(ocr, pdf));
+        let pdf_renderer = Box::new(MockPdfPageRenderer::new(1));
+        let vision_ocr = Box::new(
+            MockVisionOcr::new("Some medical text here", "mock-vision").with_confidence(0.85),
+        );
+        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr));
         let processor = DocumentProcessor::new(extractor, Box::new(FailingStructurer));
 
         let tmp = tempfile::tempdir().unwrap();

@@ -38,10 +38,11 @@ img_hash = "3"
 tauri-plugin-dialog = "2"
 # Explicit image v0.23 dep to enable format decoders for img_hash's re-export
 image = { version = "0.23", default-features = false, features = ["jpeg", "png", "tiff"] }
-pdf-extract = "0.10"
+# R3: PDF page rendering via Google PDFium — renders any PDF page to PNG for vision OCR.
+# default-features=false avoids image_latest (0.25) conflicting with our image 0.23 pin.
+# pdfium_latest provides pre-generated FFI bindings (no libclang needed).
+pdfium-render = { version = "0.8", default-features = false, features = ["image_023", "pdfium_latest", "thread_safe"] }
 reqwest = { version = "0.12", features = ["json", "blocking"] }
-lopdf = "0.34"
-tesseract = { version = "0.15", optional = true }
 ort = { version = "2.0.0-rc.11", features = ["download-binaries", "ndarray"], optional = true }
 ndarray = { version = "0.17", optional = true }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }
@@ -66,9 +67,8 @@ http-body-util = "0.1"
 tokio-tungstenite = "0.24"
 
 [features]
-default = ["custom-protocol", "ocr"]
+default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-ocr = ["tesseract"]
 devtools = ["tauri/devtools"]
 onnx-embeddings = ["ort", "ndarray", "tokenizers"]
 

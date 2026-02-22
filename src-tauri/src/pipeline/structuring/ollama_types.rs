@@ -38,6 +38,87 @@ pub struct ModelDetails {
     pub quantization_level: Option<String>,
 }
 
+// ──────────────────────────────────────────────
+// R3: Vision model types
+// ──────────────────────────────────────────────
+
+/// Model capability detected via `/api/show` metadata.
+///
+/// R3: Used to determine if a model can handle image inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelCapability {
+    /// Text-only model (e.g., llama3, mistral).
+    TextOnly,
+    /// Vision-capable model (e.g., deepseek-ocr, medgemma multimodal).
+    Vision,
+}
+
+/// The role a model serves in the pipeline.
+///
+/// R3: Enables role-based model resolution — different models for different tasks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelRole {
+    /// Text generation: chat, structuring, reasoning (MedGemma).
+    LlmGeneration,
+    /// Vision OCR: document image → structured Markdown (DeepSeek-OCR preferred).
+    VisionOcr,
+}
+
+/// Request body for vision-enabled generation via Ollama `/api/generate`.
+///
+/// R3: Extends the standard generate request with base64-encoded images.
+#[derive(Debug, Clone, Serialize)]
+pub struct VisionGenerateRequest {
+    pub model: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    /// Base64-encoded images (PNG or JPEG).
+    pub images: Vec<String>,
+    pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<VisionGenerationOptions>,
+    /// Force model unload after request (SEC-02-G09).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<String>,
+}
+
+/// Generation options tuned for vision OCR (deterministic extraction).
+#[derive(Debug, Clone, Serialize)]
+pub struct VisionGenerationOptions {
+    /// 0.0 for deterministic document extraction.
+    pub temperature: f32,
+    /// Maximum tokens — 8192 for DeepSeek-OCR context window.
+    pub num_predict: i32,
+}
+
+/// Known vision-capable model name prefixes.
+///
+/// Used by `detect_capability()` as a fast heuristic before `/api/show`.
+pub const VISION_MODEL_PREFIXES: &[&str] = &[
+    "deepseek-ocr",
+    "llava",
+    "moondream",
+    "cogvlm",
+    "bakllava",
+    "medgemma",  // MedGemma 1.5 is multimodal
+];
+
+/// Check if a model is vision-capable using the name prefix heuristic.
+///
+/// R3: Pure function — no network call. Uses `extract_model_component()`
+/// to strip namespace before matching against `VISION_MODEL_PREFIXES`.
+pub fn is_vision_model(model_name: &str) -> bool {
+    let component = extract_model_component(model_name);
+    VISION_MODEL_PREFIXES
+        .iter()
+        .any(|prefix| component.starts_with(prefix))
+}
+
+// ──────────────────────────────────────────────
+// Health & Operations types
+// ──────────────────────────────────────────────
+
 /// Result of a lightweight health check (GET `/`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OllamaHealth {
@@ -132,6 +213,22 @@ pub struct RecommendedModel {
     pub description: String,
     pub min_ram_gb: u32,
     pub medical: bool,
+    /// R3: Whether this model is required for core functionality.
+    #[serde(default = "default_true")]
+    pub required: bool,
+    /// R3: Model capability (text-only or vision).
+    #[serde(default)]
+    pub capability: ModelCapability,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ModelCapability {
+    fn default() -> Self {
+        Self::TextOnly
+    }
 }
 
 /// Return the curated list of recommended medical models.
@@ -150,6 +247,8 @@ pub fn recommended_models() -> Vec<RecommendedModel> {
                 .to_string(),
             min_ram_gb: 16,
             medical: true,
+            required: true,
+            capability: ModelCapability::Vision, // MedGemma 1.5 is multimodal
         },
         RecommendedModel {
             name: "alibayram/medgemma:4b".to_string(),
@@ -157,6 +256,19 @@ pub fn recommended_models() -> Vec<RecommendedModel> {
                 .to_string(),
             min_ram_gb: 8,
             medical: true,
+            required: true,
+            capability: ModelCapability::Vision, // MedGemma is multimodal
+        },
+        // R3: Optional specialist vision model for document extraction.
+        // Without DeepSeek-OCR, MedGemma serves as fallback OCR.
+        RecommendedModel {
+            name: "deepseek-ocr".to_string(),
+            description: "DeepSeek-OCR 3B, specialist document extraction with structured Markdown output"
+                .to_string(),
+            min_ram_gb: 8,
+            medical: false,
+            required: false,
+            capability: ModelCapability::Vision,
         },
     ]
 }
@@ -201,6 +313,14 @@ pub enum OllamaError {
 
     #[error("Network error: {0}")]
     Network(String),
+
+    /// R3: Model does not support image/vision inputs.
+    #[error("Model '{0}' does not support image inputs — use a vision-capable model like DeepSeek-OCR")]
+    ModelNotVisionCapable(String),
+
+    /// R3: Image exceeds maximum allowed size (20MB base64).
+    #[error("Image too large ({0} bytes) — maximum is 20 MB")]
+    ImageTooLarge(usize),
 }
 
 /// Bridge: convert OllamaError to StructuringError for backward compatibility.
@@ -597,6 +717,33 @@ mod tests {
         assert_eq!(extract_model_component(""), "");
     }
 
+    // ── Vision Model Detection (R3) ──
+
+    #[test]
+    fn is_vision_model_detects_deepseek_ocr() {
+        assert!(is_vision_model("deepseek-ocr"));
+        assert!(is_vision_model("deepseek-ocr:latest"));
+    }
+
+    #[test]
+    fn is_vision_model_detects_medgemma() {
+        assert!(is_vision_model("medgemma:4b"));
+        assert!(is_vision_model("MedAIBase/MedGemma1.5:4b"));
+        assert!(is_vision_model("alibayram/medgemma:4b"));
+    }
+
+    #[test]
+    fn is_vision_model_detects_llava() {
+        assert!(is_vision_model("llava:13b"));
+    }
+
+    #[test]
+    fn is_vision_model_rejects_text_only() {
+        assert!(!is_vision_model("llama3:8b"));
+        assert!(!is_vision_model("mistral:7b"));
+        assert!(!is_vision_model("phi3:mini"));
+    }
+
     // ── Type Deserialization Tests ──
 
     #[test]
@@ -754,17 +901,32 @@ mod tests {
     }
 
     #[test]
-    fn recommended_models_have_real_names() {
+    fn recommended_models_have_valid_entries() {
         let models = recommended_models();
-        assert!(!models.is_empty());
-        // All recommended models must have namespace (community models)
-        for model in &models {
+        assert!(models.len() >= 3, "Should have at least 3 recommended models");
+
+        // R3: Required models must be medical with namespace; optional may differ.
+        let required: Vec<_> = models.iter().filter(|m| m.required).collect();
+        let optional: Vec<_> = models.iter().filter(|m| !m.required).collect();
+
+        assert!(!required.is_empty(), "Must have at least one required model");
+
+        for model in &required {
             assert!(
                 model.name.contains('/'),
-                "Recommended model '{}' should be a real community model with namespace",
+                "Required model '{}' should be a real community model with namespace",
                 model.name
             );
-            assert!(model.medical, "Recommended model '{}' should be medical", model.name);
+            assert!(model.medical, "Required model '{}' should be medical", model.name);
+        }
+
+        // Optional models (e.g., deepseek-ocr) don't need to be medical
+        for model in &optional {
+            assert!(
+                model.capability == ModelCapability::Vision,
+                "Optional model '{}' should be vision-capable",
+                model.name
+            );
         }
     }
 }
