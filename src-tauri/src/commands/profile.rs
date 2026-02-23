@@ -45,6 +45,24 @@ pub async fn create_profile(
             })
             .transpose()?;
 
+        // CR-2: Only self-managed profiles can create managed profiles.
+        // If managed_by is set, the caller must be logged in as a self-managed profile.
+        if managed_by.is_some() {
+            if let Ok(guard) = state.read_session() {
+                if let Some(session) = guard.as_ref() {
+                    let profiles = profile::list_profiles(&state.profiles_dir)
+                        .map_err(|e| e.to_string())?;
+                    if let Some(caller) = profiles.iter().find(|p| p.id == session.profile_id) {
+                        if !caller.is_self_managed() {
+                            return Err(
+                                "Only self-managed profiles can create managed profiles".into(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let (info, phrase) = profile::create_profile(
             &state.profiles_dir,
             &name,
@@ -277,6 +295,25 @@ pub async fn delete_profile(
     tauri::async_runtime::spawn_blocking(move || {
         let id =
             Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
+
+        // Check if this profile has dependents — block deletion until they are handled.
+        // Follows Apple Family pattern: organizer cannot be deleted while children exist.
+        let profiles =
+            profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())?;
+        if let Some(target) = profiles.iter().find(|p| p.id == id) {
+            let dependents: Vec<&str> = profiles
+                .iter()
+                .filter(|p| p.managed_by.as_deref() == Some(&target.name))
+                .map(|p| p.name.as_str())
+                .collect();
+            if !dependents.is_empty() {
+                return Err(format!(
+                    "This profile manages {} dependent(s): {}. Delete or reassign them first.",
+                    dependents.len(),
+                    dependents.join(", ")
+                ));
+            }
+        }
 
         // Lock if deleting the currently active profile
         let active_id = state

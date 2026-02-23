@@ -41,6 +41,15 @@ pub enum CryptoError {
     #[error("Profile already exists: {0}")]
     ProfileExists(String),
 
+    #[error("Password must be at least {0} characters")]
+    PasswordTooShort(usize),
+
+    #[error("Only self-managed profiles can create managed profiles")]
+    ManagedCannotCreate,
+
+    #[error("Caregiver not found: no self-managed profile named '{0}'")]
+    CaregiverNotFound(String),
+
     #[error("Database error: {0}")]
     Database(#[from] crate::db::DatabaseError),
 }
