@@ -114,9 +114,9 @@
   <!-- 12-word grid -->
   <div class="grid grid-cols-3 gap-3 w-full p-6 bg-white dark:bg-gray-900 rounded-xl border border-stone-200 dark:border-gray-700 shadow-sm">
     {#each words as word, i}
-      <div class="flex items-center gap-2 p-2 bg-stone-50 dark:bg-gray-950 rounded-lg">
-        <span class="text-stone-400 dark:text-gray-500 text-sm w-5 text-right">{i + 1}.</span>
-        <span class="text-stone-800 dark:text-gray-100 font-mono text-lg">{word}</span>
+      <div class="flex items-center gap-1.5 px-2 py-2 bg-stone-50 dark:bg-gray-950 rounded-lg overflow-hidden">
+        <span class="text-stone-400 dark:text-gray-500 text-xs w-5 text-right flex-shrink-0">{i + 1}.</span>
+        <span class="text-stone-800 dark:text-gray-100 font-mono text-sm truncate">{word}</span>
       </div>
     {/each}
   </div>
