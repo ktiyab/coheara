@@ -39,8 +39,8 @@ impl PendingReviewStore for SqlitePendingStore {
             tx.execute(
                 "INSERT INTO extraction_pending
                  (id, conversation_id, batch_id, domain, extracted_data, confidence,
-                  grounding, duplicate_of, source_message_ids, status, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  grounding, duplicate_of, source_message_ids, source_quote, status, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     item.id,
                     item.conversation_id,
@@ -51,6 +51,7 @@ impl PendingReviewStore for SqlitePendingStore {
                     item.grounding.as_str(),
                     item.duplicate_of,
                     source_ids_json,
+                    item.source_quote,
                     item.status.as_str(),
                     item.created_at,
                 ],
@@ -69,7 +70,7 @@ impl PendingReviewStore for SqlitePendingStore {
     ) -> Result<Vec<PendingReviewItem>, ExtractionError> {
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, batch_id, domain, extracted_data, confidence,
-                    grounding, duplicate_of, source_message_ids, status, created_at, reviewed_at
+                    grounding, duplicate_of, source_message_ids, source_quote, status, created_at, reviewed_at
              FROM extraction_pending
              WHERE status = 'pending'
              ORDER BY created_at ASC"
@@ -86,9 +87,10 @@ impl PendingReviewStore for SqlitePendingStore {
                 grounding: row.get(6)?,
                 duplicate_of: row.get(7)?,
                 source_message_ids: row.get(8)?,
-                status: row.get(9)?,
-                created_at: row.get(10)?,
-                reviewed_at: row.get(11)?,
+                source_quote: row.get(9)?,
+                status: row.get(10)?,
+                created_at: row.get(11)?,
+                reviewed_at: row.get(12)?,
             })
         }).map_err(|e| ExtractionError::Database(DatabaseError::Sqlite(e)))?;
 
@@ -189,7 +191,7 @@ impl SqlitePendingStore {
     ) -> Result<PendingReviewItem, ExtractionError> {
         let row = conn.query_row(
             "SELECT id, conversation_id, batch_id, domain, extracted_data, confidence,
-                    grounding, duplicate_of, source_message_ids, status, created_at, reviewed_at
+                    grounding, duplicate_of, source_message_ids, source_quote, status, created_at, reviewed_at
              FROM extraction_pending WHERE id = ?1",
             params![item_id],
             |row| {
@@ -203,9 +205,10 @@ impl SqlitePendingStore {
                     grounding: row.get(6)?,
                     duplicate_of: row.get(7)?,
                     source_message_ids: row.get(8)?,
-                    status: row.get(9)?,
-                    created_at: row.get(10)?,
-                    reviewed_at: row.get(11)?,
+                    source_quote: row.get(9)?,
+                    status: row.get(10)?,
+                    created_at: row.get(11)?,
+                    reviewed_at: row.get(12)?,
                 })
             },
         ).map_err(|e| match e {
@@ -232,6 +235,7 @@ pub fn create_pending_item(
     grounding: Grounding,
     duplicate_of: Option<String>,
     source_message_ids: Vec<String>,
+    source_quote: Option<String>,
 ) -> PendingReviewItem {
     PendingReviewItem {
         id: Uuid::new_v4().to_string(),
@@ -243,6 +247,7 @@ pub fn create_pending_item(
         grounding,
         duplicate_of,
         source_message_ids,
+        source_quote,
         status: PendingStatus::Pending,
         created_at: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         reviewed_at: None,
@@ -263,6 +268,7 @@ struct PendingRow {
     grounding: String,
     duplicate_of: Option<String>,
     source_message_ids: String,
+    source_quote: Option<String>,
     status: String,
     created_at: String,
     reviewed_at: Option<String>,
@@ -291,6 +297,7 @@ fn pending_from_row(row: PendingRow) -> Result<PendingReviewItem, ExtractionErro
         grounding,
         duplicate_of: row.duplicate_of,
         source_message_ids,
+        source_quote: row.source_quote,
         status,
         created_at: row.created_at,
         reviewed_at: row.reviewed_at,
@@ -317,6 +324,7 @@ mod tests {
             Grounding::Grounded,
             None,
             vec!["msg-0".to_string(), "msg-2".to_string()],
+            Some("I've been having headaches for 3 days".to_string()),
         )
     }
 
@@ -474,8 +482,8 @@ mod tests {
 
     #[test]
     fn create_pending_item_generates_id() {
-        let item1 = create_pending_item("c1", "b1", ExtractionDomain::Symptom, serde_json::json!({}), 0.5, Grounding::Partial, None, vec![]);
-        let item2 = create_pending_item("c1", "b1", ExtractionDomain::Symptom, serde_json::json!({}), 0.5, Grounding::Partial, None, vec![]);
+        let item1 = create_pending_item("c1", "b1", ExtractionDomain::Symptom, serde_json::json!({}), 0.5, Grounding::Partial, None, vec![], None);
+        let item2 = create_pending_item("c1", "b1", ExtractionDomain::Symptom, serde_json::json!({}), 0.5, Grounding::Partial, None, vec![], None);
         assert_ne!(item1.id, item2.id, "Each item should get a unique ID");
     }
 

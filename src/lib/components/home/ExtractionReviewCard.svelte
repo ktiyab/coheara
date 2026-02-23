@@ -175,6 +175,12 @@
 						{subtitle}
 					</p>
 				{/if}
+				<!-- Source quote (REV-12) -->
+				{#if item.source_quote}
+					<p class="text-xs italic text-[var(--color-text-muted)] mt-1.5 line-clamp-2">
+						"{item.source_quote}"
+					</p>
+				{/if}
 				<!-- Severity badge in view mode -->
 				{#if item.domain === 'symptom' && data.severity_hint != null}
 					{@const sev = data.severity_hint as number}

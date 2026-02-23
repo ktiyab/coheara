@@ -39,6 +39,19 @@
 		}
 	}
 
+	async function handleConfirmAll() {
+		try {
+			errorMsg = null;
+			for (const item of [...extraction.items]) {
+				await extraction.confirm(item.id);
+			}
+			successMsg = $t('extraction.confirmed_msg');
+			setTimeout(() => (successMsg = null), 2000);
+		} catch (e) {
+			errorMsg = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	async function handleDismissAll() {
 		try {
 			errorMsg = null;
@@ -65,12 +78,20 @@
 				</span>
 			</div>
 			{#if extraction.items.length > 1}
-				<button
-					class="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
-					onclick={handleDismissAll}
-				>
-					{$t('extraction.dismiss_all_btn')}
-				</button>
+				<div class="flex items-center gap-2">
+					<button
+						class="text-xs text-[var(--color-primary)] hover:opacity-80 font-medium transition-colors"
+						onclick={handleConfirmAll}
+					>
+						{$t('extraction.confirm_all_btn')}
+					</button>
+					<button
+						class="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+						onclick={handleDismissAll}
+					>
+						{$t('extraction.dismiss_all_btn')}
+					</button>
+				</div>
 			{/if}
 		</div>
 

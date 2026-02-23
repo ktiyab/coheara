@@ -14,6 +14,7 @@ use super::store::create_pending_item;
 use super::traits::*;
 use super::types::*;
 use super::verifier::SemanticVerifier;
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 
 /// Orchestrates a full extraction batch run.
 pub struct BatchRunner {
@@ -91,11 +92,14 @@ impl BatchRunner {
             let prompt = extractor.build_prompt(&input);
             let system = "You are a medical health information extractor. Output valid JSON only.";
 
-            let response = llm.generate(
+            let raw_response = llm.generate(
                 &self.config.model_name,
                 &prompt,
                 system,
             )?;
+
+            // Sanitize output: strip MedGemma thinking tags before parsing
+            let response = sanitize_llm_output(&raw_response);
 
             // Parse response
             let items = match extractor.parse_response(&response) {
@@ -138,11 +142,18 @@ impl BatchRunner {
             // Create pending review items
             for verified_item in verified.items {
                 if verified_item.confidence >= self.config.confidence_threshold {
-                    let source_ids: Vec<String> = verified_item.item.source_message_indices
+                    let source_msgs: Vec<&ConversationMessage> = verified_item
+                        .item
+                        .source_message_indices
                         .iter()
                         .filter_map(|&idx| conversation.messages.get(idx))
-                        .map(|m| m.id.clone())
                         .collect();
+
+                    let source_ids: Vec<String> =
+                        source_msgs.iter().map(|m| m.id.clone()).collect();
+
+                    // Build source quote from patient signal messages (REV-12)
+                    let source_quote = build_source_quote(&source_msgs);
 
                     let pending = create_pending_item(
                         &conversation.id,
@@ -153,6 +164,7 @@ impl BatchRunner {
                         verified_item.grounding,
                         None, // Duplicate detection runs in run_full_batch (needs DB access)
                         source_ids,
+                        source_quote,
                     );
 
                     all_items.push(pending);
@@ -178,6 +190,26 @@ impl BatchRunner {
             .map(|e| e.as_ref())
             .ok_or_else(|| ExtractionError::ExtractorNotFound(domain.to_string()))
     }
+}
+
+/// Build a source quote from signal messages for display in ReviewCards (REV-12).
+/// Picks the first patient message, truncated to 200 chars.
+fn build_source_quote(source_msgs: &[&ConversationMessage]) -> Option<String> {
+    // Prefer patient messages over assistant messages
+    let patient_msg = source_msgs
+        .iter()
+        .find(|m| m.role == "patient")
+        .or_else(|| source_msgs.first());
+
+    patient_msg.map(|m| {
+        let content = m.content.trim();
+        if content.len() <= 200 {
+            content.to_string()
+        } else {
+            let truncated = &content[..content.ceil_char_boundary(197)];
+            format!("{truncated}...")
+        }
+    })
 }
 
 /// Result of extracting from a single conversation.
@@ -480,5 +512,42 @@ mod tests {
         let result = runner.extract_conversation(&conv, &PatientContext::default(), &llm).unwrap();
 
         assert!(result.duration_ms > 0 || result.duration_ms == 0); // Just verify field exists
+    }
+
+    #[test]
+    fn source_quote_populated_from_patient_message() {
+        let runner = make_runner();
+        let llm = MockExtractionLlm::symptom_response();
+        let conv = make_conversation("conv-quote", vec![
+            ("patient", "I've been having headaches for 3 days, throbbing on the right side"),
+            ("coheara", "That sounds uncomfortable. Tell me more."),
+        ]);
+
+        let result = runner.extract_conversation(&conv, &PatientContext::default(), &llm).unwrap();
+
+        assert!(!result.items.is_empty());
+        let quote = result.items[0].source_quote.as_ref().expect("source_quote should be set");
+        assert!(quote.contains("headaches"), "Quote should contain patient text, got: {quote}");
+    }
+
+    #[test]
+    fn source_quote_truncated_at_200_chars() {
+        let long_text = "a".repeat(300);
+        let msg = ConversationMessage {
+            id: "m1".to_string(),
+            index: 0,
+            role: "patient".to_string(),
+            content: long_text,
+            created_at: chrono::NaiveDate::from_ymd_opt(2026, 2, 20)
+                .unwrap()
+                .and_hms_opt(10, 0, 0)
+                .unwrap(),
+            is_signal: true,
+        };
+        let msgs = vec![&msg];
+
+        let quote = build_source_quote(&msgs).unwrap();
+        assert!(quote.len() <= 200, "Quote should be max 200 chars, got {}", quote.len());
+        assert!(quote.ends_with("..."), "Truncated quote should end with ...");
     }
 }

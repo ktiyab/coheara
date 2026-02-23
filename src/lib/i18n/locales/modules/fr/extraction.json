@@ -11,6 +11,7 @@
 		"confidence_label": "Confiance",
 		"confirm_btn": "Ajouter aux dossiers",
 		"dismiss_btn": "Ignorer",
+		"confirm_all_btn": "Tout ajouter aux dossiers",
 		"dismiss_all_btn": "Tout ignorer",
 		"confirmed_msg": "Ajout\u00e9 \u00e0 vos dossiers",
 		"dismissed_msg": "Ignor\u00e9",

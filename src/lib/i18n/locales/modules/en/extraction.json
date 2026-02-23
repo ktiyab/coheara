@@ -11,6 +11,7 @@
 		"confidence_label": "Confidence",
 		"confirm_btn": "Add to records",
 		"dismiss_btn": "Dismiss",
+		"confirm_all_btn": "Add all to records",
 		"dismiss_all_btn": "Dismiss all",
 		"confirmed_msg": "Added to your records",
 		"dismissed_msg": "Dismissed",

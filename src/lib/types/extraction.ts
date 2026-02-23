@@ -20,6 +20,8 @@ export interface PendingReviewItem {
 	grounding: Grounding;
 	duplicate_of: string | null;
 	source_message_ids: string[];
+	/** Excerpt from the triggering conversation message(s) (REV-12). */
+	source_quote: string | null;
 	status: PendingStatus;
 	created_at: string;
 	reviewed_at: string | null;

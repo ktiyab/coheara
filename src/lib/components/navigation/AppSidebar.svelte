@@ -9,6 +9,7 @@
   import { PROFILE_COLORS, type ProfileInfo } from '$lib/types/profile';
   import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
   import ProfilePopover from '$lib/components/profile/ProfilePopover.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
   import type { Component } from 'svelte';
 
   type NavItem = {
@@ -113,11 +114,19 @@
             aria-current={isActive ? 'page' : undefined}
             title={collapsed ? ($t(item.key) ?? item.id) : undefined}
           >
-            <span class="flex-shrink-0">
+            <span class="flex-shrink-0 relative">
               <item.Icon class="w-6 h-6" />
+              {#if item.id === 'home' && extraction.count > 0 && collapsed}
+                <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[var(--color-primary)]"></span>
+              {/if}
             </span>
             {#if !collapsed}
               <span class="text-sm truncate flex-1">{$t(item.key)}</span>
+              {#if item.id === 'home' && extraction.count > 0}
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--color-primary)] text-white flex-shrink-0">
+                  {extraction.count}
+                </span>
+              {/if}
             {/if}
           </button>
         </li>

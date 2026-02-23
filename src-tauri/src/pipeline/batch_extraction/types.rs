@@ -198,6 +198,52 @@ pub struct ExtractedItem {
 // Domain-specific extracted data structures
 // ═══════════════════════════════════════════
 
+/// Custom deserializer for source_messages that accepts both integers and
+/// strings like "Msg 0" (MEDGEMMA-BENCHMARK-03 F4: inconsistent indexing).
+fn deserialize_flexible_source_messages<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+
+    struct FlexibleVec;
+
+    impl<'de> de::Visitor<'de> for FlexibleVec {
+        type Value = Vec<usize>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an array of integers or strings like \"Msg 0\"")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<usize>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+            while let Some(val) = seq.next_element::<serde_json::Value>()? {
+                if let Some(n) = val.as_u64() {
+                    result.push(n as usize);
+                } else if let Some(s) = val.as_str() {
+                    let trimmed = s.trim();
+                    if let Some(num_str) = trimmed
+                        .strip_prefix("Msg ")
+                        .or_else(|| trimmed.strip_prefix("msg "))
+                    {
+                        if let Ok(n) = num_str.trim().parse::<usize>() {
+                            result.push(n);
+                        }
+                    } else if let Ok(n) = trimmed.parse::<usize>() {
+                        result.push(n);
+                    }
+                }
+            }
+            Ok(result)
+        }
+    }
+
+    deserializer.deserialize_seq(FlexibleVec)
+}
+
 /// Symptom extracted from conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedSymptomData {
@@ -223,7 +269,7 @@ pub struct ExtractedSymptomData {
     pub notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub related_medication_hint: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_flexible_source_messages")]
     pub source_messages: Vec<usize>,
 }
 
@@ -246,7 +292,7 @@ pub struct ExtractedMedicationData {
     pub status_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adherence_note: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_flexible_source_messages")]
     pub source_messages: Vec<usize>,
 }
 
@@ -267,7 +313,7 @@ pub struct ExtractedAppointmentData {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_flexible_source_messages")]
     pub source_messages: Vec<usize>,
 }
 
@@ -355,6 +401,8 @@ pub struct PendingReviewItem {
     pub grounding: Grounding,
     pub duplicate_of: Option<String>,
     pub source_message_ids: Vec<String>,
+    /// Excerpt from the triggering conversation message(s) (LP-01 REV-12).
+    pub source_quote: Option<String>,
     pub status: PendingStatus,
     pub created_at: String,
     pub reviewed_at: Option<String>,
@@ -473,8 +521,10 @@ pub struct ExtractionConfig {
     /// Model to use for extraction (e.g., "medgemma:4b").
     pub model_name: String,
     /// Minimum confidence to store an extracted item (0.0-1.0).
+    /// MEDGEMMA-BENCHMARK-03 F7 validated 0.7: grounded items score 0.8+,
+    /// partially-grounded items score ~0.6, hallucinated items score lower.
     pub confidence_threshold: f32,
-    /// Hours between batch runs (default: 12).
+    /// Hours between batch runs (default: 6).
     pub batch_cooldown_hours: u32,
     /// User-configured hour to start batch (0-23, None = any idle time).
     pub batch_start_hour: Option<u32>,
@@ -492,8 +542,8 @@ impl Default for ExtractionConfig {
     fn default() -> Self {
         Self {
             model_name: "medgemma:4b".to_string(),
-            confidence_threshold: 0.5,
-            batch_cooldown_hours: 12,
+            confidence_threshold: 0.7,
+            batch_cooldown_hours: 6,
             batch_start_hour: Some(2), // Default: 2:00 AM
             idle_minutes: 5,
             max_conversations_per_batch: 20,
@@ -598,8 +648,8 @@ mod tests {
     fn extraction_config_defaults() {
         let config = ExtractionConfig::default();
         assert_eq!(config.batch_start_hour, Some(2));
-        assert_eq!(config.batch_cooldown_hours, 12);
-        assert_eq!(config.confidence_threshold, 0.5);
+        assert_eq!(config.batch_cooldown_hours, 6);
+        assert_eq!(config.confidence_threshold, 0.7);
         assert_eq!(config.max_conversations_per_batch, 20);
         assert_eq!(config.max_items_per_domain, 5);
         assert_eq!(config.cold_hours, 6);
