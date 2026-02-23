@@ -26,6 +26,8 @@
     "breadcrumb": "Brotkrümel-Navigation",
     "profile_status_active": "Aktives Profil",
     "profiles": "Profile",
-    "profiles-create": "Profil hinzuf\u00fcgen"
+    "profiles-create": "Profil hinzuf\u00fcgen",
+    "viewing_as_banner": "Anzeige von {name}s Gesundheitsdaten",
+    "return_to_self": "Zurück zu Ihrem Profil"
   }
 }

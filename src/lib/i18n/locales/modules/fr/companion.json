@@ -14,6 +14,14 @@
     "available": "Disponible",
     "not_bundled": "Non inclus",
     "pwa_label": "PWA :",
-    "stop_server": "Arrêter le serveur"
+    "stop_server": "Arrêter le serveur",
+    "unlock_heading": "Déverrouiller les profils pour votre téléphone",
+    "unlock_description": "Entrez les mots de passe pour que l'application compagnon puisse accéder aux profils familiaux sans toucher au bureau.",
+    "unlock_password_placeholder": "Mot de passe",
+    "unlock_password_label": "Mot de passe pour {name}",
+    "unlock_btn": "Déverrouiller",
+    "unlock_success": "Déverrouillé",
+    "unlock_not_now": "Pas maintenant",
+    "unlock_done": "Terminé"
   }
 }

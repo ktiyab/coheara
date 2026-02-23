@@ -31,8 +31,11 @@
   import ActiveMedsSummary from './ActiveMedsSummary.svelte';
   import DropZoneOverlay from './DropZoneOverlay.svelte';
   import ExtractionReview from './ExtractionReview.svelte';
+  import CompanionUnlockPrompt from './CompanionUnlockPrompt.svelte';
   import NudgeCard from './NudgeCard.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { profiles } from '$lib/stores/profiles.svelte';
+  import { listCompanionProfiles } from '$lib/api/companion';
   import { invoke } from '@tauri-apps/api/core';
 
   let homeData: HomeData | null = $state(null);
@@ -44,9 +47,21 @@
   let recentSymptoms: RecentSymptomCard[] = $state([]);
   let suggestions: ExtractionSuggestion[] = $state([]);
   let aiBannerDismissed = $state(false);
+  let companionDismissed = $state(false);
+  let companionUnlocked = $state<Set<string>>(new Set());
   let loading = $state(true);
   let error: string | null = $state(null);
   let loadingMore = $state(false);
+
+  /** MP-02: Managed profiles not yet unlocked for companion access. */
+  let managedNotUnlocked = $derived(
+    profile.isSelfManaged
+      ? profiles.managedBy(profile.name).filter((p) => !companionUnlocked.has(p.id))
+      : []
+  );
+  let showCompanionPrompt = $derived(
+    profile.isSelfManaged && managedNotUnlocked.length > 0 && !companionDismissed
+  );
 
   async function refresh() {
     try {
@@ -74,6 +89,12 @@
       extraction.refresh().catch(() => {});
       // LP-07: Check for journal nudge
       invoke('check_journal_nudge').then((n) => { nudge = n as typeof nudge; }).catch(() => {});
+      // MP-02: Load already-unlocked companion profiles
+      listCompanionProfiles()
+        .then((cached) => {
+          companionUnlocked = new Set(cached.map((c) => c.profile_id));
+        })
+        .catch(() => {});
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -174,6 +195,15 @@
     <!-- ═══ ZONE B: ATTENTION (what needs action now) ═══ -->
     <!-- LP-01: Morning review of batch-extracted health data -->
     <ExtractionReview />
+
+    <!-- MP-02: Companion unlock prompt for caregivers -->
+    {#if showCompanionPrompt}
+      <CompanionUnlockPrompt
+        managedProfiles={managedNotUnlocked}
+        onDismiss={() => { companionDismissed = true; }}
+        onAllDone={() => { companionDismissed = true; }}
+      />
+    {/if}
 
     <!-- LP-07: Check-in nudge -->
     {#if nudge}

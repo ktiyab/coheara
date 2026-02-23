@@ -14,6 +14,14 @@
     "available": "Available",
     "not_bundled": "Not bundled",
     "pwa_label": "PWA:",
-    "stop_server": "Stop Server"
+    "stop_server": "Stop Server",
+    "unlock_heading": "Unlock profiles for your phone",
+    "unlock_description": "Enter passwords so your companion app can access family profiles without touching the desktop.",
+    "unlock_password_placeholder": "Password",
+    "unlock_password_label": "Password for {name}",
+    "unlock_btn": "Unlock",
+    "unlock_success": "Unlocked",
+    "unlock_not_now": "Not now",
+    "unlock_done": "Done"
   }
 }

@@ -14,6 +14,14 @@
     "available": "Verfügbar",
     "not_bundled": "Nicht enthalten",
     "pwa_label": "PWA:",
-    "stop_server": "Server stoppen"
+    "stop_server": "Server stoppen",
+    "unlock_heading": "Profile für Ihr Telefon freischalten",
+    "unlock_description": "Geben Sie Passwörter ein, damit die Begleit-App auf Familienprofile zugreifen kann, ohne den Desktop zu berühren.",
+    "unlock_password_placeholder": "Passwort",
+    "unlock_password_label": "Passwort für {name}",
+    "unlock_btn": "Freischalten",
+    "unlock_success": "Freigeschaltet",
+    "unlock_not_now": "Nicht jetzt",
+    "unlock_done": "Fertig"
   }
 }

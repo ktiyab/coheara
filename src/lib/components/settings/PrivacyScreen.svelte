@@ -9,6 +9,7 @@
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import BackupRestoreSection from './BackupRestoreSection.svelte';
+  import DataSharingSection from './DataSharingSection.svelte';
   import DeleteProfileSection from './DeleteProfileSection.svelte';
   import LanguageSelector from './LanguageSelector.svelte';
 
@@ -121,6 +122,9 @@
           </div>
         </div>
       </section>
+
+      <!-- MP-02: Data Sharing -->
+      <DataSharingSection />
 
       <!-- AI Engine -->
       <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">

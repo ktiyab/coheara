@@ -26,6 +26,8 @@
     "breadcrumb": "Breadcrumb",
     "profile_status_active": "Active profile",
     "profiles": "Profiles",
-    "profiles-create": "Add Profile"
+    "profiles-create": "Add Profile",
+    "viewing_as_banner": "Viewing {name}'s health data",
+    "return_to_self": "Return to your profile"
   }
 }

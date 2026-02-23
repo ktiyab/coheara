@@ -65,6 +65,24 @@
     "section_prefs_desc": "Langue, thème et son",
     "section_extraction_desc": "Paramètres d'extraction",
     "section_privacy_desc": "Confidentialité, données et appareils",
-    "section_about_desc": "Version et informations"
+    "section_about_desc": "Version et informations",
+    "data_sharing_heading": "PARTAGE DE DONNÉES",
+    "data_sharing_who_can_view": "Qui peut consulter mes données",
+    "data_sharing_data_you_view": "Données auxquelles vous avez accès",
+    "data_sharing_no_grants_out": "Personne n'a accès à vos données",
+    "data_sharing_no_grants_in": "Vous n'avez accès aux données de personne",
+    "data_sharing_grant_heading": "Accorder l'accès",
+    "data_sharing_select_profile": "Sélectionner un profil",
+    "data_sharing_access_full": "Complet",
+    "data_sharing_access_read_only": "Lecture seule",
+    "data_sharing_grant_btn": "Accorder",
+    "data_sharing_revoke_btn": "Révoquer",
+    "data_sharing_revoke_confirm": "Retirer l'accès de {name} à vos données ?",
+    "data_sharing_revoked_msg": "Accès révoqué",
+    "data_sharing_granted_msg": "Accès accordé à {name}",
+    "data_sharing_error": "Échec de la mise à jour du partage",
+    "data_sharing_granted_by": "Accordé par eux",
+    "data_sharing_granted_at": "Depuis le {date}",
+    "data_sharing_self_managed_only": "Seuls les profils autonomes peuvent accorder l'accès"
   }
 }

@@ -65,6 +65,24 @@
     "section_prefs_desc": "Language, theme, and sound",
     "section_extraction_desc": "Batch extraction settings",
     "section_privacy_desc": "Privacy, data, and devices",
-    "section_about_desc": "Version and app info"
+    "section_about_desc": "Version and app info",
+    "data_sharing_heading": "DATA SHARING",
+    "data_sharing_who_can_view": "Who can view my data",
+    "data_sharing_data_you_view": "Data you can view",
+    "data_sharing_no_grants_out": "No one has been granted access to your data",
+    "data_sharing_no_grants_in": "You don't have access to others' data",
+    "data_sharing_grant_heading": "Grant Access",
+    "data_sharing_select_profile": "Select profile",
+    "data_sharing_access_full": "Full",
+    "data_sharing_access_read_only": "Read only",
+    "data_sharing_grant_btn": "Grant",
+    "data_sharing_revoke_btn": "Revoke",
+    "data_sharing_revoke_confirm": "Remove {name}'s access to your data?",
+    "data_sharing_revoked_msg": "Access revoked",
+    "data_sharing_granted_msg": "Access granted to {name}",
+    "data_sharing_error": "Failed to update sharing",
+    "data_sharing_granted_by": "Granted by them",
+    "data_sharing_granted_at": "Since {date}",
+    "data_sharing_self_managed_only": "Only self-managed profiles can grant access"
   }
 }

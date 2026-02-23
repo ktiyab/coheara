@@ -65,6 +65,24 @@
     "section_prefs_desc": "Sprache, Design und Ton",
     "section_extraction_desc": "Extraktionseinstellungen",
     "section_privacy_desc": "Datenschutz, Daten und Geräte",
-    "section_about_desc": "Version und App-Informationen"
+    "section_about_desc": "Version und App-Informationen",
+    "data_sharing_heading": "DATENFREIGABE",
+    "data_sharing_who_can_view": "Wer kann meine Daten einsehen",
+    "data_sharing_data_you_view": "Daten, die Sie einsehen können",
+    "data_sharing_no_grants_out": "Niemand hat Zugriff auf Ihre Daten",
+    "data_sharing_no_grants_in": "Sie haben keinen Zugriff auf Daten anderer",
+    "data_sharing_grant_heading": "Zugriff gewähren",
+    "data_sharing_select_profile": "Profil auswählen",
+    "data_sharing_access_full": "Vollzugriff",
+    "data_sharing_access_read_only": "Nur Lesen",
+    "data_sharing_grant_btn": "Gewähren",
+    "data_sharing_revoke_btn": "Widerrufen",
+    "data_sharing_revoke_confirm": "Zugriff von {name} auf Ihre Daten entfernen?",
+    "data_sharing_revoked_msg": "Zugriff widerrufen",
+    "data_sharing_granted_msg": "Zugriff für {name} gewährt",
+    "data_sharing_error": "Freigabe-Aktualisierung fehlgeschlagen",
+    "data_sharing_granted_by": "Von ihnen gewährt",
+    "data_sharing_granted_at": "Seit {date}",
+    "data_sharing_self_managed_only": "Nur selbstverwaltete Profile können Zugriff gewähren"
   }
 }

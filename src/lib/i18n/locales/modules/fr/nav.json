@@ -26,6 +26,8 @@
     "breadcrumb": "Fil d'Ariane",
     "profile_status_active": "Profil actif",
     "profiles": "Profils",
-    "profiles-create": "Ajouter un profil"
+    "profiles-create": "Ajouter un profil",
+    "viewing_as_banner": "Consultation des données de {name}",
+    "return_to_self": "Revenir à votre profil"
   }
 }

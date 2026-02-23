@@ -126,10 +126,25 @@ pub fn list_companion_profiles(
     Ok(result)
 }
 
+/// Verify the active profile matches the claimed granter (prevents impersonation).
+fn verify_caller_is_granter(
+    state: &CoreState,
+    granter_profile_id: &str,
+) -> Result<(), String> {
+    let guard = state.read_session().map_err(|e| e.to_string())?;
+    let session = guard.as_ref().ok_or("No active session")?;
+    if session.profile_id.to_string() != granter_profile_id {
+        return Err("Can only manage grants for your own profile".into());
+    }
+    Ok(())
+}
+
 /// Grant a non-managed profile access to another profile.
 ///
 /// Used when a caregiver wants to share their medical data with a trusted
 /// family member's profile. Writes to `profile_access_grants` in `app.db`.
+///
+/// **Security**: Validates the caller is the granter (prevents cross-profile impersonation).
 #[tauri::command]
 pub fn grant_profile_access(
     granter_profile_id: String,
@@ -137,6 +152,9 @@ pub fn grant_profile_access(
     access_level: String,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<(), String> {
+    // Security: verify caller is the granter
+    verify_caller_is_granter(&state, &granter_profile_id)?;
+
     // Validate access level
     if access_level != "full" && access_level != "read_only" {
         return Err("Invalid access level: must be 'full' or 'read_only'".into());
@@ -167,12 +185,17 @@ pub fn grant_profile_access(
 /// Revoke a previously granted profile access.
 ///
 /// Sets `revoked_at` on the grant row in `app.db`.
+///
+/// **Security**: Validates the caller is the granter (prevents cross-profile impersonation).
 #[tauri::command]
 pub fn revoke_profile_access(
     granter_profile_id: String,
     grantee_profile_id: String,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<bool, String> {
+    // Security: verify caller is the granter
+    verify_caller_is_granter(&state, &granter_profile_id)?;
+
     let app_conn = state.open_app_db().map_err(|e| e.to_string())?;
 
     let revoked = device_registry::revoke_profile_grant(
@@ -191,4 +214,99 @@ pub fn revoke_profile_access(
     }
 
     Ok(revoked)
+}
+
+// ═══════════════════════════════════════════════════════════
+// MP-02: Enriched grant queries for Privacy UI
+// ═══════════════════════════════════════════════════════════
+
+/// A profile access grant enriched with human-readable profile names.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnrichedGrant {
+    pub id: String,
+    pub granter_profile_id: String,
+    pub grantee_profile_id: String,
+    pub granter_name: String,
+    pub grantee_name: String,
+    pub access_level: String,
+    pub granted_at: String,
+}
+
+/// Resolve a profile ID to its display name from disk metadata.
+fn resolve_profile_name(state: &CoreState, profile_id: &str) -> String {
+    profile::list_profiles(&state.profiles_dir)
+        .ok()
+        .and_then(|profiles| {
+            profiles
+                .into_iter()
+                .find(|p| p.id.to_string() == profile_id)
+                .map(|p| p.name)
+        })
+        .unwrap_or_else(|| profile_id.to_string())
+}
+
+/// List all active grants where the active profile is the granter.
+///
+/// Returns enriched grants with human-readable profile names for the UI.
+#[tauri::command]
+pub fn list_my_grants(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<EnrichedGrant>, String> {
+    let active_id = {
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard.as_ref().ok_or("No active session")?;
+        session.profile_id.to_string()
+    };
+
+    let app_conn = state.open_app_db().map_err(|e| e.to_string())?;
+    let grants = device_registry::list_grants_for_granter(&app_conn, &active_id)
+        .map_err(|e| e.to_string())?;
+
+    let enriched = grants
+        .into_iter()
+        .map(|g| EnrichedGrant {
+            id: g.id,
+            granter_name: resolve_profile_name(&state, &g.granter_profile_id),
+            grantee_name: resolve_profile_name(&state, &g.grantee_profile_id),
+            granter_profile_id: g.granter_profile_id,
+            grantee_profile_id: g.grantee_profile_id,
+            access_level: g.access_level,
+            granted_at: g.granted_at,
+        })
+        .collect();
+
+    Ok(enriched)
+}
+
+/// List all active grants where the active profile is the grantee.
+///
+/// Returns enriched grants with human-readable profile names for the UI.
+#[tauri::command]
+pub fn list_grants_to_me(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<EnrichedGrant>, String> {
+    let active_id = {
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard.as_ref().ok_or("No active session")?;
+        session.profile_id.to_string()
+    };
+
+    let app_conn = state.open_app_db().map_err(|e| e.to_string())?;
+    let grants = device_registry::list_grants_for_grantee(&app_conn, &active_id)
+        .map_err(|e| e.to_string())?;
+
+    let enriched = grants
+        .into_iter()
+        .map(|g| EnrichedGrant {
+            id: g.id,
+            granter_name: resolve_profile_name(&state, &g.granter_profile_id),
+            grantee_name: resolve_profile_name(&state, &g.grantee_profile_id),
+            granter_profile_id: g.granter_profile_id,
+            grantee_profile_id: g.grantee_profile_id,
+            access_level: g.access_level,
+            granted_at: g.granted_at,
+        })
+        .collect();
+
+    Ok(enriched)
 }

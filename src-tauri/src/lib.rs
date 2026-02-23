@@ -147,6 +147,9 @@ pub fn run() {
             commands::companion_access::list_companion_profiles,
             commands::companion_access::grant_profile_access,
             commands::companion_access::revoke_profile_access,
+            // MP-02: Data sharing grant queries
+            commands::companion_access::list_my_grants,
+            commands::companion_access::list_grants_to_me,
             commands::distribution::start_distribution,
             commands::distribution::stop_distribution,
             commands::distribution::get_distribution_status,

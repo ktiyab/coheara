@@ -282,6 +282,34 @@ pub fn list_grants_for_grantee(
     Ok(rows)
 }
 
+/// List all active (non-revoked) grants where the given profile is the granter.
+pub fn list_grants_for_granter(
+    conn: &Connection,
+    granter_id: &str,
+) -> Result<Vec<ProfileAccessGrantRow>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, granter_profile_id, grantee_profile_id, access_level, granted_at, revoked_at
+         FROM profile_access_grants
+         WHERE granter_profile_id = ?1 AND revoked_at IS NULL
+         ORDER BY granted_at",
+    )?;
+
+    let rows = stmt
+        .query_map(params![granter_id], |row| {
+            Ok(ProfileAccessGrantRow {
+                id: row.get(0)?,
+                granter_profile_id: row.get(1)?,
+                grantee_profile_id: row.get(2)?,
+                access_level: row.get(3)?,
+                granted_at: row.get(4)?,
+                revoked_at: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(rows)
+}
+
 /// Check if an active grant exists from granter to grantee.
 pub fn has_active_grant(
     conn: &Connection,
@@ -528,6 +556,55 @@ mod tests {
         // Grant should no longer be active
         let level = has_active_grant(&conn, "alice", "bob").unwrap();
         assert!(level.is_none());
+    }
+
+    #[test]
+    fn list_grants_for_granter_returns_active_only() {
+        let conn = test_db();
+
+        let grant1 = ProfileAccessGrantRow {
+            id: "grant-1".to_string(),
+            granter_profile_id: "alice".to_string(),
+            grantee_profile_id: "bob".to_string(),
+            access_level: "read_only".to_string(),
+            granted_at: "2026-02-23T10:00:00Z".to_string(),
+            revoked_at: None,
+        };
+
+        let grant2 = ProfileAccessGrantRow {
+            id: "grant-2".to_string(),
+            granter_profile_id: "alice".to_string(),
+            grantee_profile_id: "charlie".to_string(),
+            access_level: "full".to_string(),
+            granted_at: "2026-02-23T11:00:00Z".to_string(),
+            revoked_at: None,
+        };
+
+        let grant3 = ProfileAccessGrantRow {
+            id: "grant-3".to_string(),
+            granter_profile_id: "bob".to_string(),
+            grantee_profile_id: "alice".to_string(),
+            access_level: "read_only".to_string(),
+            granted_at: "2026-02-23T12:00:00Z".to_string(),
+            revoked_at: None,
+        };
+
+        insert_profile_grant(&conn, &grant1).unwrap();
+        insert_profile_grant(&conn, &grant2).unwrap();
+        insert_profile_grant(&conn, &grant3).unwrap();
+
+        // Revoke alice→bob
+        revoke_profile_grant(&conn, "alice", "bob").unwrap();
+
+        // Alice's active grants: only alice→charlie
+        let grants = list_grants_for_granter(&conn, "alice").unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].grantee_profile_id, "charlie");
+
+        // Bob's active grants: only bob→alice
+        let grants = list_grants_for_granter(&conn, "bob").unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].grantee_profile_id, "alice");
     }
 
     #[test]

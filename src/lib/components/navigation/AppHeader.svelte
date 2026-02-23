@@ -15,8 +15,10 @@
   interface Props {
     title?: string;
     actions?: Snippet;
+    /** MP-02: When true, suppress the small managed-by subtitle (banner shows it instead). */
+    hideManagedLabel?: boolean;
   }
-  let { title, actions }: Props = $props();
+  let { title, actions, hideManagedLabel = false }: Props = $props();
 
   let screenTitle = $derived(title ?? $t(`nav.${navigation.activeScreen}`) ?? navigation.activeScreen);
 
@@ -50,7 +52,7 @@
           <span class="text-sm font-medium text-stone-700 dark:text-gray-200 truncate max-w-[160px]">
             {profile.name || $t('common.patient')}
           </span>
-          {#if profile.managedBy}
+          {#if profile.managedBy && !hideManagedLabel}
             <span class="text-xs text-amber-600 dark:text-amber-400 truncate max-w-[160px]">
               {$t('profile.viewing_managed', { values: { caregiver: profile.managedBy } })}
             </span>
