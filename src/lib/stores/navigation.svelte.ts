@@ -17,10 +17,10 @@ const SIDEBAR_SCREENS = new Set([
 	'history',
 	'documents',
 	'timeline',
+	'companion',
 	'settings',
 	'ai-settings',
 	'import',
-	'pairing',
 	'profiles',
 	'profiles-create'
 ]);
@@ -29,7 +29,7 @@ const SIDEBAR_SCREENS = new Set([
 export const NAV_SECTIONS = {
 	main: ['home', 'chat', 'history'],
 	library: ['documents', 'timeline'],
-	system: ['settings'],
+	system: ['companion', 'settings'],
 } as const;
 
 /** Screens removed in LP-06 that redirect to home. */
@@ -37,6 +37,7 @@ const REDIRECT_MAP: Record<string, string> = {
 	journal: 'home',
 	medications: 'home',
 	appointments: 'home',
+	pairing: 'companion',
 };
 
 class NavigationStore {

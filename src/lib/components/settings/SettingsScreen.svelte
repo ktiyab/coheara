@@ -270,7 +270,7 @@
           <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
 
-        <button class={rowBtn} onclick={() => navigation.navigate('pairing')}>
+        <button class={rowBtn} onclick={() => navigation.navigate('companion')}>
           <PhoneIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_devices_title')}</p>

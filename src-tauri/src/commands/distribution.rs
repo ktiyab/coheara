@@ -81,6 +81,7 @@ pub async fn start_distribution(
         rate_limit_per_min: 60,
         pwa_dir: resolve_pwa_dir(&app),
         apk_path: resolve_apk_path(&app),
+        core_state: Some(state.inner().clone()),
     };
 
     let server = distribution::start_distribution_server(config)

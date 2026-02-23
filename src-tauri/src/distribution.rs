@@ -33,6 +33,7 @@ use tokio::sync::{oneshot, Mutex as TokioMutex};
 use uuid::Uuid;
 
 use crate::config;
+use crate::core_state::CoreState;
 use crate::wifi_transfer::{generate_qr_code, is_local_network};
 
 // ═══════════════════════════════════════════════════════════
@@ -76,6 +77,8 @@ pub struct DistributionConfig {
     pub pwa_dir: Option<PathBuf>,
     /// Path to the Android APK file.
     pub apk_path: Option<PathBuf>,
+    /// Core state for accessing pairing data (enables /pairing-info endpoint).
+    pub core_state: Option<Arc<CoreState>>,
 }
 
 impl Default for DistributionConfig {
@@ -85,6 +88,7 @@ impl Default for DistributionConfig {
             rate_limit_per_min: 60,
             pwa_dir: None,
             apk_path: None,
+            core_state: None,
         }
     }
 }
@@ -134,6 +138,8 @@ pub(crate) struct ServerState {
     rate_tracker: Arc<TokioMutex<HashMap<IpAddr, Vec<Instant>>>>,
     pwa_dir: Option<PathBuf>,
     apk_path: Option<PathBuf>,
+    /// Core state for accessing pairing data (PWA pairing bridge).
+    core: Option<Arc<CoreState>>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -213,6 +219,7 @@ pub async fn start_distribution_server(
         rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
         pwa_dir: config.pwa_dir,
         apk_path: config.apk_path,
+        core: config.core_state,
     });
 
     // 8. Build router
@@ -261,6 +268,7 @@ pub(crate) fn build_distribution_router(state: Arc<ServerState>) -> Router {
         .route("/install", get(handle_install_landing))
         .route("/install/android", get(handle_android_page))
         .route("/install/android/download", get(handle_apk_download))
+        .route("/pairing-info", get(handle_pairing_info))
         .route("/update", get(handle_version_check))
         .route("/health", get(handle_health));
 
@@ -579,6 +587,46 @@ async fn handle_health(
     }))
 }
 
+/// GET /pairing-info — PWA pairing bridge.
+///
+/// Returns active pairing credentials so the PWA companion can auto-pair
+/// without scanning a JSON QR code (HTTP pages can't access getUserMedia).
+/// Only returns data when a pairing session is active and not expired.
+async fn handle_pairing_info(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    AxumState(state): AxumState<Arc<ServerState>>,
+) -> Response {
+    if !check_rate_limit(&state, addr.ip()).await {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    increment_request_count(&state).await;
+
+    let core = match &state.core {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                axum::Json(serde_json::json!({ "error": "no_active_pairing" })),
+            )
+                .into_response();
+        }
+    };
+
+    let qr_data = match core.lock_pairing() {
+        Ok(pm) => pm.active_qr_data(),
+        Err(_) => None,
+    };
+
+    match qr_data {
+        Some(data) => axum::Json(data).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "error": "no_active_pairing" })),
+        )
+            .into_response(),
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // Response types
 // ═══════════════════════════════════════════════════════════
@@ -791,6 +839,7 @@ mod tests {
             rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
             pwa_dir,
             apk_path,
+            core: None,
         })
     }
 
@@ -1001,6 +1050,7 @@ mod tests {
             rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
             pwa_dir: None,
             apk_path: None,
+            core: None,
         });
 
         let ip: IpAddr = "192.168.1.100".parse().unwrap();
@@ -1021,6 +1071,7 @@ mod tests {
             rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
             pwa_dir: None,
             apk_path: None,
+            core: None,
         });
 
         let ip1: IpAddr = "192.168.1.100".parse().unwrap();
@@ -1162,5 +1213,40 @@ mod tests {
         assert_eq!(config.rate_limit_per_min, 60);
         assert!(config.pwa_dir.is_none());
         assert!(config.apk_path.is_none());
+        assert!(config.core_state.is_none());
+    }
+
+    // -- Pairing info endpoint -----------------------------------------------
+
+    #[tokio::test]
+    async fn pairing_info_returns_404_when_no_core() {
+        let state = test_state(None, None); // core = None
+        let app = build_distribution_router(state);
+        let req = make_request("/pairing-info", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "no_active_pairing");
+    }
+
+    #[tokio::test]
+    async fn pairing_info_returns_404_when_no_active_pairing() {
+        // Use a real CoreState with no active pairing session
+        let core = Arc::new(CoreState::new());
+        let state = Arc::new(ServerState {
+            desktop_version: "0.1.0".to_string(),
+            request_count: Arc::new(TokioMutex::new(0)),
+            rate_limit_per_min: 60,
+            rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
+            pwa_dir: None,
+            apk_path: None,
+            core: Some(core),
+        });
+        let app = build_distribution_router(state);
+        let req = make_request("/pairing-info", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

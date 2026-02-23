@@ -12,6 +12,7 @@ export { default as ClipboardIcon } from './ClipboardIcon.svelte';
 export { default as ClockIcon } from './ClockIcon.svelte';
 export { default as CloseIcon } from './CloseIcon.svelte';
 export { default as DeleteIcon } from './DeleteIcon.svelte';
+export { default as DevicesIcon } from './DevicesIcon.svelte';
 export { default as DocsIcon } from './DocsIcon.svelte';
 export { default as EditIcon } from './EditIcon.svelte';
 export { default as GlobeIcon } from './GlobeIcon.svelte';

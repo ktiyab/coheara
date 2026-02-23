@@ -24,7 +24,7 @@
   import DocumentDetailScreen from '$lib/components/documents/DocumentDetailScreen.svelte';
   import SettingsScreen from '$lib/components/settings/SettingsScreen.svelte';
   import PrivacyScreen from '$lib/components/settings/PrivacyScreen.svelte';
-  import PairingScreen from '$lib/components/settings/PairingScreen.svelte';
+  import CompanionScreen from '$lib/components/companion/CompanionScreen.svelte';
   import AiSettingsScreen from '$lib/components/settings/AiSettingsScreen.svelte';
   import AiSetupWizard from '$lib/components/settings/AiSetupWizard.svelte';
   import ProfilesScreen from '$lib/components/profile/ProfilesScreen.svelte';
@@ -136,8 +136,8 @@
     <AiSettingsScreen />
   {:else if navigation.activeScreen === 'ai-setup'}
     <AiSetupWizard />
-  {:else if navigation.activeScreen === 'pairing'}
-    <PairingScreen />
+  {:else if navigation.activeScreen === 'companion'}
+    <CompanionScreen />
   {:else if navigation.activeScreen === 'profiles'}
     <ProfilesScreen />
   {:else if navigation.activeScreen === 'profiles-create'}

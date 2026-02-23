@@ -7,7 +7,7 @@
   import { lockProfile } from '$lib/api/profile';
   import { dispatchProfileSwitch } from '$lib/utils/session-events';
   import { PROFILE_COLORS, type ProfileInfo } from '$lib/types/profile';
-  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
+  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, DevicesIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
   import ProfilePopover from '$lib/components/profile/ProfilePopover.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
   import type { Component } from 'svelte';
@@ -24,6 +24,7 @@
     { id: 'history', key: 'nav.history', Icon: HistoryIcon },
     { id: 'documents', key: 'nav.documents', Icon: DocsIcon },
     { id: 'timeline', key: 'nav.timeline', Icon: TimelineIcon },
+    { id: 'companion', key: 'nav.companion', Icon: DevicesIcon },
     { id: 'settings', key: 'nav.settings', Icon: SettingsIcon },
   ];
 

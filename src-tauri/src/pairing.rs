@@ -254,6 +254,30 @@ impl PairingManager {
         self.pending = None;
     }
 
+    /// Get the active QR pairing data if a session is active and not expired.
+    ///
+    /// Used by the distribution server's `/pairing-info` endpoint to let
+    /// PWA companions auto-pair without scanning a JSON QR code.
+    pub fn active_qr_data(&self) -> Option<QrPairingData> {
+        let session = self.active.as_ref()?;
+        // Check expiry
+        if session.created_at.elapsed() > Duration::from_secs(PAIRING_TOKEN_TTL_SECS) {
+            return None;
+        }
+        // Don't expose if token was already consumed by a phone request
+        if session.consumed {
+            return None;
+        }
+        Some(QrPairingData {
+            v: 1,
+            url: session.server_url.clone(),
+            token: session.token.clone(),
+            cert_fp: session.cert_fingerprint.clone(),
+            pubkey: base64::engine::general_purpose::STANDARD
+                .encode(session.desktop_public.as_bytes()),
+        })
+    }
+
     /// Submit a pairing request from the phone.
     ///
     /// Validates the token, stores the phone's info, and returns a
@@ -1077,5 +1101,61 @@ mod tests {
 
         let devices = db_load_paired_devices(&conn).unwrap();
         assert_eq!(devices.len(), 3);
+    }
+
+    // ── active_qr_data tests ─────────────────────────────
+
+    #[test]
+    fn active_qr_data_returns_some_when_active() {
+        let mut mgr = PairingManager::new();
+        mgr.start("https://192.168.1.42:8443".into(), "SHA256:AB:CD".into())
+            .unwrap();
+
+        let data = mgr.active_qr_data();
+        assert!(data.is_some());
+        let qr = data.unwrap();
+        assert_eq!(qr.v, 1);
+        assert_eq!(qr.url, "https://192.168.1.42:8443");
+        assert_eq!(qr.cert_fp, "SHA256:AB:CD");
+        assert!(!qr.token.is_empty());
+        assert!(!qr.pubkey.is_empty());
+    }
+
+    #[test]
+    fn active_qr_data_returns_none_when_no_session() {
+        let mgr = PairingManager::new();
+        assert!(mgr.active_qr_data().is_none());
+    }
+
+    #[test]
+    fn active_qr_data_returns_none_after_cancel() {
+        let mut mgr = PairingManager::new();
+        mgr.start("https://192.168.1.42:8443".into(), "fp".into())
+            .unwrap();
+        mgr.cancel();
+        assert!(mgr.active_qr_data().is_none());
+    }
+
+    #[test]
+    fn active_qr_data_returns_none_when_consumed() {
+        let mut mgr = PairingManager::new();
+        let start = mgr
+            .start("https://192.168.1.42:8443".into(), "fp".into())
+            .unwrap();
+
+        let phone_secret = x25519_dalek::StaticSecret::random_from_rng(rand::thread_rng());
+        let phone_public = x25519_dalek::PublicKey::from(&phone_secret);
+
+        let request = PairRequest {
+            token: start.qr_data.token.clone(),
+            phone_pubkey: base64::engine::general_purpose::STANDARD
+                .encode(phone_public.as_bytes()),
+            device_name: "Test Phone".into(),
+            device_model: "TestModel".into(),
+        };
+
+        let _rx = mgr.submit_pair_request(&request).unwrap();
+        // Token is now consumed — should not expose QR data
+        assert!(mgr.active_qr_data().is_none());
     }
 }

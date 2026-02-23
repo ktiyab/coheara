@@ -17,7 +17,7 @@
       class="w-full bg-stone-50 dark:bg-gray-900 border border-stone-200 dark:border-gray-700
              rounded-xl p-5 flex items-center gap-4 text-left
              hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-      onclick={() => navigation.navigate('pairing')}
+      onclick={() => navigation.navigate('companion')}
     >
       <!-- Icon -->
       <div class="w-10 h-10 rounded-lg bg-stone-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
