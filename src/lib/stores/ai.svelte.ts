@@ -182,6 +182,21 @@ class AiStore {
 		}
 	}
 
+	/** F7: Clear all state on lock/switch to prevent stale AI status between profiles. */
+	reset(): void {
+		this.cleanup();
+		this.models = [];
+		this.activeModel = null;
+		this.health = null;
+		this.pullProgress = null;
+		this.loading = false;
+		this.error = null;
+		this.statusLevel = 'unknown';
+		this.embedderType = 'unknown';
+		this.statusSummary = '';
+		this.statusError = null;
+	}
+
 	// ── Backwards compatibility aliases ──────────────────────
 
 	/** @deprecated Use startupCheck instead. Kept for call-site migration. */

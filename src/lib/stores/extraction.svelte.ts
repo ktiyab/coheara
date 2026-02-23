@@ -45,6 +45,16 @@ class ExtractionStore {
 		this._unlisten = null;
 	}
 
+	/** F7: Clear all state on lock/switch to prevent cross-profile data leakage.
+	 *  Critical: items may contain Profile A's medical data (symptoms, meds, appointments). */
+	reset(): void {
+		this.items = [];
+		this.count = 0;
+		this.loading = false;
+		this.error = null;
+		this.batch = { running: false, completed: 0, total: 0, currentTitle: '' };
+	}
+
 	private handleBatchEvent(event: BatchStatusEvent): void {
 		if ('Started' in event) {
 			this.batch = {

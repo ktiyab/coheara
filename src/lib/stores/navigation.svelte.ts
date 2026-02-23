@@ -73,6 +73,17 @@ class NavigationStore {
 		this.sidebarCollapsed = !this.sidebarCollapsed;
 	}
 
+	/** F7: Reset to home on lock/switch — clears stale screenParams (e.g. documentIds)
+	 *  and URL hash to prevent cross-profile data leakage via URL or screen state. */
+	reset(): void {
+		this.previousScreen = 'home';
+		this.activeScreen = 'home';
+		this.screenParams = {};
+		if (browser) {
+			history.replaceState(null, '', '#home');
+		}
+	}
+
 	navigate(screen: string, params?: Record<string, string>) {
 		this.previousScreen = this.activeScreen;
 		this.screenParams = params ?? {};

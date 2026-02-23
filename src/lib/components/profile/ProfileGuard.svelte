@@ -6,6 +6,9 @@
   import { isTauriEnv } from '$lib/utils/tauri';
   import { onProfileSwitch } from '$lib/utils/session-events';
   import { profile } from '$lib/stores/profile.svelte';
+  import { navigation } from '$lib/stores/navigation.svelte';
+  import { ai } from '$lib/stores/ai.svelte';
+  import { extraction } from '$lib/stores/extraction.svelte';
   import type { ProfileInfo, AppScreen } from '$lib/types/profile';
   import TrustScreen from './TrustScreen.svelte';
   import ProfileTypeChoice from './ProfileTypeChoice.svelte';
@@ -35,7 +38,11 @@
   /** F7: Redirect to auth screen — ALWAYS refreshes profile list from disk.
    *  Pass targetProfileId to pre-select a specific profile in the picker. */
   async function redirectToAuth(targetProfileId?: string) {
-    profile.reset(); // Clear stale data to prevent leakage between sessions
+    // F7: Reset ALL stores to prevent cross-profile data leakage
+    profile.reset();      // name, colorIndex, aiStatus, activeInfo
+    navigation.reset();   // screenParams (documentIds), URL hash
+    ai.reset();           // model status, timers, health
+    extraction.reset();   // pending review items (medical data!)
 
     try { profiles = await listProfiles(); } catch { profiles = []; }
     if (profiles.length === 0) { screen = 'trust'; return; }

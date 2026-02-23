@@ -59,8 +59,9 @@
       profile.name = 'Patient';
     }
 
-    // LP-01: Listen for batch extraction progress events
+    // LP-01: Listen for batch extraction progress events + load current profile's items
     extraction.startListening();
+    extraction.updateCount().catch(() => {});
 
     // S.2+S.5: One-shot AI status check (immediate baseline + 30s verify)
     if (isTauriEnv()) {
