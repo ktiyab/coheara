@@ -28,8 +28,8 @@ export type AppLifecycleState =
 	| 'background'
 	| 'killed';
 
-/** Bottom tab identifiers */
-export type TabId = 'home' | 'chat' | 'meds' | 'journal' | 'more';
+/** Bottom tab identifiers — mirrors desktop nav (Home, Ask, Documents, Timeline, Settings) */
+export type TabId = 'home' | 'ask' | 'documents' | 'timeline' | 'settings';
 
 /** Tab configuration for navigation */
 export interface TabConfig {
@@ -81,7 +81,7 @@ export type SensitiveScreen =
 	| 'medications'
 	| 'labs'
 	| 'alerts'
-	| 'chat'
+	| 'ask'
 	| 'journal'
 	| 'appointment_prep';
 

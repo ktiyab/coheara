@@ -1,59 +1,44 @@
-// M1-03: Viewer screen types — medications, labs, timeline, appointments
+// M1-03: Viewer screen types — aligned with desktop sync.rs source of truth (CA-05)
 
-/** Schedule group for medications (Dr. Diallo: "That's how pill boxes work") */
-export type ScheduleGroup = 'morning' | 'evening' | 'as_needed' | 'multiple';
-
-/** Cached medication from sync */
+/** Cached medication from sync — matches desktop CachedMedication */
 export interface CachedMedication {
 	id: string;
-	name: string;
-	genericName?: string;
+	genericName: string;
+	brandName?: string;
 	dose: string;
 	frequency: string;
-	prescriber: string;
-	purpose: string;
-	scheduleGroup: ScheduleGroup;
-	since: string;
-	isActive: boolean;
-	discontinuedDate?: string;
-	discontinuedReason?: string;
-	notes?: string;
-	sourceDocumentTitle?: string;
+	route: string;
+	status: string;
+	startDate?: string;
+	endDate?: string;
+	prescriberName?: string;
+	condition?: string;
+	isOtc: boolean;
 }
 
 /** Lab trend direction */
-export type LabTrend = 'up' | 'down' | 'stable' | 'first';
+export type LabTrend = 'up' | 'down' | 'stable';
 
-/** Lab trend clinical context (Dr. Diallo: "color should reflect clinical meaning") */
-export type LabTrendContext =
-	| 'worsening'    // up + abnormal OR down + was normal
-	| 'improving'    // down + was abnormal OR up + was low
-	| 'approaching'  // moving toward limit but still normal
-	| 'stable'       // no significant change
-	| 'first';       // no comparison available
-
-/** Cached lab result from sync */
+/** Cached lab result from sync — matches desktop CachedLabResult */
 export interface CachedLabResult {
 	id: string;
 	testName: string;
-	value: number;
-	unit: string;
-	referenceMin: number;
-	referenceMax: number;
+	value?: number;
+	valueText?: string;
+	unit?: string;
+	referenceRangeLow?: number;
+	referenceRangeHigh?: number;
+	abnormalFlag: string;
+	collectionDate: string;
 	isAbnormal: boolean;
-	trend: LabTrend;
-	trendContext: LabTrendContext;
-	testedAt: string;
-	labName?: string;
-	previousValue?: number;
-	previousDate?: string;
+	trendDirection?: string;
 }
 
 /** Lab history entry (for detail/trend view, fetched from desktop) */
 export interface LabHistoryEntry {
-	value: number;
+	value?: number;
 	date: string;
-	trend: LabTrend;
+	trendDirection?: string;
 }
 
 /** Timeline event types */
@@ -65,52 +50,50 @@ export type TimelineEventType =
 	| 'document'
 	| 'journal';
 
-/** Cached timeline event from sync */
+/** Cached timeline event from sync — matches desktop CachedTimelineEvent */
 export interface CachedTimelineEvent {
 	id: string;
-	eventType: TimelineEventType;
-	title: string;
+	eventType: string;
+	category: string;
 	description: string;
-	timestamp: string;
-	severity?: 'info' | 'warning' | 'critical';
-	isPatientReported: boolean;
-	metadata?: Record<string, string>;
+	severity?: number;
+	date: string;
+	stillActive: boolean;
 }
 
-/** Cached alert */
+/** Cached alert — matches desktop CachedAlert */
 export interface CachedAlert {
 	id: string;
 	title: string;
 	description: string;
-	severity: 'info' | 'warning' | 'critical';
+	severity: string;
 	createdAt: string;
 	dismissed: boolean;
 }
 
-/** Cached appointment */
+/** Cached appointment — matches desktop CachedAppointment */
 export interface CachedAppointment {
 	id: string;
-	doctorName: string;
+	professionalName: string;
+	professionalSpecialty?: string;
 	date: string;
-	location?: string;
-	purpose?: string;
-	hasPrepData: boolean;
+	appointmentType: string;
+	prepAvailable: boolean;
 }
 
-/** Emergency contact (from SyncProfile) */
-export interface EmergencyContact {
-	name: string;
-	phone: string;
-	relation: string;
+/** Cached allergy — matches desktop CachedAllergy */
+export interface CachedAllergy {
+	allergen: string;
+	severity: string;
+	verified: boolean;
 }
 
-/** Cached profile */
+/** Cached profile — matches desktop CachedProfile (source of truth) */
 export interface CachedProfile {
-	name: string;
-	bloodType?: string;
-	allergies: string[];
-	dateOfBirth?: string;
-	emergencyContacts: EmergencyContact[];
+	profileName: string;
+	totalDocuments: number;
+	extractionAccuracy: number;
+	allergies: CachedAllergy[];
 }
 
 /** Appointment prep — patient-facing plain language view */
@@ -172,5 +155,5 @@ export type TimelineFilter = 'all' | TimelineEventType;
 
 /** Medication search fields */
 export const MEDICATION_SEARCH_FIELDS = [
-	'name', 'genericName', 'dose', 'prescriber', 'purpose'
+	'genericName', 'brandName', 'dose', 'prescriberName', 'condition'
 ] as const;

@@ -1,4 +1,4 @@
-<!-- M1-03: Medication card — single medication row in schedule group -->
+<!-- M1-03: Medication card — single medication row (aligned CA-05 desktop types) -->
 <script lang="ts">
 	import type { CachedMedication } from '$lib/types/viewer.js';
 
@@ -7,7 +7,8 @@
 		onTap: (id: string) => void;
 	} = $props();
 
-	const sinceLabel = $derived(formatSince(medication.since));
+	const isActive = $derived(medication.status === 'active');
+	const startLabel = $derived(medication.startDate ? formatSince(medication.startDate) : '');
 
 	function formatSince(since: string): string {
 		const d = new Date(since);
@@ -19,27 +20,31 @@
 
 <button
 	class="medication-card"
-	class:discontinued={!medication.isActive}
+	class:discontinued={!isActive}
 	onclick={() => onTap(medication.id)}
-	aria-label="{medication.name} {medication.dose}, {medication.frequency}, prescribed by {medication.prescriber}, {medication.purpose}, {sinceLabel}"
+	aria-label="{medication.genericName} {medication.dose}, {medication.frequency}, {medication.prescriberName ? `prescribed by ${medication.prescriberName},` : ''} {medication.condition ?? ''}, {startLabel}"
 >
 	<div class="card-header">
-		<span class="name">{medication.name}</span>
+		<span class="name">{medication.genericName}</span>
 		<span class="dose">{medication.dose}</span>
 	</div>
 	<div class="card-detail">
-		{#if medication.isActive}
-			<span>{medication.frequency} &middot; {medication.prescriber}</span>
+		{#if isActive}
+			<span>{medication.frequency}{medication.prescriberName ? ` \u00B7 ${medication.prescriberName}` : ''}</span>
 		{:else}
-			<span class="discontinued-label">DISCONTINUED {medication.discontinuedDate ?? ''}</span>
-			<span>Was: {medication.frequency} &middot; {medication.prescriber}</span>
+			<span class="discontinued-label">DISCONTINUED {medication.endDate ?? ''}</span>
+			<span>Was: {medication.frequency}{medication.prescriberName ? ` \u00B7 ${medication.prescriberName}` : ''}</span>
 		{/if}
 	</div>
 	<div class="card-meta">
-		<span>{medication.purpose}</span>
-		{#if medication.isActive}
-			<span class="separator" aria-hidden="true">&middot;</span>
-			<span>{sinceLabel}</span>
+		{#if medication.condition}
+			<span>{medication.condition}</span>
+		{/if}
+		{#if isActive && startLabel}
+			{#if medication.condition}
+				<span class="separator" aria-hidden="true">&middot;</span>
+			{/if}
+			<span>{startLabel}</span>
 		{/if}
 	</div>
 </button>

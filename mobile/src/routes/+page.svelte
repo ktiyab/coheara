@@ -39,9 +39,9 @@
 			<p class="placeholder">Appointment display loads from M1-03 Viewer Screens</p>
 		</section>
 
-		<!-- Recent journal entries -->
-		<section class="journal-recent" aria-label="Recent journal entries">
-			<p class="placeholder">Journal entries load from M1-04 Journal</p>
+		<!-- Recent timeline events -->
+		<section class="timeline-recent" aria-label="Recent health events">
+			<p class="placeholder">Timeline events load from sync cache</p>
 		</section>
 	{:else}
 		<div class="no-data">

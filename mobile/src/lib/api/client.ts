@@ -8,6 +8,13 @@ export interface ApiClientConfig {
 	sessionToken: string;
 }
 
+/** Device signature — enriches Paired Devices view on desktop */
+export interface DeviceSignature {
+	name: string;
+	os: string;
+	model: string;
+}
+
 /** WebSocket message handler */
 export type WsMessageHandler = (data: unknown) => void;
 
@@ -28,10 +35,16 @@ export class MobileApiClient {
 	private ws: WebSocket | null = null;
 	private wsHandlers = new Map<string, WsMessageHandler[]>();
 	private lastNonce = '';
+	private deviceSignature: DeviceSignature = { name: 'Unknown', os: 'Unknown', model: 'Unknown' };
 
 	/** Initialize with connection details from pairing */
 	configure(config: ApiClientConfig): void {
 		this.config = config;
+	}
+
+	/** Set device signature for Paired Devices enrichment on desktop */
+	setDeviceSignature(signature: DeviceSignature): void {
+		this.deviceSignature = signature;
 	}
 
 	/** Check if client is configured */
@@ -89,7 +102,11 @@ export class MobileApiClient {
 		const headers: Record<string, string> = {
 			'X-Device-Id': this.config.deviceId,
 			'Authorization': `Bearer ${this.config.sessionToken}`,
-			'X-Nonce': nonce
+			'X-Request-Nonce': nonce,
+			'X-Request-Timestamp': String(Math.floor(Date.now() / 1000)),
+			'X-Device-Name': this.deviceSignature.name,
+			'X-Device-OS': this.deviceSignature.os,
+			'X-Device-Model': this.deviceSignature.model
 		};
 
 		if (body !== undefined) {
@@ -106,6 +123,12 @@ export class MobileApiClient {
 
 			if (response.status === 204) {
 				return { ok: true, status: 204 };
+			}
+
+			// Rotate session token if desktop provides a new one
+			const newToken = response.headers.get('X-New-Token');
+			if (newToken && this.config) {
+				this.config.sessionToken = newToken;
 			}
 
 			if (!response.ok) {
@@ -126,17 +149,26 @@ export class MobileApiClient {
 
 	// --- WebSocket ---
 
-	/** Connect WebSocket for real-time updates */
+	/** Connect WebSocket for real-time updates.
+	 *  Flow: POST /api/auth/ws-ticket → GET /ws/connect?ticket=xxx
+	 *  Ticket is one-time, 30s TTL — session token never exposed in URL. */
 	async connectWebSocket(): Promise<boolean> {
 		if (!this.config) return false;
 
-		const wsUrl = this.config.baseUrl
-			.replace('https://', 'wss://')
-			.replace('http://', 'ws://');
-
 		try {
+			// Step 1: Acquire one-time WS ticket via authenticated REST call
+			const ticketResp = await this.post<{ ticket: string; expires_in: number }>(
+				'/api/auth/ws-ticket'
+			);
+			if (!ticketResp.ok || !ticketResp.data?.ticket) return false;
+
+			// Step 2: Connect to WS endpoint with ticket (not session token)
+			const wsUrl = this.config.baseUrl
+				.replace('https://', 'wss://')
+				.replace('http://', 'ws://');
+
 			this.ws = new WebSocket(
-				`${wsUrl}/api/ws?device_id=${encodeURIComponent(this.config.deviceId)}&token=${encodeURIComponent(this.config.sessionToken)}`
+				`${wsUrl}/ws/connect?ticket=${encodeURIComponent(ticketResp.data.ticket)}`
 			);
 
 			return new Promise((resolve) => {
@@ -150,6 +182,13 @@ export class MobileApiClient {
 						const msg = JSON.parse(event.data as string) as Record<string, unknown>;
 						const msgType = msg.type as string;
 						if (!msgType) return;
+
+						// Auto-respond to Heartbeat with Pong (feeds green dot status)
+						if (msgType === 'Heartbeat') {
+							this.sendWsMessage({ type: 'Pong' });
+							return;
+						}
+
 						const handlers = this.wsHandlers.get(msgType);
 						if (handlers) {
 							for (const handler of handlers) {

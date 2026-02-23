@@ -1,4 +1,4 @@
-<!-- M1-03: Timeline card — single event row with type icon -->
+<!-- M1-03: Timeline card — single event row with type icon (aligned CA-05) -->
 <script lang="ts">
 	import type { CachedTimelineEvent } from '$lib/types/viewer.js';
 	import { timelineEventIcon, timelineEventColor } from '$lib/utils/viewer.js';
@@ -7,7 +7,7 @@
 
 	const icon = $derived(timelineEventIcon(event.eventType));
 	const bgColor = $derived(timelineEventColor(event.eventType));
-	const timeFormatted = $derived(formatTime(event.timestamp));
+	const timeFormatted = $derived(formatTime(event.date));
 
 	function formatTime(iso: string): string {
 		return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -16,18 +16,18 @@
 
 <div
 	class="timeline-card"
-	class:patient-reported={event.isPatientReported}
+	class:still-active={event.stillActive}
 	role="listitem"
-	aria-label="{event.title}, {event.description}, {timeFormatted}"
+	aria-label="{event.category}: {event.description}, {timeFormatted}"
 >
 	<div class="icon-badge" style="background: {bgColor}" aria-hidden="true">
 		{icon}
 	</div>
 	<div class="card-content">
-		<div class="card-title">{event.title}</div>
+		<div class="card-category">{event.category}</div>
 		<div class="card-description">{event.description}</div>
-		{#if event.isPatientReported}
-			<div class="patient-label">Your note</div>
+		{#if event.stillActive}
+			<div class="active-label">Active</div>
 		{/if}
 		<div class="card-time">{timeFormatted}</div>
 	</div>
@@ -43,7 +43,7 @@
 		border-radius: 12px;
 	}
 
-	.timeline-card.patient-reported {
+	.timeline-card.still-active {
 		border-left: 3px solid var(--color-accent);
 	}
 
@@ -65,7 +65,7 @@
 		min-width: 0;
 	}
 
-	.card-title {
+	.card-category {
 		font-size: 15px;
 		font-weight: 600;
 		color: var(--color-text);
@@ -78,7 +78,7 @@
 		line-height: 1.4;
 	}
 
-	.patient-label {
+	.active-label {
 		font-size: 12px;
 		font-weight: 500;
 		color: var(--color-accent);

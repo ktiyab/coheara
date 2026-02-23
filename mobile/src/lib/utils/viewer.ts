@@ -9,14 +9,13 @@ import type {
 	TimelineDateGroup,
 	TimelineFilter,
 	LabTrend,
-	LabTrendContext,
 	AppointmentPrepData
 } from '$lib/types/viewer.js';
 import { FRESHNESS_THRESHOLDS } from '$lib/types/viewer.js';
 
 // --- Medication search (Viktor: "simple in-memory filter, instant") ---
 
-/** Search medications by name, generic name, dose, prescriber, purpose */
+/** Search medications by generic name, brand name, dose, prescriber, condition */
 export function searchMedications(
 	medications: CachedMedication[],
 	query: string
@@ -25,11 +24,11 @@ export function searchMedications(
 
 	const lower = query.toLowerCase();
 	return medications.filter((med) =>
-		med.name.toLowerCase().includes(lower) ||
-		(med.genericName?.toLowerCase().includes(lower) ?? false) ||
+		med.genericName.toLowerCase().includes(lower) ||
+		(med.brandName?.toLowerCase().includes(lower) ?? false) ||
 		med.dose.toLowerCase().includes(lower) ||
-		med.prescriber.toLowerCase().includes(lower) ||
-		med.purpose.toLowerCase().includes(lower)
+		(med.prescriberName?.toLowerCase().includes(lower) ?? false) ||
+		(med.condition?.toLowerCase().includes(lower) ?? false)
 	);
 }
 
@@ -82,51 +81,24 @@ export function trendArrow(trend: LabTrend): string {
 		case 'up': return '\u2191';     // ↑
 		case 'down': return '\u2193';   // ↓
 		case 'stable': return '\u2192'; // →
-		case 'first': return '\u2014';  // —
 	}
 }
 
-/** Get trend display label (Dr. Diallo: "color should reflect clinical meaning") */
-export function trendLabel(context: LabTrendContext): string {
-	switch (context) {
-		case 'worsening': return 'Worsening';
-		case 'improving': return 'Improving';
-		case 'approaching': return 'Approaching limit';
+/** Get trend display label */
+export function trendLabel(trend: LabTrend): string {
+	switch (trend) {
+		case 'up': return 'Rising';
+		case 'down': return 'Falling';
 		case 'stable': return 'Stable';
-		case 'first': return 'First result';
 	}
 }
 
-/** Get trend color for display */
-export function trendColor(context: LabTrendContext): string {
-	switch (context) {
-		case 'worsening': return 'var(--color-error)';
-		case 'improving': return 'var(--color-success)';
-		case 'approaching': return 'var(--color-warning)';
-		case 'stable': return 'var(--color-text-muted)';
-		case 'first': return 'var(--color-text-muted)';
-	}
-}
-
-/** Compute lab trend context from direction and abnormality */
-export function computeTrendContext(
-	trend: LabTrend,
-	isAbnormal: boolean,
-	wasAbnormal: boolean
-): LabTrendContext {
-	if (trend === 'first') return 'first';
-	if (trend === 'stable') return 'stable';
-
-	if (trend === 'up') {
-		if (isAbnormal) return 'worsening';
-		if (!isAbnormal && !wasAbnormal) return 'approaching';
-		return 'improving'; // was low, going up
-	}
-
-	// trend === 'down'
-	if (wasAbnormal && !isAbnormal) return 'improving';
-	if (wasAbnormal) return 'improving'; // still abnormal but going down
-	return 'approaching'; // was normal, going down
+/** Get trend color for display (abnormal context from lab's isAbnormal) */
+export function trendColor(trend: LabTrend, isAbnormal: boolean): string {
+	if (trend === 'stable') return 'var(--color-text-muted)';
+	// Rising/falling on abnormal = warning; on normal = neutral
+	if (isAbnormal) return 'var(--color-error)';
+	return 'var(--color-text-muted)';
 }
 
 // --- Timeline grouping ---
@@ -145,13 +117,13 @@ export function groupTimelineByDate(
 
 	const groups = new Map<string, CachedTimelineEvent[]>();
 
-	// Sort events by timestamp descending (most recent first)
+	// Sort events by date descending (most recent first)
 	const sorted = [...events].sort(
-		(a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+		(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
 	);
 
 	for (const event of sorted) {
-		const dateKey = formatDateKey(new Date(event.timestamp));
+		const dateKey = formatDateKey(new Date(event.date));
 		const existing = groups.get(dateKey);
 		if (existing) {
 			existing.push(event);
@@ -222,17 +194,11 @@ export function shareMedicationList(
 	profileName: string,
 	syncTimestamp: string | null
 ): SharePayload {
-	const active = medications.filter((m) => m.isActive);
+	const active = medications.filter((m) => m.status === 'active');
 	const lines: string[] = [];
 
-	const groups = groupMedicationsBySchedule(active);
-	for (const [group, meds] of Object.entries(groups)) {
-		if (meds.length === 0) continue;
-		lines.push(`${formatScheduleLabel(group as string)}:`);
-		for (const med of meds) {
-			lines.push(`  ${med.name} ${med.dose} - ${med.frequency}`);
-		}
-		lines.push('');
+	for (const med of active) {
+		lines.push(`${med.genericName} ${med.dose} - ${med.frequency}`);
 	}
 
 	return {
@@ -251,9 +217,14 @@ export function shareLabSummary(
 	profileName: string,
 	syncTimestamp: string | null
 ): SharePayload {
-	const lines = labs.map((lab) =>
-		`${lab.testName}: ${lab.value} ${lab.unit} (ref: ${lab.referenceMin}-${lab.referenceMax}) ${trendArrow(lab.trend)} ${trendLabel(lab.trendContext)}`
-	);
+	const lines = labs.map((lab) => {
+		const value = lab.valueText ?? String(lab.value ?? '');
+		const ref = (lab.referenceRangeLow != null && lab.referenceRangeHigh != null)
+			? ` (ref: ${lab.referenceRangeLow}-${lab.referenceRangeHigh})`
+			: '';
+		const trend = lab.trendDirection ? ` ${trendArrow(lab.trendDirection as LabTrend)}` : '';
+		return `${lab.testName}: ${value} ${lab.unit ?? ''}${ref}${trend}`;
+	});
 
 	return {
 		title: `Lab Summary \u2014 ${profileName}`,
@@ -344,34 +315,4 @@ function formatTimestamp(isoTimestamp: string): string {
 		month: 'short', day: 'numeric', year: 'numeric',
 		hour: 'numeric', minute: '2-digit'
 	});
-}
-
-function formatScheduleLabel(group: string): string {
-	switch (group) {
-		case 'morning': return 'Morning';
-		case 'evening': return 'Evening';
-		case 'as_needed': return 'As Needed';
-		case 'multiple': return 'Multiple Times Daily';
-		default: return group;
-	}
-}
-
-function groupMedicationsBySchedule(
-	meds: CachedMedication[]
-): Record<string, CachedMedication[]> {
-	const groups: Record<string, CachedMedication[]> = {
-		morning: [],
-		evening: [],
-		as_needed: [],
-		multiple: []
-	};
-
-	for (const med of meds) {
-		const g = groups[med.scheduleGroup];
-		if (g) {
-			g.push(med);
-		}
-	}
-
-	return groups;
 }

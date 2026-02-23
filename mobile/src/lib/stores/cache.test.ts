@@ -1,4 +1,4 @@
-// M1-03: Cache store tests — 12 tests
+// M1-03: Cache store tests — aligned CA-05 desktop types
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -9,7 +9,6 @@ import {
 	nextAppointment,
 	profile,
 	lastSyncTimestamp,
-	medicationsBySchedule,
 	activeMedicationCount,
 	discontinuedMedicationCount,
 	abnormalLabs,
@@ -23,14 +22,15 @@ import type { CachedMedication, CachedLabResult, CachedAlert } from '$lib/types/
 function makeMed(overrides: Partial<CachedMedication> = {}): CachedMedication {
 	return {
 		id: 'med-1',
-		name: 'Metformin',
+		genericName: 'Metformin',
 		dose: '500mg',
 		frequency: 'Twice daily',
-		prescriber: 'Dr. Chen',
-		purpose: 'For blood sugar',
-		scheduleGroup: 'morning',
-		since: '2024-01-15',
-		isActive: true,
+		route: 'oral',
+		status: 'active',
+		isOtc: false,
+		prescriberName: 'Dr. Chen',
+		condition: 'For blood sugar',
+		startDate: '2024-01-15',
 		...overrides
 	};
 }
@@ -41,70 +41,39 @@ function makeLab(overrides: Partial<CachedLabResult> = {}): CachedLabResult {
 		testName: 'HbA1c',
 		value: 7.2,
 		unit: '%',
-		referenceMin: 4.0,
-		referenceMax: 5.6,
+		referenceRangeLow: 4.0,
+		referenceRangeHigh: 5.6,
+		abnormalFlag: 'H',
 		isAbnormal: true,
-		trend: 'down',
-		trendContext: 'improving',
-		testedAt: '2026-02-08T10:00:00Z',
+		collectionDate: '2026-02-08T10:00:00Z',
+		trendDirection: 'down',
 		...overrides
 	};
 }
 
-describe('cache store — medication grouping', () => {
+describe('cache store — medication counts', () => {
 	beforeEach(() => clearCacheStores());
-
-	it('groups medications by schedule (Dr. Diallo)', () => {
-		const meds: CachedMedication[] = [
-			makeMed({ id: 'a', scheduleGroup: 'morning', name: 'Metformin' }),
-			makeMed({ id: 'b', scheduleGroup: 'morning', name: 'Lisinopril' }),
-			makeMed({ id: 'c', scheduleGroup: 'evening', name: 'Amlodipine' }),
-			makeMed({ id: 'd', scheduleGroup: 'as_needed', name: 'Paracetamol' }),
-			makeMed({ id: 'e', scheduleGroup: 'multiple', name: 'Metoprolol' }),
-			makeMed({ id: 'f', name: 'Atorvastatin', isActive: false })
-		];
-
-		medications.set(meds);
-		const groups = get(medicationsBySchedule);
-
-		expect(groups.morning).toHaveLength(2);
-		expect(groups.evening).toHaveLength(1);
-		expect(groups.as_needed).toHaveLength(1);
-		expect(groups.multiple).toHaveLength(1);
-		expect(groups.discontinued).toHaveLength(1);
-	});
 
 	it('counts active and discontinued medications separately', () => {
 		medications.set([
-			makeMed({ id: 'a', isActive: true }),
-			makeMed({ id: 'b', isActive: true }),
-			makeMed({ id: 'c', isActive: false }),
+			makeMed({ id: 'a', status: 'active' }),
+			makeMed({ id: 'b', status: 'active' }),
+			makeMed({ id: 'c', status: 'discontinued' }),
 		]);
 
 		expect(get(activeMedicationCount)).toBe(2);
 		expect(get(discontinuedMedicationCount)).toBe(1);
-	});
-
-	it('separates active from discontinued (Dr. Diallo)', () => {
-		medications.set([
-			makeMed({ id: 'active', isActive: true }),
-			makeMed({ id: 'disc', isActive: false })
-		]);
-
-		const groups = get(medicationsBySchedule);
-		expect(groups.morning.every((m) => m.isActive)).toBe(true);
-		expect(groups.discontinued.every((m) => !m.isActive)).toBe(true);
 	});
 });
 
 describe('cache store — lab results', () => {
 	beforeEach(() => clearCacheStores());
 
-	it('sorts lab results by date (most recent first, Dr. Diallo)', () => {
+	it('sorts lab results by collection date (most recent first, Dr. Diallo)', () => {
 		labResults.set([
-			makeLab({ id: 'old', testName: 'Glucose', testedAt: '2026-01-15T10:00:00Z' }),
-			makeLab({ id: 'new', testName: 'HbA1c', testedAt: '2026-02-08T10:00:00Z' }),
-			makeLab({ id: 'mid', testName: 'Creatinine', testedAt: '2026-02-01T10:00:00Z' })
+			makeLab({ id: 'old', testName: 'Glucose', collectionDate: '2026-01-15T10:00:00Z' }),
+			makeLab({ id: 'new', testName: 'HbA1c', collectionDate: '2026-02-08T10:00:00Z' }),
+			makeLab({ id: 'mid', testName: 'Creatinine', collectionDate: '2026-02-01T10:00:00Z' })
 		]);
 
 		const sorted = get(labResultsSorted);
@@ -126,13 +95,13 @@ describe('cache store — lab results', () => {
 		expect(abnormal.map((l) => l.testName)).toContain('HbA1c');
 	});
 
-	it('reference ranges always present (Dr. Diallo)', () => {
-		const lab = makeLab({ referenceMin: 3.5, referenceMax: 5.0 });
+	it('reference ranges present when provided', () => {
+		const lab = makeLab({ referenceRangeLow: 3.5, referenceRangeHigh: 5.0 });
 		labResults.set([lab]);
 
 		const result = get(labResults)[0];
-		expect(result.referenceMin).toBe(3.5);
-		expect(result.referenceMax).toBe(5.0);
+		expect(result.referenceRangeLow).toBe(3.5);
+		expect(result.referenceRangeHigh).toBe(5.0);
 	});
 });
 
@@ -156,15 +125,15 @@ describe('cache store — alerts and load/clear', () => {
 			labResults: [makeLab()],
 			timelineEvents: [],
 			alerts: [],
-			appointment: { id: 'apt-1', doctorName: 'Dr. Chen', date: '2026-02-14', hasPrepData: false },
-			profile: { name: 'Mamadou', allergies: ['Penicillin'], emergencyContacts: [] },
+			appointment: { id: 'apt-1', professionalName: 'Dr. Chen', date: '2026-02-14', prepAvailable: false, appointmentType: 'Follow-up' },
+			profile: { profileName: 'Mamadou', totalDocuments: 5, extractionAccuracy: 0.88, allergies: [{ allergen: 'Penicillin', severity: 'high', verified: true }] },
 			syncTimestamp: '2026-02-12T09:30:00Z'
 		});
 
 		expect(get(medications)).toHaveLength(1);
 		expect(get(labResults)).toHaveLength(1);
-		expect(get(nextAppointment)?.doctorName).toBe('Dr. Chen');
-		expect(get(profile)?.name).toBe('Mamadou');
+		expect(get(nextAppointment)?.professionalName).toBe('Dr. Chen');
+		expect(get(profile)?.profileName).toBe('Mamadou');
 		expect(get(lastSyncTimestamp)).toBe('2026-02-12T09:30:00Z');
 	});
 
@@ -174,8 +143,8 @@ describe('cache store — alerts and load/clear', () => {
 			labResults: [makeLab()],
 			timelineEvents: [],
 			alerts: [],
-			appointment: { id: 'apt-1', doctorName: 'Dr. Chen', date: '2026-02-14', hasPrepData: false },
-			profile: { name: 'Mamadou', allergies: [], emergencyContacts: [] },
+			appointment: { id: 'apt-1', professionalName: 'Dr. Chen', date: '2026-02-14', prepAvailable: false, appointmentType: 'Follow-up' },
+			profile: { profileName: 'Mamadou', totalDocuments: 3, extractionAccuracy: 0.85, allergies: [] },
 			syncTimestamp: '2026-02-12T09:30:00Z'
 		});
 

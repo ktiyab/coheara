@@ -1,51 +1,24 @@
-// M0-04: Sync Engine types — request/response, sync state, auto-sync
+// M0-04: Sync Engine types — aligned with desktop sync.rs (CA-05)
 import type { SyncVersions } from './cache-manager.js';
-import type { JournalEntry, JournalCorrelation } from './journal.js';
-import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment, EmergencyContact } from './viewer.js';
+import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment, CachedProfile } from './viewer.js';
 
 // === SYNC REQUEST (phone → desktop) ===
 
 export interface SyncRequest {
 	versions: SyncVersions;
-	journal_entries?: SyncJournalEntry[];
 }
 
-/** Journal entry serialized for sync (camelCase → snake_case for API) */
-export interface SyncJournalEntry {
-	id: string;
-	severity: number;
-	body_location: string;
-	free_text: string;
-	activity_context: string;
-	symptom_chip: string | null;
-	oldcarts_json: string | null;
-	created_at: string;
-}
-
-// === SYNC RESPONSE (desktop → phone) ===
+// === SYNC RESPONSE (desktop → phone) — matches desktop SyncResponse ===
 
 export interface SyncResponse {
 	medications?: CachedMedication[];
 	labs?: CachedLabResult[];
 	timeline?: CachedTimelineEvent[];
 	alerts?: CachedAlert[];
-	appointment?: CachedAppointment | null;
-	profile?: SyncProfile;
+	appointment?: CachedAppointment;
+	profile?: CachedProfile;
 	versions: SyncVersions;
-	synced_at: string;
-	journal_sync?: JournalSyncResponse;
-}
-
-export interface SyncProfile {
-	name: string;
-	blood_type: string;
-	allergies: string[];
-	emergency_contacts: EmergencyContact[];
-}
-
-export interface JournalSyncResponse {
-	synced_ids: string[];
-	correlations: JournalCorrelation[];
+	syncedAt: string;
 }
 
 // === SYNC MANAGER STATE ===

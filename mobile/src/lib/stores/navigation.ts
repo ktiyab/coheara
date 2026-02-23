@@ -2,7 +2,7 @@
 import { writable, derived } from 'svelte/store';
 import type { TabId, TabConfig } from '$lib/types/index.js';
 
-/** Static tab configuration — order defines display order */
+/** Static tab configuration — mirrors desktop nav: Home, Ask, Documents, Timeline, Settings */
 export const TAB_CONFIGS: readonly TabConfig[] = [
 	{
 		id: 'home',
@@ -12,31 +12,31 @@ export const TAB_CONFIGS: readonly TabConfig[] = [
 		offlineAvailable: true
 	},
 	{
-		id: 'chat',
-		label: 'Chat',
+		id: 'ask',
+		label: 'Ask',
 		icon: '\uD83D\uDCAC',
-		ariaLabel: 'Chat with Coheara AI',
+		ariaLabel: 'Ask Coheara AI about your health',
 		offlineAvailable: false
 	},
 	{
-		id: 'meds',
-		label: 'Meds',
-		icon: '\uD83D\uDC8A',
-		ariaLabel: 'Medication list by schedule',
+		id: 'documents',
+		label: 'Docs',
+		icon: '\uD83D\uDCC4',
+		ariaLabel: 'Documents and uploads',
 		offlineAvailable: true
 	},
 	{
-		id: 'journal',
-		label: 'Log',
-		icon: '\uD83D\uDCDD',
-		ariaLabel: 'Symptom journal and history',
+		id: 'timeline',
+		label: 'Timeline',
+		icon: '\uD83D\uDCC5',
+		ariaLabel: 'Health timeline with events and trends',
 		offlineAvailable: true
 	},
 	{
-		id: 'more',
-		label: 'More',
-		icon: '\u22EF',
-		ariaLabel: 'More options: timeline, appointments, settings',
+		id: 'settings',
+		label: 'Settings',
+		icon: '\u2699\uFE0F',
+		ariaLabel: 'Connection and preferences',
 		offlineAvailable: true
 	}
 ] as const;
@@ -57,13 +57,13 @@ export const currentTabOffline = derived(activeTab, ($tab) =>
 	TAB_CONFIGS.find((t) => t.id === $tab)?.offlineAvailable ?? false
 );
 
-/** Route path for each tab */
+/** Route path for each tab — mirrors desktop nav structure */
 const TAB_ROUTES: Record<TabId, string> = {
 	home: '/',
-	chat: '/chat',
-	meds: '/meds',
-	journal: '/journal',
-	more: '/more'
+	ask: '/ask',
+	documents: '/documents',
+	timeline: '/timeline',
+	settings: '/settings'
 };
 
 /** Navigate to a tab */

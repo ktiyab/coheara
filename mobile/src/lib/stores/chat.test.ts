@@ -1,4 +1,4 @@
-// M1-02: Chat store tests — 26 tests
+// M1-02: Chat store tests — CA-07: phone receives complete answer in one ChatComplete
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -9,7 +9,7 @@ import {
 	deferredQuestions,
 	isStreaming,
 	inputDisabled,
-	streamingContent,
+	processingStage,
 	deferredCount,
 	DEFAULT_QUICK_QUESTIONS,
 	startQuery,
@@ -25,9 +25,9 @@ import {
 	resetChatState
 } from './chat.js';
 import type { ChatMessage, ConversationSummary, Citation, WsCitationRef } from '$lib/types/chat.js';
-import { LOADING_TIMEOUT_MS, TOKEN_TIMEOUT_MS } from '$lib/types/chat.js';
+import { PROCESSING_TIMEOUT_MS } from '$lib/types/chat.js';
 
-describe('chat store — connected chat flow', () => {
+describe('chat store — processing flow (CA-07: no token buffering)', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		resetChatState();
@@ -37,38 +37,13 @@ describe('chat store — connected chat flow', () => {
 		vi.useRealTimers();
 	});
 
-	it('sends a query and transitions through loading → streaming → complete', () => {
-		// Start query
+	it('transitions processing → complete when ChatComplete arrives with full content', () => {
 		startQuery('live');
-		expect(get(streamState).phase).toBe('loading');
+		expect(get(streamState).phase).toBe('processing');
 		expect(get(isStreaming)).toBe(true);
 		expect(get(inputDisabled)).toBe(true);
 
-		// Receive first token
-		handleWsChatMessage({
-			type: 'ChatToken',
-			conversation_id: 'conv-1',
-			token: 'Based '
-		});
-		expect(get(streamState).phase).toBe('streaming');
-		expect(get(streamingContent)).toBe('Based ');
-
-		// Receive more tokens
-		handleWsChatMessage({
-			type: 'ChatToken',
-			conversation_id: 'conv-1',
-			token: 'on your '
-		});
-		expect(get(streamingContent)).toBe('Based on your ');
-
-		handleWsChatMessage({
-			type: 'ChatToken',
-			conversation_id: 'conv-1',
-			token: 'records...'
-		});
-		expect(get(streamingContent)).toBe('Based on your records...');
-
-		// Complete with citations (WsCitationRef format from desktop)
+		// Desktop sends complete answer in one message
 		const wsCitations: WsCitationRef[] = [{
 			document_id: 'doc-1',
 			document_title: 'Prescription 02/2024'
@@ -77,6 +52,7 @@ describe('chat store — connected chat flow', () => {
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'conv-1',
+			content: 'Based on your records, you are taking Lisinopril 10mg.',
 			citations: wsCitations
 		});
 
@@ -84,13 +60,29 @@ describe('chat store — connected chat flow', () => {
 		expect(get(isStreaming)).toBe(false);
 		expect(get(inputDisabled)).toBe(false);
 
-		// Message added to messages list
+		// Full message appears at once
 		const msgs = get(messages);
 		expect(msgs).toHaveLength(1);
 		expect(msgs[0].role).toBe('coheara');
-		expect(msgs[0].content).toBe('Based on your records...');
+		expect(msgs[0].content).toBe('Based on your records, you are taking Lisinopril 10mg.');
 		expect(msgs[0].citations).toHaveLength(1);
 		expect(msgs[0].citations[0].documentTitle).toBe('Prescription 02/2024');
+	});
+
+	it('ignores ChatToken — phone does not buffer tokens', () => {
+		startQuery('live');
+		expect(get(streamState).phase).toBe('processing');
+
+		// Desktop may still send ChatToken (backward compat) — phone ignores it
+		handleWsChatMessage({
+			type: 'ChatToken',
+			conversation_id: 'conv-1',
+			token: 'Based '
+		});
+
+		// Still processing, no state change
+		expect(get(streamState).phase).toBe('processing');
+		expect(get(messages)).toHaveLength(0);
 	});
 
 	it('adds patient message before sending query', () => {
@@ -104,19 +96,14 @@ describe('chat store — connected chat flow', () => {
 		expect(msgs[0].content).toBe('What am I taking for BP?');
 	});
 
-	it('handles conversation ID assignment after first response', () => {
+	it('assigns conversation ID from ChatComplete', () => {
 		addPatientMessage(null, 'Hello');
 		startQuery('live');
 
 		handleWsChatMessage({
-			type: 'ChatToken',
-			conversation_id: 'conv-new',
-			token: 'Hello! '
-		});
-
-		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'conv-new',
+			content: 'Hello! How can I help?',
 			citations: []
 		});
 
@@ -128,25 +115,9 @@ describe('chat store — connected chat flow', () => {
 		const msgs = get(messages);
 		expect(msgs[0].conversationId).toBe('conv-1');
 	});
-
-	it('resets streaming content on new query', () => {
-		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'first' });
-		expect(get(streamingContent)).toBe('first');
-
-		handleWsChatMessage({
-			type: 'ChatComplete',
-			conversation_id: 'c1',
-			citations: []
-		});
-
-		// Start another query
-		startQuery('live');
-		expect(get(streamingContent)).toBe('');
-	});
 });
 
-describe('chat store — streaming UX states', () => {
+describe('chat store — processing stages and timeout', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		resetChatState();
@@ -156,11 +127,25 @@ describe('chat store — streaming UX states', () => {
 		vi.useRealTimers();
 	});
 
-	it('times out if no tokens arrive within loading timeout', () => {
+	it('shows time-based processing stages', () => {
 		startQuery('live');
-		expect(get(streamState).phase).toBe('loading');
+		expect(get(processingStage)).toContain('Searching');
 
-		vi.advanceTimersByTime(LOADING_TIMEOUT_MS + 100);
+		vi.advanceTimersByTime(4_000);
+		expect(get(processingStage)).toContain('Found relevant');
+
+		vi.advanceTimersByTime(5_000); // 9s total
+		expect(get(processingStage)).toContain('Analyzing');
+
+		vi.advanceTimersByTime(7_000); // 16s total
+		expect(get(processingStage)).toContain('notify you when ready');
+	});
+
+	it('times out if no ChatComplete within processing timeout', () => {
+		startQuery('live');
+		expect(get(streamState).phase).toBe('processing');
+
+		vi.advanceTimersByTime(PROCESSING_TIMEOUT_MS + 100);
 
 		const state = get(streamState);
 		expect(state.phase).toBe('error');
@@ -169,24 +154,8 @@ describe('chat store — streaming UX states', () => {
 		}
 	});
 
-	it('times out if token stream stalls during streaming', () => {
+	it('handles ChatError during processing', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'partial...' });
-		expect(get(streamState).phase).toBe('streaming');
-
-		vi.advanceTimersByTime(TOKEN_TIMEOUT_MS + 100);
-
-		const state = get(streamState);
-		expect(state.phase).toBe('error');
-		if (state.phase === 'error') {
-			expect(state.message).toContain('Connection lost');
-			expect(state.partial).toBe('partial...');
-		}
-	});
-
-	it('handles error during streaming with partial content', () => {
-		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'So far...' });
 
 		handleWsChatMessage({
 			type: 'ChatError',
@@ -198,11 +167,10 @@ describe('chat store — streaming UX states', () => {
 		expect(state.phase).toBe('error');
 		if (state.phase === 'error') {
 			expect(state.message).toBe('Desktop disconnected');
-			expect(state.partial).toBe('So far...');
 		}
 	});
 
-	it('handles error before any tokens arrive', () => {
+	it('handles ChatError before processing starts', () => {
 		startQuery('live');
 
 		handleWsChatMessage({
@@ -213,9 +181,6 @@ describe('chat store — streaming UX states', () => {
 
 		const state = get(streamState);
 		expect(state.phase).toBe('error');
-		if (state.phase === 'error') {
-			expect(state.partial).toBeUndefined();
-		}
 	});
 });
 
@@ -231,10 +196,10 @@ describe('chat store — citation handling', () => {
 
 	it('attaches citations to completed message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'c1',
+			content: 'Your lab results show...',
 			citations: [
 				{ document_id: 'doc-1', document_title: 'Lab Report' },
 				{ document_id: 'doc-2', document_title: 'Prescription' }
@@ -249,10 +214,10 @@ describe('chat store — citation handling', () => {
 
 	it('handles message with zero citations', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'General info' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'c1',
+			content: 'General health information.',
 			citations: []
 		});
 
@@ -262,10 +227,10 @@ describe('chat store — citation handling', () => {
 
 	it('preserves citation document ID after mapping', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Check' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'c1',
+			content: 'Check your blood work.',
 			citations: [{
 				document_id: 'doc-xyz',
 				document_title: 'Blood Work'
@@ -290,10 +255,10 @@ describe('chat store — feedback', () => {
 
 	it('sets helpful feedback on a message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'c1',
+			content: 'Answer',
 			citations: []
 		});
 
@@ -306,10 +271,10 @@ describe('chat store — feedback', () => {
 
 	it('sets not-helpful feedback on a message', () => {
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Answer' });
 		handleWsChatMessage({
 			type: 'ChatComplete',
 			conversation_id: 'c1',
+			content: 'Answer',
 			citations: []
 		});
 
@@ -319,21 +284,18 @@ describe('chat store — feedback', () => {
 	});
 
 	it('feedback only affects the targeted message', () => {
-		// Add two Coheara messages
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'First' });
-		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', citations: [] });
+		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', content: 'First', citations: [] });
 
 		startQuery('live');
-		handleWsChatMessage({ type: 'ChatToken', conversation_id: 'c1', token: 'Second' });
-		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', citations: [] });
+		handleWsChatMessage({ type: 'ChatComplete', conversation_id: 'c1', content: 'Second', citations: [] });
 
 		const firstMsgId = get(messages)[0].id;
 		setMessageFeedback(firstMsgId, true);
 
 		const msgs = get(messages);
 		expect(msgs[0].feedback).toBe('helpful');
-		expect(msgs[1].feedback).toBeNull(); // Untouched
+		expect(msgs[1].feedback).toBeNull();
 	});
 });
 
@@ -374,7 +336,7 @@ describe('chat store — offline behavior', () => {
 		deferQuestion('Saved question');
 		expect(get(deferredCount)).toBe(1);
 
-		clearConversation(); // Clear messages but not deferred
+		clearConversation();
 		expect(get(deferredCount)).toBe(1);
 	});
 });
@@ -474,18 +436,10 @@ describe('chat store — conversation history', () => {
 
 describe('chat store — disclaimer', () => {
 	it('disclaimer text is defined as a constant requirement', () => {
-		// The disclaimer is implemented as a component (ChatDisclaimer.svelte)
-		// that is always rendered below the messages area.
-		// This test verifies the store doesn't interfere with disclaimer visibility.
 		resetChatState();
-
-		// Empty state — disclaimer should still be visible (component responsibility)
 		expect(get(streamState).phase).toBe('idle');
 
-		// After messages — disclaimer should still be visible
 		addPatientMessage(null, 'Hello');
 		expect(get(messages)).toHaveLength(1);
-		// Disclaimer visibility is always true — no store flag can disable it
-		// (Dr. Diallo requirement: persistent on every chat screen)
 	});
 });

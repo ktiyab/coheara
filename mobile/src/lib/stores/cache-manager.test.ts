@@ -1,4 +1,4 @@
-// M1-06: Cache Manager tests — 40 tests
+// M1-06: Cache Manager tests — aligned CA-05 desktop types
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -45,26 +45,27 @@ function makeVersions(v: number = 1): SyncVersions {
 
 function makeMed(overrides: Partial<CachedMedication> = {}): CachedMedication {
 	return {
-		id: 'med-1', name: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
-		prescriber: 'Dr. Ndiaye', purpose: 'Blood pressure', scheduleGroup: 'morning',
-		since: '2025-01-01', isActive: true, ...overrides
+		id: 'med-1', genericName: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
+		route: 'oral', status: 'active', isOtc: false,
+		prescriberName: 'Dr. Ndiaye', condition: 'Blood pressure',
+		startDate: '2025-01-01', ...overrides
 	};
 }
 
 function makeLab(overrides: Partial<CachedLabResult> = {}): CachedLabResult {
 	return {
 		id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%',
-		referenceMin: 4, referenceMax: 5.6, isAbnormal: true,
-		trend: 'up', trendContext: 'worsening', testedAt: '2025-06-01',
-		...overrides
+		referenceRangeLow: 4, referenceRangeHigh: 5.6, abnormalFlag: 'H',
+		isAbnormal: true, collectionDate: '2025-06-01',
+		trendDirection: 'up', ...overrides
 	};
 }
 
 function makeEvent(overrides: Partial<CachedTimelineEvent> = {}): CachedTimelineEvent {
 	return {
-		id: 'event-1', eventType: 'medication_change', title: 'Lisinopril started',
-		description: 'Started 10mg', timestamp: '2025-06-01',
-		isPatientReported: false, ...overrides
+		id: 'event-1', eventType: 'medication_change', category: 'Medications',
+		description: 'Lisinopril started 10mg', date: '2025-06-01',
+		stillActive: false, ...overrides
 	};
 }
 
@@ -78,18 +79,18 @@ function makeAlert(overrides: Partial<CachedAlert> = {}): CachedAlert {
 
 function makePayload(overrides: Partial<SyncPayload> = {}): SyncPayload {
 	return {
-		profile: { name: 'Thomas', blood_type: 'O+', allergies: ['Penicillin'], emergency_contacts: [] },
+		profile: { profileName: 'Thomas', totalDocuments: 8, extractionAccuracy: 0.89, allergies: [{ allergen: 'Penicillin', severity: 'high', verified: true }] },
 		medications: [makeMed()],
 		labs: [makeLab()],
 		timeline: [makeEvent()],
 		alerts: [makeAlert()],
 		appointment: {
-			id: 'appt-1', doctorName: 'Dr. Chen',
-			date: '2026-03-01T10:00:00Z', hasPrepData: true,
-			location: 'Central Hospital', purpose: 'Follow-up'
+			id: 'appt-1', professionalName: 'Dr. Chen',
+			date: '2026-03-01T10:00:00Z', prepAvailable: true,
+			appointmentType: 'Follow-up'
 		},
 		versions: makeVersions(1),
-		synced_at: new Date().toISOString(),
+		syncedAt: new Date().toISOString(),
 		...overrides
 	};
 }
@@ -168,8 +169,8 @@ describe('cache-manager — full sync', () => {
 		expect(get(timelineEvents)).toHaveLength(1);
 		expect(get(activeAlerts)).toHaveLength(1);
 		expect(get(nextAppointment)).not.toBeNull();
-		expect(get(profile)?.name).toBe('Thomas');
-		expect(get(profile)?.bloodType).toBe('O+');
+		expect(get(profile)?.profileName).toBe('Thomas');
+		expect(get(profile)?.totalDocuments).toBe(8);
 		expect(get(lastSyncTimestamp)).toBeTruthy();
 	});
 
@@ -185,12 +186,12 @@ describe('cache-manager — full sync', () => {
 	});
 
 	it('replaces all data on subsequent full sync', () => {
-		applySyncPayload(makePayload({ medications: [makeMed(), makeMed({ id: 'med-2', name: 'Metformin' })] }));
+		applySyncPayload(makePayload({ medications: [makeMed(), makeMed({ id: 'med-2', genericName: 'Metformin' })] }));
 		expect(get(medications)).toHaveLength(2);
 
-		applySyncPayload(makePayload({ medications: [makeMed({ id: 'med-3', name: 'Aspirin' })] }));
+		applySyncPayload(makePayload({ medications: [makeMed({ id: 'med-3', genericName: 'Aspirin' })] }));
 		expect(get(medications)).toHaveLength(1);
-		expect(get(medications)[0].name).toBe('Aspirin');
+		expect(get(medications)[0].genericName).toBe('Aspirin');
 	});
 });
 
@@ -204,9 +205,9 @@ describe('cache-manager — delta sync', () => {
 
 	it('adds new medication via delta', () => {
 		const delta: DeltaPayload = {
-			medications: [makeMed({ id: 'med-new', name: 'Metformin' })],
+			medications: [makeMed({ id: 'med-new', genericName: 'Metformin' })],
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 		expect(get(medications)).toHaveLength(2);
@@ -216,7 +217,7 @@ describe('cache-manager — delta sync', () => {
 		const delta: DeltaPayload = {
 			medications: [makeMed({ id: 'med-1', dose: '20mg' })],
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 		expect(get(medications)).toHaveLength(1);
@@ -227,7 +228,7 @@ describe('cache-manager — delta sync', () => {
 		const delta: DeltaPayload = {
 			removed_medication_ids: ['med-1'],
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 		expect(get(medications)).toHaveLength(0);
@@ -237,27 +238,27 @@ describe('cache-manager — delta sync', () => {
 		const delta: DeltaPayload = {
 			removed_alert_ids: ['alert-1'],
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 		expect(get(activeAlerts)).toHaveLength(0);
 	});
 
-	it('updates appointment to null via delta', () => {
+	it('updates appointment to undefined via delta', () => {
 		const delta: DeltaPayload = {
-			appointment: null,
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
+		// appointment not in delta = no change; explicitly undefined check handled by desktop
 		applyDeltaPayload(delta);
-		expect(get(nextAppointment)).toBeNull();
+		expect(get(nextAppointment)).not.toBeNull();
 	});
 
 	it('updates sync timestamp after delta', () => {
 		const syncTime = '2026-02-15T12:00:00Z';
 		const delta: DeltaPayload = {
 			versions: makeVersions(2),
-			synced_at: syncTime
+			syncedAt: syncTime
 		};
 		applyDeltaPayload(delta);
 		expect(get(lastSyncTimestamp)).toBe(syncTime);
@@ -272,8 +273,9 @@ describe('cache-manager — appointment cleanup', () => {
 	it('removes expired appointment', () => {
 		applySyncPayload(makePayload({
 			appointment: {
-				id: 'appt-1', doctorName: 'Dr. Chen',
-				date: '2020-01-01T10:00:00Z', hasPrepData: false
+				id: 'appt-1', professionalName: 'Dr. Chen',
+				date: '2020-01-01T10:00:00Z', prepAvailable: false,
+				appointmentType: 'Follow-up'
 			}
 		}));
 		const removed = cleanupExpiredAppointment(new Date('2026-02-15'));
@@ -284,8 +286,9 @@ describe('cache-manager — appointment cleanup', () => {
 	it('preserves future appointment', () => {
 		applySyncPayload(makePayload({
 			appointment: {
-				id: 'appt-1', doctorName: 'Dr. Chen',
-				date: '2030-01-01T10:00:00Z', hasPrepData: false
+				id: 'appt-1', professionalName: 'Dr. Chen',
+				date: '2030-01-01T10:00:00Z', prepAvailable: false,
+				appointmentType: 'Check-up'
 			}
 		}));
 		const removed = cleanupExpiredAppointment(new Date('2026-02-15'));
@@ -400,7 +403,7 @@ describe('cache-manager — combined delta sync', () => {
 	beforeEach(() => {
 		resetCacheManagerState();
 		applySyncPayload(makePayload({
-			medications: [makeMed({ id: 'med-1' }), makeMed({ id: 'med-2', name: 'Metformin' })],
+			medications: [makeMed({ id: 'med-1' }), makeMed({ id: 'med-2', genericName: 'Metformin' })],
 			labs: [makeLab({ id: 'lab-1' }), makeLab({ id: 'lab-2', testName: 'Creatinine' })],
 			timeline: [makeEvent({ id: 'event-1' })],
 			alerts: [makeAlert({ id: 'alert-1' }), makeAlert({ id: 'alert-2', title: 'Drug allergy' })]
@@ -409,13 +412,13 @@ describe('cache-manager — combined delta sync', () => {
 
 	it('applies upserts and tombstones across multiple entity types simultaneously', () => {
 		const delta: DeltaPayload = {
-			medications: [makeMed({ id: 'med-3', name: 'Aspirin' })],
+			medications: [makeMed({ id: 'med-3', genericName: 'Aspirin' })],
 			removed_medication_ids: ['med-1'],
 			labs: [makeLab({ id: 'lab-1', value: 6.5 })],
 			removed_alert_ids: ['alert-2'],
-			timeline: [makeEvent({ id: 'event-2', title: 'New event' })],
+			timeline: [makeEvent({ id: 'event-2', category: 'Lab Results', description: 'New event' })],
 			versions: makeVersions(2),
-			synced_at: '2026-02-15T12:00:00Z'
+			syncedAt: '2026-02-15T12:00:00Z'
 		};
 		applyDeltaPayload(delta);
 
@@ -442,7 +445,7 @@ describe('cache-manager — combined delta sync', () => {
 			medications: [makeMed({ id: 'med-1', dose: '20mg' })],
 			removed_medication_ids: ['med-2'],
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 
@@ -454,14 +457,14 @@ describe('cache-manager — combined delta sync', () => {
 
 	it('delta with profile update preserves other entity stores', () => {
 		const delta: DeltaPayload = {
-			profile: { name: 'Thomas K.', blood_type: 'A+', allergies: ['Sulfa'], emergency_contacts: [] },
+			profile: { profileName: 'Thomas K.', totalDocuments: 15, extractionAccuracy: 0.95, allergies: [{ allergen: 'Sulfa', severity: 'moderate', verified: true }] },
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 
-		expect(get(profile)?.name).toBe('Thomas K.');
-		expect(get(profile)?.bloodType).toBe('A+');
+		expect(get(profile)?.profileName).toBe('Thomas K.');
+		expect(get(profile)?.extractionAccuracy).toBe(0.95);
 		// Other stores untouched
 		expect(get(medications)).toHaveLength(2);
 		expect(get(labResults)).toHaveLength(2);
@@ -471,7 +474,7 @@ describe('cache-manager — combined delta sync', () => {
 	it('empty delta (versions-only) leaves stores unchanged', () => {
 		const delta: DeltaPayload = {
 			versions: makeVersions(2),
-			synced_at: '2026-02-15T12:00:00Z'
+			syncedAt: '2026-02-15T12:00:00Z'
 		};
 		applyDeltaPayload(delta);
 
@@ -483,64 +486,65 @@ describe('cache-manager — combined delta sync', () => {
 	});
 });
 
-// === EMERGENCY CONTACTS SYNC (RS-M1-06-003) ===
+// === PROFILE ALLERGIES SYNC ===
 
-describe('cache-manager — emergency contacts', () => {
+describe('cache-manager — profile allergies', () => {
 	beforeEach(() => resetCacheManagerState());
 
-	it('preserves emergency contacts through full sync', () => {
+	it('preserves structured allergies through full sync', () => {
 		applySyncPayload(makePayload({
 			profile: {
-				name: 'Thomas',
-				blood_type: 'O+',
-				allergies: ['Penicillin'],
-				emergency_contacts: [
-					{ name: 'Amina K.', phone: '+221771234567', relation: 'spouse' },
-					{ name: 'Dr. Diallo', phone: '+221779876543', relation: 'physician' }
+				profileName: 'Thomas',
+				totalDocuments: 8,
+				extractionAccuracy: 0.89,
+				allergies: [
+					{ allergen: 'Penicillin', severity: 'high', verified: true },
+					{ allergen: 'Aspirin', severity: 'moderate', verified: false }
 				]
 			}
 		}));
 
 		const p = get(profile);
-		expect(p?.emergencyContacts).toHaveLength(2);
-		expect(p?.emergencyContacts[0].name).toBe('Amina K.');
-		expect(p?.emergencyContacts[0].phone).toBe('+221771234567');
-		expect(p?.emergencyContacts[0].relation).toBe('spouse');
-		expect(p?.emergencyContacts[1].relation).toBe('physician');
+		expect(p?.allergies).toHaveLength(2);
+		expect(p?.allergies[0].allergen).toBe('Penicillin');
+		expect(p?.allergies[0].severity).toBe('high');
+		expect(p?.allergies[0].verified).toBe(true);
+		expect(p?.allergies[1].allergen).toBe('Aspirin');
 	});
 
-	it('preserves emergency contacts through delta sync', () => {
+	it('preserves structured allergies through delta sync', () => {
 		applySyncPayload(makePayload());
 
 		const delta: DeltaPayload = {
 			profile: {
-				name: 'Thomas',
-				allergies: ['Penicillin', 'Sulfa'],
-				emergency_contacts: [
-					{ name: 'Amina K.', phone: '+221771234567', relation: 'spouse' }
+				profileName: 'Thomas',
+				totalDocuments: 10,
+				extractionAccuracy: 0.91,
+				allergies: [
+					{ allergen: 'Penicillin', severity: 'high', verified: true },
+					{ allergen: 'Sulfa', severity: 'low', verified: false }
 				]
 			},
 			versions: makeVersions(2),
-			synced_at: new Date().toISOString()
+			syncedAt: new Date().toISOString()
 		};
 		applyDeltaPayload(delta);
 
 		const p = get(profile);
-		expect(p?.emergencyContacts).toHaveLength(1);
-		expect(p?.emergencyContacts[0].name).toBe('Amina K.');
-		expect(p?.allergies).toEqual(['Penicillin', 'Sulfa']);
+		expect(p?.allergies).toHaveLength(2);
+		expect(p?.allergies[1].allergen).toBe('Sulfa');
 	});
 
-	it('handles empty emergency contacts', () => {
+	it('handles empty allergies', () => {
 		applySyncPayload(makePayload({
 			profile: {
-				name: 'Thomas',
-				blood_type: 'O+',
-				allergies: [],
-				emergency_contacts: []
+				profileName: 'Thomas',
+				totalDocuments: 5,
+				extractionAccuracy: 0.85,
+				allergies: []
 			}
 		}));
 
-		expect(get(profile)?.emergencyContacts).toEqual([]);
+		expect(get(profile)?.allergies).toEqual([]);
 	});
 });

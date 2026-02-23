@@ -87,16 +87,42 @@ async fn require_auth_inner(
         lockout.clear(&lockout_source);
     }
 
-    // 3. Inject device context for downstream handlers
+    // 3. Optionally update device metadata from signature headers (CA-01)
+    //    Enriches Paired Devices view with current device name/model/OS.
+    let header_name = req
+        .headers()
+        .get("X-Device-Name")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let header_model = req
+        .headers()
+        .get("X-Device-Model")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    if header_name.is_some() || header_model.is_some() {
+        if let Ok(mut devices) = ctx.core.write_devices() {
+            devices.update_device_metadata(
+                &device_id,
+                header_name.as_deref(),
+                header_model.as_deref(),
+            );
+        }
+    }
+
+    // Use latest device_name (may have been updated from header)
+    let display_name = header_name.unwrap_or(device_name);
+
+    // 4. Inject device context for downstream handlers
     req.extensions_mut().insert(DeviceContext {
         device_id,
-        device_name,
+        device_name: display_name,
     });
 
-    // 4. Process request
+    // 5. Process request
     let mut response = next.run(req).await;
 
-    // 5. Include rotated token + cache control in response
+    // 6. Include rotated token + cache control in response
     if let Ok(val) = HeaderValue::from_str(&new_token) {
         response.headers_mut().insert("X-New-Token", val);
     }

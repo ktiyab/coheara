@@ -14,7 +14,7 @@ describe('screenshot prevention', () => {
 		expect(isSensitiveScreen('medications')).toBe(true);
 		expect(isSensitiveScreen('labs')).toBe(true);
 		expect(isSensitiveScreen('alerts')).toBe(true);
-		expect(isSensitiveScreen('chat')).toBe(true);
+		expect(isSensitiveScreen('ask')).toBe(true);
 		expect(isSensitiveScreen('journal')).toBe(true);
 		expect(isSensitiveScreen('appointment_prep')).toBe(true);
 

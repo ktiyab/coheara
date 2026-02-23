@@ -39,13 +39,14 @@ export interface ConversationSummary {
 	source: ChatSource;
 }
 
-/** Streaming state machine */
+/** Processing state machine.
+ *  Phone does NOT stream tokens — desktop delivers the complete answer
+ *  in one ChatComplete message. No buffering needed on phone. */
 export type StreamState =
 	| { phase: 'idle' }
-	| { phase: 'loading'; startedAt: number }
-	| { phase: 'streaming'; tokens: string; conversationId: string }
+	| { phase: 'processing'; startedAt: number }
 	| { phase: 'complete'; messageId: string; conversationId: string }
-	| { phase: 'error'; message: string; partial?: string };
+	| { phase: 'error'; message: string };
 
 /** Quick question suggestion (Mamadou) */
 export interface QuickQuestion {
@@ -62,10 +63,11 @@ export interface DeferredQuestion {
 }
 
 /** WebSocket incoming chat messages (from desktop).
- *  Field names use snake_case to match Rust serde serialization. */
+ *  Field names use snake_case to match Rust serde serialization.
+ *  Phone ignores ChatToken — only processes ChatComplete (full answer in one shot). */
 export type WsChatMessage =
 	| { type: 'ChatToken'; conversation_id: string; token: string }
-	| { type: 'ChatComplete'; conversation_id: string; citations: WsCitationRef[] }
+	| { type: 'ChatComplete'; conversation_id: string; content: string; citations: WsCitationRef[] }
 	| { type: 'ChatError'; conversation_id: string; error: string };
 
 /** Citation reference as sent by desktop WsOutgoing::ChatComplete */
@@ -90,6 +92,18 @@ export interface WsChatFeedback {
 	helpful: boolean;
 }
 
-/** Streaming timeout thresholds */
-export const LOADING_TIMEOUT_MS = 10_000;
-export const TOKEN_TIMEOUT_MS = 15_000;
+/** Processing timeout — if no ChatComplete within this time, show long-wait notice */
+export const PROCESSING_NOTICE_MS = 15_000;
+/** Hard timeout — if no ChatComplete within this time, show error */
+export const PROCESSING_TIMEOUT_MS = 180_000;
+
+/** Time-based processing stages (search result pattern, not chat pattern).
+ *  Driven by elapsed time, not token count. */
+export const PROCESSING_STAGES = [
+	{ afterMs: 0, label: 'Searching your documents...' },
+	{ afterMs: 3_000, label: 'Found relevant records...' },
+	{ afterMs: 8_000, label: 'Analyzing your data...' },
+	{ afterMs: 15_000, label: 'Processing — Coheara will notify you when ready' },
+	{ afterMs: 30_000, label: 'Verifying accuracy...' },
+	{ afterMs: 60_000, label: 'Processing complex query...' },
+] as const;

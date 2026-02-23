@@ -1,9 +1,12 @@
 //! M0-01: Chat endpoints.
 //!
-//! Three endpoints:
+//! Four endpoints:
 //! - `POST /api/chat/send` — send a message (returns ack, not streaming)
 //! - `GET /api/chat/conversations` — list recent conversations
 //! - `GET /api/chat/conversations/:id` — full conversation messages
+//! - `GET /api/chat/suggestions` — contextual prompt suggestions (CA-06)
+
+use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use axum::Extension;
@@ -13,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::error::ApiError;
 use crate::api::types::{ApiContext, DeviceContext};
 use crate::chat;
+use crate::suggestions::SuggestionScorer;
 
 #[derive(Deserialize)]
 pub struct ChatSendRequest {
@@ -174,4 +178,50 @@ pub async fn conversation(
         conversation_id,
         messages,
     }))
+}
+
+// ─── CA-06: Chat suggestions endpoint ───────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct SuggestionView {
+    pub text: String,
+    pub category: String,
+    pub intent: String,
+    pub params: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct SuggestionsResponse {
+    pub suggestions: Vec<SuggestionView>,
+}
+
+/// `GET /api/chat/suggestions` — contextual prompt suggestions.
+///
+/// Wraps the desktop `SuggestionScorer` (LP-05) to provide ranked,
+/// personalized suggestions based on the patient's health data.
+/// Mobile uses `text` as an i18n template key.
+pub async fn suggestions(
+    State(ctx): State<ApiContext>,
+    Extension(_device): Extension<DeviceContext>,
+) -> Result<Json<SuggestionsResponse>, ApiError> {
+    let conn = ctx.core.open_db()?;
+    let scorer = SuggestionScorer::new();
+    let results = scorer.score(&conn, 6)?;
+
+    let suggestions = results
+        .into_iter()
+        .map(|s| SuggestionView {
+            text: s.template_key,
+            category: s.category,
+            intent: match s.intent {
+                crate::suggestions::SuggestionIntent::Query => "query".into(),
+                crate::suggestions::SuggestionIntent::Expression => "expression".into(),
+            },
+            params: s.params,
+        })
+        .collect();
+
+    ctx.core.update_activity();
+
+    Ok(Json(SuggestionsResponse { suggestions }))
 }

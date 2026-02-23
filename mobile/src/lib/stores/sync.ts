@@ -1,14 +1,12 @@
 // M0-04: Sync Manager — orchestrates version-based delta sync with desktop
 import { writable, derived, get } from 'svelte/store';
-import type { SyncManagerState, SyncResponse, SyncJournalEntry, SyncAuditEntry } from '$lib/types/sync.js';
+import type { SyncManagerState, SyncResponse, SyncAuditEntry } from '$lib/types/sync.js';
 import { SYNC_INTERVAL_MS, MAX_SYNC_RETRIES } from '$lib/types/sync.js';
 import type { SyncVersions } from '$lib/types/cache-manager.js';
 import { emptySyncVersions } from '$lib/types/cache-manager.js';
 import { postSync, type SyncApiResult } from '$lib/api/sync.js';
 import { syncState, applySyncPayload, applyDeltaPayload, wipeCache } from './cache-manager.js';
-import { getUnsyncedEntries, markSynced, setCorrelations } from './journal.js';
 import { isConnected } from './connection.js';
-import type { JournalEntry } from '$lib/types/journal.js';
 import type { DeltaPayload } from '$lib/types/cache-manager.js';
 
 // === STATE ===
@@ -51,7 +49,6 @@ function detectUpdatedEntities(response: SyncResponse): string[] {
 	if (response.alerts?.length) entities.push('alerts');
 	if (response.appointment !== undefined) entities.push('appointments');
 	if (response.profile) entities.push('profile');
-	if (response.journal_sync?.synced_ids.length) entities.push('journal');
 	return entities;
 }
 
@@ -79,22 +76,6 @@ export function configureSyncManager(baseUrl: string, token: string): void {
 export function clearSyncConfig(): void {
 	currentConfig = null;
 	stopAutoSync();
-}
-
-// === JOURNAL SERIALIZATION ===
-
-/** Convert local journal entries to sync wire format (camelCase → snake_case) */
-function serializeJournalEntries(entries: JournalEntry[]): SyncJournalEntry[] {
-	return entries.map((e) => ({
-		id: e.id,
-		severity: e.severity,
-		body_location: e.bodyLocations.join(','),
-		free_text: e.freeText,
-		activity_context: e.activityContext,
-		symptom_chip: e.symptomChip ?? null,
-		oldcarts_json: e.oldcarts ? JSON.stringify(e.oldcarts) : null,
-		created_at: e.createdAt
-	}));
 }
 
 // === APPLY SYNC RESPONSE ===
@@ -129,23 +110,14 @@ function applySyncResponse(response: SyncResponse): void {
 	if (isFullSync && response.profile) {
 		// Full sync: use applySyncPayload which replaces everything
 		applySyncPayload({
-			profile: {
-				name: response.profile.name,
-				blood_type: response.profile.blood_type,
-				allergies: response.profile.allergies,
-				emergency_contacts: response.profile.emergency_contacts.map((c) => ({
-					name: c.name,
-					phone: c.phone,
-					relation: c.relation
-				}))
-			},
+			profile: response.profile,
 			medications: response.medications ?? [],
 			labs: response.labs ?? [],
 			timeline: response.timeline ?? [],
 			alerts: response.alerts ?? [],
-			appointment: response.appointment ?? undefined,
+			appointment: response.appointment,
 			versions: response.versions,
-			synced_at: response.synced_at
+			syncedAt: response.syncedAt
 		});
 	} else {
 		// Delta sync: use applyDeltaPayload which merges
@@ -155,18 +127,9 @@ function applySyncResponse(response: SyncResponse): void {
 			timeline: response.timeline,
 			alerts: response.alerts,
 			appointment: response.appointment,
-			profile: response.profile ? {
-				name: response.profile.name,
-				blood_type: response.profile.blood_type,
-				allergies: response.profile.allergies,
-				emergency_contacts: response.profile.emergency_contacts.map((c) => ({
-					name: c.name,
-					phone: c.phone,
-					relation: c.relation
-				}))
-			} : undefined,
+			profile: response.profile,
 			versions: response.versions,
-			synced_at: response.synced_at
+			syncedAt: response.syncedAt
 		};
 		applyDeltaPayload(delta);
 	}
@@ -200,20 +163,11 @@ export async function requestSync(): Promise<boolean> {
 		// 1. Get local versions
 		const versions: SyncVersions = get(syncState).versions;
 
-		// 2. Get unsynced journal entries
-		const unsyncedEntries = getUnsyncedEntries();
-		const journalPayload = unsyncedEntries.length > 0
-			? serializeJournalEntries(unsyncedEntries)
-			: undefined;
-
-		// 3. POST to desktop
+		// 2. POST to desktop
 		const result: SyncApiResult = await postSync(
 			currentConfig.baseUrl,
 			currentConfig.token,
-			{
-				versions,
-				journal_entries: journalPayload
-			}
+			{ versions }
 		);
 
 		// 4. Handle response
@@ -240,7 +194,7 @@ export async function requestSync(): Promise<boolean> {
 			const response = result.data;
 
 			// 5. Validate synced_at (RS-M0-04-P01)
-			if (!validateSyncTimestamp(response.synced_at, state.lastSyncAt)) {
+			if (!validateSyncTimestamp(response.syncedAt, state.lastSyncAt)) {
 				syncManager.set({
 					status: 'error',
 					lastSyncAt: state.lastSyncAt,
@@ -253,28 +207,18 @@ export async function requestSync(): Promise<boolean> {
 			// 6. Apply payload to cache
 			applySyncResponse(response);
 
-			// 7. Mark journal entries as synced
-			if (response.journal_sync?.synced_ids.length) {
-				markSynced(response.journal_sync.synced_ids);
-			}
-
-			// 8. Set correlations for toast display
-			if (response.journal_sync?.correlations.length) {
-				setCorrelations(response.journal_sync.correlations);
-			}
-
-			// 9. Audit log (RS-M0-04-P02)
+			// 7. Audit log (RS-M0-04-P02)
 			logSyncAudit({
 				action: 'sync_applied',
 				entitiesUpdated: detectUpdatedEntities(response),
 				newVersions: response.versions,
-				timestamp: response.synced_at
+				timestamp: response.syncedAt
 			});
 
-			// 10. Update sync manager state
+			// 8. Update sync manager state
 			syncManager.set({
 				status: 'success',
-				lastSyncAt: response.synced_at,
+				lastSyncAt: response.syncedAt,
 				lastError: null,
 				syncInProgress: false
 			});
@@ -334,14 +278,7 @@ export async function fullResync(): Promise<boolean> {
 
 /** Handle profile switch notification from desktop */
 export async function handleProfileSwitch(newProfileName: string): Promise<boolean> {
-	// Warn about unsynced journal entries (caller handles UI)
-	// Proceed with full resync for new profile
 	return fullResync();
-}
-
-/** Check if there are unsynced journal entries (for pre-switch warning) */
-export function hasUnsyncedJournal(): boolean {
-	return getUnsyncedEntries().length > 0;
 }
 
 // === AUTO-SYNC ===

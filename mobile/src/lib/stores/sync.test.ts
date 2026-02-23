@@ -1,4 +1,4 @@
-// M0-04: Sync Manager tests — version-based sync, journal piggybacking, profile switch
+// M0-04: Sync Manager tests — version-based sync, profile switch (aligned CA-05)
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -12,7 +12,6 @@ import {
 	requestSync,
 	fullResync,
 	handleProfileSwitch,
-	hasUnsyncedJournal,
 	startAutoSync,
 	stopAutoSync,
 	onAppForeground,
@@ -22,7 +21,6 @@ import {
 } from './sync.js';
 import { syncState, resetCacheManagerState } from './cache-manager.js';
 import { medications, labResults, activeAlerts, profile, lastSyncTimestamp } from './cache.js';
-import { journalEntries, pendingCorrelations, resetJournalState } from './journal.js';
 import { connection } from './connection.js';
 import type { SyncResponse } from '$lib/types/sync.js';
 import type { SyncApiResult } from '$lib/api/sync.js';
@@ -52,7 +50,7 @@ function makeNoChangeResult(): SyncApiResult {
 function makeSyncResponse(overrides: Partial<SyncResponse> = {}): SyncResponse {
 	return {
 		versions: { medications: 5, labs: 3, timeline: 10, alerts: 2, appointments: 1, profile: 1 },
-		synced_at: '2026-02-12T10:00:00Z',
+		syncedAt: '2026-02-12T10:00:00Z',
 		...overrides
 	};
 }
@@ -65,12 +63,12 @@ function makeFullSyncResult(): SyncApiResult {
 	return {
 		status: 200,
 		data: makeSyncResponse({
-			medications: [{ id: 'med-1', name: 'Metformin', dose: '500mg', frequency: 'Twice daily', prescriber: 'Dr. Ndiaye', purpose: 'Blood sugar', scheduleGroup: 'morning', since: '2025-01-01', isActive: true }],
-			labs: [{ id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%', referenceMin: 4, referenceMax: 5.6, isAbnormal: true, trend: 'up', trendContext: 'worsening', testedAt: '2025-06-01' }],
-			timeline: [{ id: 'evt-1', title: 'Blood test', timestamp: '2025-06-01', eventType: 'lab_result', description: 'Routine', isPatientReported: false }],
+			medications: [{ id: 'med-1', genericName: 'Metformin', dose: '500mg', frequency: 'Twice daily', route: 'oral', status: 'active', isOtc: false }],
+			labs: [{ id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%', referenceRangeLow: 4, referenceRangeHigh: 5.6, abnormalFlag: 'H', isAbnormal: true, collectionDate: '2025-06-01', trendDirection: 'up' }],
+			timeline: [{ id: 'evt-1', eventType: 'lab_result', category: 'Lab Results', description: 'Routine blood test', date: '2025-06-01', stillActive: false }],
 			alerts: [{ id: 'alert-1', title: 'HbA1c rising', description: 'Trend detected', severity: 'warning', createdAt: '2025-06-01', dismissed: false }],
-			appointment: { id: 'appt-1', doctorName: 'Dr. Ndiaye', date: '2026-03-01', location: 'Clinic', purpose: 'Follow-up', hasPrepData: false },
-			profile: { name: 'Mamadou', blood_type: 'O+', allergies: ['Penicillin'], emergency_contacts: [{ name: 'Papa', phone: '+221', relation: 'Father' }] },
+			appointment: { id: 'appt-1', professionalName: 'Dr. Ndiaye', date: '2026-03-01', appointmentType: 'Follow-up', prepAvailable: false },
+			profile: { profileName: 'Mamadou', totalDocuments: 12, extractionAccuracy: 0.92, allergies: [{ allergen: 'Penicillin', severity: 'high', verified: true }] },
 			versions: { medications: 5, labs: 3, timeline: 10, alerts: 2, appointments: 1, profile: 1 }
 		})
 	};
@@ -86,7 +84,6 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	resetSyncManagerState();
 	resetCacheManagerState();
-	resetJournalState();
 	mockPostSync = vi.fn();
 	configureSyncManager('https://desktop.local:9443', 'test-token');
 	setConnected();
@@ -160,7 +157,6 @@ describe('sync-manager — no-change sync', () => {
 
 describe('sync-manager — delta sync', () => {
 	it('applies medication delta', async () => {
-		// Set non-zero versions to trigger delta path
 		syncState.update(($s) => ({
 			...$s,
 			versions: { medications: 3, labs: 1, timeline: 1, alerts: 1, appointments: 1, profile: 1 },
@@ -168,14 +164,14 @@ describe('sync-manager — delta sync', () => {
 		}));
 
 		mockPostSync.mockResolvedValue(makeDeltaResult({
-			medications: [{ id: 'med-new', name: 'Aspirin', dose: '100mg', frequency: 'Daily', prescriber: 'Dr. Chen', purpose: 'Heart', scheduleGroup: 'morning', since: '2025-02-01', isActive: true }],
+			medications: [{ id: 'med-new', genericName: 'Aspirin', dose: '100mg', frequency: 'Daily', route: 'oral', status: 'active', isOtc: true }],
 			versions: { medications: 4, labs: 1, timeline: 1, alerts: 1, appointments: 1, profile: 1 }
 		}));
 
 		const changed = await requestSync();
 		expect(changed).toBe(true);
 		expect(get(medications)).toHaveLength(1);
-		expect(get(medications)[0].name).toBe('Aspirin');
+		expect(get(medications)[0].genericName).toBe('Aspirin');
 	});
 
 	it('applies multiple entity types in one sync', async () => {
@@ -186,7 +182,7 @@ describe('sync-manager — delta sync', () => {
 		}));
 
 		mockPostSync.mockResolvedValue(makeDeltaResult({
-			medications: [{ id: 'med-1', name: 'Metformin', dose: '500mg', frequency: 'Twice daily', prescriber: 'Dr. Ndiaye', purpose: 'Blood sugar', scheduleGroup: 'morning', since: '2025-01-01', isActive: true }],
+			medications: [{ id: 'med-1', genericName: 'Metformin', dose: '500mg', frequency: 'Twice daily', route: 'oral', status: 'active', isOtc: false }],
 			alerts: [{ id: 'alert-1', title: 'New alert', description: 'Check this', severity: 'info', createdAt: '2026-02-12', dismissed: false }],
 			versions: { medications: 2, labs: 1, timeline: 1, alerts: 2, appointments: 1, profile: 1 }
 		}));
@@ -227,11 +223,11 @@ describe('sync-manager — full sync', () => {
 		expect(changed).toBe(true);
 
 		expect(get(medications)).toHaveLength(1);
-		expect(get(medications)[0].name).toBe('Metformin');
+		expect(get(medications)[0].genericName).toBe('Metformin');
 		expect(get(labResults)).toHaveLength(1);
 		expect(get(activeAlerts)).toHaveLength(1);
 		expect(get(profile)).toBeTruthy();
-		expect(get(profile)?.name).toBe('Mamadou');
+		expect(get(profile)?.profileName).toBe('Mamadou');
 	});
 
 	it('updates sync state versions after full sync', async () => {
@@ -252,145 +248,24 @@ describe('sync-manager — full sync', () => {
 	});
 });
 
-// === JOURNAL PIGGYBACKING ===
-
-describe('sync-manager — journal piggybacking', () => {
-	it('includes unsynced journal entries in sync request', async () => {
-		journalEntries.set([{
-			id: 'j-1',
-			severity: 6,
-			bodyLocations: ['head'],
-			freeText: 'Dizzy after walking',
-			activityContext: 'Walking back from class',
-			symptomChip: 'dizzy',
-			oldcarts: null,
-			createdAt: '2026-02-12T14:15:00Z',
-			synced: false,
-			syncedAt: null
-		}]);
-
-		mockPostSync.mockResolvedValue(makeNoChangeResult());
-		await requestSync();
-
-		const callArgs = mockPostSync.mock.calls[0];
-		expect(callArgs[2].journal_entries).toHaveLength(1);
-		expect(callArgs[2].journal_entries[0].id).toBe('j-1');
-		expect(callArgs[2].journal_entries[0].body_location).toBe('head');
-		expect(callArgs[2].journal_entries[0].free_text).toBe('Dizzy after walking');
-		expect(callArgs[2].journal_entries[0].symptom_chip).toBe('dizzy');
-	});
-
-	it('does not include already-synced entries', async () => {
-		journalEntries.set([
-			{
-				id: 'j-1', severity: 6, bodyLocations: ['head'], freeText: 'Old',
-				activityContext: '', symptomChip: null, oldcarts: null,
-				createdAt: '2026-02-10T00:00:00Z', synced: true, syncedAt: '2026-02-10T01:00:00Z'
-			},
-			{
-				id: 'j-2', severity: 3, bodyLocations: ['chest_center'], freeText: 'New',
-				activityContext: '', symptomChip: null, oldcarts: null,
-				createdAt: '2026-02-12T00:00:00Z', synced: false, syncedAt: null
-			}
-		]);
-
-		mockPostSync.mockResolvedValue(makeNoChangeResult());
-		await requestSync();
-
-		const callArgs = mockPostSync.mock.calls[0];
-		expect(callArgs[2].journal_entries).toHaveLength(1);
-		expect(callArgs[2].journal_entries[0].id).toBe('j-2');
-	});
-
-	it('marks journal entries as synced after successful sync', async () => {
-		journalEntries.set([{
-			id: 'j-1', severity: 6, bodyLocations: ['head'], freeText: 'Test',
-			activityContext: '', symptomChip: null, oldcarts: null,
-			createdAt: '2026-02-12T00:00:00Z', synced: false, syncedAt: null
-		}]);
-
-		mockPostSync.mockResolvedValue(makeDeltaResult({
-			journal_sync: {
-				synced_ids: ['j-1'],
-				correlations: []
-			}
-		}));
-
-		await requestSync();
-
-		const entries = get(journalEntries);
-		expect(entries[0].synced).toBe(true);
-		expect(entries[0].syncedAt).toBeTruthy();
-	});
-
-	it('handles correlations from journal sync', async () => {
-		journalEntries.set([{
-			id: 'j-1', severity: 6, bodyLocations: ['head'], freeText: 'Test',
-			activityContext: '', symptomChip: null, oldcarts: null,
-			createdAt: '2026-02-12T00:00:00Z', synced: false, syncedAt: null
-		}]);
-
-		mockPostSync.mockResolvedValue(makeDeltaResult({
-			journal_sync: {
-				synced_ids: ['j-1'],
-				correlations: [{
-					entryId: 'j-1',
-					medication: 'Aspirin',
-					daysSinceChange: 2,
-					message: 'Started 2 days ago'
-				}]
-			}
-		}));
-
-		await requestSync();
-
-		const correlations = get(pendingCorrelations);
-		expect(correlations).toHaveLength(1);
-		expect(correlations[0].medication).toBe('Aspirin');
-	});
-
-	it('omits journal_entries when none are unsynced', async () => {
-		mockPostSync.mockResolvedValue(makeNoChangeResult());
-		await requestSync();
-
-		const callArgs = mockPostSync.mock.calls[0];
-		expect(callArgs[2].journal_entries).toBeUndefined();
-	});
-});
-
 // === PROFILE SWITCH ===
 
 describe('sync-manager — profile switch', () => {
 	it('clears cache and does full resync on profile switch', async () => {
-		// First populate some data
-		medications.set([{ id: 'med-1', name: 'Metformin', dose: '500mg', frequency: 'Daily', prescriber: 'Dr. A', purpose: 'Blood sugar', scheduleGroup: 'morning', since: '2025-01-01', isActive: true }]);
+		medications.set([{ id: 'med-1', genericName: 'Metformin', dose: '500mg', frequency: 'Daily', route: 'oral', status: 'active', isOtc: false }]);
 		syncState.update(($s) => ({
 			...$s,
 			versions: { medications: 5, labs: 3, timeline: 10, alerts: 2, appointments: 1, profile: 1 },
 			cachePopulated: true
 		}));
 
-		// Mock returns new profile data
 		mockPostSync.mockResolvedValue(makeFullSyncResult());
 
 		await handleProfileSwitch('Papa');
 
-		// Versions should have been reset then updated
 		const state = get(syncState);
-		expect(state.versions.medications).toBe(5); // New profile's versions
+		expect(state.versions.medications).toBe(5);
 		expect(state.cachePopulated).toBe(true);
-	});
-
-	it('detects unsynced journal entries before switch', () => {
-		expect(hasUnsyncedJournal()).toBe(false);
-
-		journalEntries.set([{
-			id: 'j-1', severity: 5, bodyLocations: [], freeText: 'Test',
-			activityContext: '', symptomChip: null, oldcarts: null,
-			createdAt: '2026-02-12T00:00:00Z', synced: false, syncedAt: null
-		}]);
-
-		expect(hasUnsyncedJournal()).toBe(true);
 	});
 
 	it('sends versions=0 after profile switch (full resync)', async () => {
@@ -432,18 +307,14 @@ describe('sync-manager — guards', () => {
 			new Promise<SyncApiResult>((r) => { resolveFirst = r; })
 		);
 
-		// Start first sync (will hang)
 		const first = requestSync();
 
-		// Try second sync while first is pending
 		const second = await requestSync();
 		expect(second).toBe(false);
 
-		// Resolve first
 		resolveFirst!(makeNoChangeResult());
 		await first;
 
-		// Only one API call made
 		expect(mockPostSync).toHaveBeenCalledTimes(1);
 	});
 });
@@ -492,13 +363,11 @@ describe('sync-manager — error handling', () => {
 	});
 
 	it('preserves lastSyncAt on error', async () => {
-		// First successful sync
 		mockPostSync.mockResolvedValue(makeNoChangeResult());
 		await requestSync();
 		const lastSync = get(syncManager).lastSyncAt;
 		expect(lastSync).toBeTruthy();
 
-		// Then error
 		mockPostSync.mockResolvedValue(makeErrorResult());
 		await requestSync();
 		expect(get(syncManager).lastSyncAt).toBe(lastSync);
@@ -513,11 +382,9 @@ describe('sync-manager — auto-sync', () => {
 
 		startAutoSync();
 
-		// Advance by one interval
 		await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 		expect(mockPostSync).toHaveBeenCalledTimes(1);
 
-		// Advance by another interval
 		await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 		expect(mockPostSync).toHaveBeenCalledTimes(2);
 
@@ -544,22 +411,20 @@ describe('sync-manager — auto-sync', () => {
 		stopAutoSync();
 
 		await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-		expect(mockPostSync).toHaveBeenCalledTimes(1); // No additional calls
+		expect(mockPostSync).toHaveBeenCalledTimes(1);
 	});
 
 	it('does not auto-sync after max retries', async () => {
 		mockPostSync.mockResolvedValue(makeErrorResult());
 
-		// Exhaust retries
-		await requestSync(); // retry 1
-		await requestSync(); // retry 2
-		await requestSync(); // retry 3
+		await requestSync();
+		await requestSync();
+		await requestSync();
 		expect(getRetryCount()).toBe(3);
 
-		// Now auto-sync should skip
 		startAutoSync();
 		await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-		expect(mockPostSync).toHaveBeenCalledTimes(3); // No new call
+		expect(mockPostSync).toHaveBeenCalledTimes(3);
 
 		stopAutoSync();
 	});
@@ -625,7 +490,7 @@ describe('sync-manager — configuration', () => {
 describe('sync-manager — timestamp validation', () => {
 	it('rejects sync response with future timestamp', async () => {
 		const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: futureDate }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: futureDate }));
 
 		const changed = await requestSync();
 		expect(changed).toBe(false);
@@ -634,32 +499,28 @@ describe('sync-manager — timestamp validation', () => {
 	});
 
 	it('rejects sync response older than last sync', async () => {
-		// First sync succeeds with a recent timestamp
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T10:00:00Z' }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: '2026-02-12T10:00:00Z' }));
 		await requestSync();
 		expect(get(syncManager).lastSyncAt).toBe('2026-02-12T10:00:00Z');
 
-		// Second sync with an older timestamp should fail
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T09:00:00Z' }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: '2026-02-12T09:00:00Z' }));
 		const changed = await requestSync();
 		expect(changed).toBe(false);
 		expect(get(syncManager).status).toBe('error');
 	});
 
 	it('accepts valid timestamp newer than last sync', async () => {
-		// First sync
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T10:00:00Z' }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: '2026-02-12T10:00:00Z' }));
 		await requestSync();
 
-		// Second sync with newer timestamp
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: '2026-02-12T11:00:00Z' }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: '2026-02-12T11:00:00Z' }));
 		const changed = await requestSync();
 		expect(changed).toBe(true);
 		expect(get(syncManager).lastSyncAt).toBe('2026-02-12T11:00:00Z');
 	});
 
 	it('rejects sync response with invalid date string', async () => {
-		mockPostSync.mockResolvedValue(makeDeltaResult({ synced_at: 'not-a-date' }));
+		mockPostSync.mockResolvedValue(makeDeltaResult({ syncedAt: 'not-a-date' }));
 
 		const changed = await requestSync();
 		expect(changed).toBe(false);
@@ -704,17 +565,15 @@ describe('sync-manager — audit logging', () => {
 	});
 
 	it('accumulates multiple audit entries', async () => {
-		// First sync: no changes (204)
 		mockPostSync.mockResolvedValue(makeNoChangeResult());
 		await requestSync();
 
-		// Second sync: changes (200) — timestamp must be after the 204's lastSyncAt
 		const futureTime = new Date(Date.now() + 60_000).toISOString();
 		const full = makeFullSyncResult();
 		const fullData = full.status === 200 ? full.data : makeSyncResponse();
 		mockPostSync.mockResolvedValue(makeDeltaResult({
 			...fullData,
-			synced_at: futureTime
+			syncedAt: futureTime
 		}));
 		await requestSync();
 

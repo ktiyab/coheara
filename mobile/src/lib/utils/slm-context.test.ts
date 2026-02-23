@@ -1,4 +1,5 @@
 // M2-01: SLM Context Assembly tests — sanitization, formatting, prompt assembly
+// CA-08: Mock factories aligned with desktop source of truth (viewer.ts CA-05)
 import { describe, it, expect } from 'vitest';
 import {
 	sanitizeForContext,
@@ -17,30 +18,31 @@ import type { CacheData } from './slm-context.js';
 import { fullCacheScope, medicationScope, labScope, SLM_SYSTEM_PROMPT } from '$lib/types/slm.js';
 import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment, CachedProfile } from '$lib/types/viewer.js';
 
-// === TEST DATA ===
+// === TEST DATA (aligned CA-05 desktop types) ===
 
 function makeMed(overrides: Partial<CachedMedication> = {}): CachedMedication {
 	return {
-		id: 'med-1', name: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
-		prescriber: 'Dr. Ndiaye', purpose: 'Blood pressure', scheduleGroup: 'morning',
-		since: '2025-01-01', isActive: true, ...overrides
+		id: 'med-1', genericName: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
+		route: 'oral', status: 'active', isOtc: false,
+		prescriberName: 'Dr. Ndiaye', condition: 'Blood pressure',
+		startDate: '2025-01-01', ...overrides
 	};
 }
 
 function makeLab(overrides: Partial<CachedLabResult> = {}): CachedLabResult {
 	return {
 		id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%',
-		referenceMin: 4, referenceMax: 5.6, isAbnormal: true,
-		trend: 'up', trendContext: 'worsening', testedAt: '2025-06-01',
-		...overrides
+		referenceRangeLow: 4, referenceRangeHigh: 5.6, abnormalFlag: 'H',
+		isAbnormal: true, collectionDate: '2025-06-01',
+		trendDirection: 'up', ...overrides
 	};
 }
 
 function makeEvent(overrides: Partial<CachedTimelineEvent> = {}): CachedTimelineEvent {
 	return {
-		id: 'event-1', eventType: 'medication_change', title: 'Lisinopril started',
-		description: 'Started 10mg', timestamp: '2025-06-01',
-		isPatientReported: false, ...overrides
+		id: 'event-1', eventType: 'medication_change', category: 'Medications',
+		description: 'Lisinopril started 10mg', date: '2025-06-01',
+		stillActive: false, ...overrides
 	};
 }
 
@@ -54,15 +56,16 @@ function makeAlert(overrides: Partial<CachedAlert> = {}): CachedAlert {
 
 function makeAppt(overrides: Partial<CachedAppointment> = {}): CachedAppointment {
 	return {
-		id: 'appt-1', doctorName: 'Dr. Chen',
-		date: '2026-03-01T10:00:00Z', hasPrepData: true,
-		...overrides
+		id: 'appt-1', professionalName: 'Dr. Chen',
+		date: '2026-03-01T10:00:00Z', appointmentType: 'Follow-up',
+		prepAvailable: true, ...overrides
 	};
 }
 
 function makeProfile(overrides: Partial<CachedProfile> = {}): CachedProfile {
 	return {
-		name: 'Thomas', bloodType: 'O+', allergies: ['Penicillin'], emergencyContacts: [],
+		profileName: 'Thomas', totalDocuments: 5, extractionAccuracy: 0.88,
+		allergies: [{ allergen: 'Penicillin', severity: 'high', verified: true }],
 		...overrides
 	};
 }
@@ -116,7 +119,7 @@ describe('slm-context — sanitization', () => {
 // === FORMATTING ===
 
 describe('slm-context — formatting', () => {
-	it('formats medications with name, dose, frequency, prescriber', () => {
+	it('formats medications with genericName, dose, frequency, prescriberName', () => {
 		const result = formatMedications([makeMed()]);
 		expect(result).toContain('CURRENT MEDICATIONS:');
 		expect(result).toContain('Lisinopril');
@@ -143,7 +146,7 @@ describe('slm-context — formatting', () => {
 		expect(result).not.toContain('[ABNORMAL]');
 	});
 
-	it('formats timeline with timestamp, type, title', () => {
+	it('formats timeline with date, type, description', () => {
 		const result = formatTimeline([makeEvent()]);
 		expect(result).toContain('RECENT TIMELINE:');
 		expect(result).toContain('2025-06-01');
@@ -159,24 +162,22 @@ describe('slm-context — formatting', () => {
 		expect(result).toContain('Lisinopril + potassium');
 	});
 
-	it('formats appointment with date, doctor, purpose', () => {
-		const result = formatAppointment(makeAppt({ purpose: 'Follow-up' }));
+	it('formats appointment with date, professionalName, appointmentType', () => {
+		const result = formatAppointment(makeAppt());
 		expect(result).toContain('NEXT APPOINTMENT:');
 		expect(result).toContain('Dr. Chen');
-		expect(result).toContain('Purpose: Follow-up');
+		expect(result).toContain('Type: Follow-up');
 	});
 
-	it('formats profile with name, blood type, allergies', () => {
+	it('formats profile with profileName and allergies', () => {
 		const result = formatProfile(makeProfile());
 		expect(result).toContain('PATIENT PROFILE:');
 		expect(result).toContain('Thomas');
-		expect(result).toContain('Blood type: O+');
 		expect(result).toContain('Penicillin');
 	});
 
 	it('omits optional fields when absent', () => {
-		const result = formatProfile(makeProfile({ bloodType: undefined, allergies: [] }));
-		expect(result).not.toContain('Blood type');
+		const result = formatProfile(makeProfile({ allergies: [] }));
 		expect(result).not.toContain('Allergies');
 	});
 });
@@ -264,8 +265,8 @@ describe('slm-context — prompt assembly', () => {
 	it('filters inactive medications', () => {
 		const data = makeFullCacheData({
 			medications: [
-				makeMed({ isActive: true, name: 'Active Med' }),
-				makeMed({ id: 'med-2', isActive: false, name: 'Discontinued Med' })
+				makeMed({ status: 'active', genericName: 'Active Med' }),
+				makeMed({ id: 'med-2', status: 'discontinued', genericName: 'Discontinued Med' })
 			]
 		});
 		const prompt = assemblePrompt('meds', data, fullCacheScope());
@@ -287,7 +288,7 @@ describe('slm-context — prompt assembly', () => {
 
 	it('limits timeline to 10 events', () => {
 		const events = Array.from({ length: 15 }, (_, i) =>
-			makeEvent({ id: `event-${i}`, title: `Event ${i}` })
+			makeEvent({ id: `event-${i}`, description: `Event ${i}` })
 		);
 		const data = makeFullCacheData({ timeline: events });
 		const prompt = assemblePrompt('timeline', data, fullCacheScope());

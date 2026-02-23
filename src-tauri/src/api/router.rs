@@ -48,17 +48,28 @@ fn build_router(ctx: ApiContext) -> Router {
     // Extension must be outermost so all middleware can access ApiContext.
     // Routes with state — .with_state() converts Router<ApiContext> → Router<()>
     // so middleware layers (which use from_fn with state=()) are compatible.
+    //
+    // NOTE: Path params use `:param` syntax (matchit 0.7 / axum 0.7).
     let protected = Router::new()
         .route("/health", get(endpoints::health::check))
         .route("/home", get(endpoints::home::dashboard))
         .route("/medications", get(endpoints::medications::list))
-        .route("/medications/{id}", get(endpoints::medications::detail))
+        .route("/medications/:id", get(endpoints::medications::detail))
+        .route("/labs", get(endpoints::labs::list))
         .route("/labs/recent", get(endpoints::labs::recent))
+        .route(
+            "/labs/history/:test_name",
+            get(endpoints::labs::history),
+        )
         .route("/alerts/critical", get(endpoints::alerts::critical))
         .route("/chat/send", post(endpoints::chat::send))
+        .route(
+            "/chat/suggestions",
+            get(endpoints::chat::suggestions),
+        )
         .route("/chat/conversations", get(endpoints::chat::conversations))
         .route(
-            "/chat/conversations/{id}",
+            "/chat/conversations/:id",
             get(endpoints::chat::conversation),
         )
         .route("/journal/record", post(endpoints::journal::record))
@@ -66,7 +77,7 @@ fn build_router(ctx: ApiContext) -> Router {
         .route("/timeline/recent", get(endpoints::timeline::recent))
         .route("/appointments", get(endpoints::appointments::list))
         .route(
-            "/appointments/{id}/prep",
+            "/appointments/:id/prep",
             get(endpoints::appointments::prep),
         )
         .route("/documents/upload", post(endpoints::documents::upload))
@@ -912,7 +923,7 @@ mod tests {
         let app = mobile_api_router(core);
 
         // Send version 0 for all — but empty DB means nothing to return
-        let body = r#"{"versions":{"medications":0,"labs":0,"timeline":0,"alerts":0,"appointments":0,"profile":0},"journal_entries":[]}"#;
+        let body = r#"{"versions":{"medications":0,"labs":0,"timeline":0,"alerts":0,"appointments":0,"profile":0},"journalEntries":[]}"#;
         let req = Request::builder()
             .method("POST")
             .uri("/api/sync")
@@ -1065,5 +1076,105 @@ mod tests {
         let json = response_json(response).await;
         assert_eq!(json["profile_name"], "TestPatient");
         assert!(json["symptoms"].is_array(), "symptoms should be array");
+    }
+
+    // ═════════════════════════════════════════════════════════
+    // CA-06: New endpoint integration tests
+    // ═════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn chat_suggestions_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/chat/suggestions", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert!(json["suggestions"].is_array(), "suggestions should be array");
+        let suggestions = json["suggestions"].as_array().unwrap();
+        assert!(!suggestions.is_empty(), "should return at least one suggestion");
+        // Each suggestion has text, category, intent
+        let first = &suggestions[0];
+        assert!(first["text"].is_string(), "suggestion.text should be string");
+        assert!(first["category"].is_string(), "suggestion.category should be string");
+        assert!(first["intent"].is_string(), "suggestion.intent should be string");
+    }
+
+    #[tokio::test]
+    async fn chat_suggestions_requires_auth() {
+        let core = test_core_state();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/chat/suggestions", None);
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn labs_list_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/labs", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["profile_name"], "TestPatient");
+        assert!(json["results"].is_array(), "results should be array");
+        assert!(json["last_updated"].is_string(), "last_updated should be string");
+    }
+
+    #[tokio::test]
+    async fn path_params_require_auth() {
+        // Verify parameterized routes are properly registered (now using :param syntax)
+        let core = test_core_state();
+
+        // /api/medications/:id — should require auth
+        let app1 = mobile_api_router(core.clone());
+        let req1 = make_request("GET", "/api/medications/test-id", None);
+        let resp1 = app1.oneshot(req1).await.unwrap();
+        assert_eq!(resp1.status(), StatusCode::UNAUTHORIZED, "medications/:id should require auth");
+
+        // /api/labs/history/:test_name — should require auth
+        let app2 = mobile_api_router(core.clone());
+        let req2 = make_request("GET", "/api/labs/history/HbA1c", None);
+        let resp2 = app2.oneshot(req2).await.unwrap();
+        assert_eq!(resp2.status(), StatusCode::UNAUTHORIZED, "labs/history/:test_name should require auth");
+
+        // /api/chat/conversations/:id — should require auth
+        let app3 = mobile_api_router(core);
+        let req3 = make_request("GET", "/api/chat/conversations/test-id", None);
+        let resp3 = app3.oneshot(req3).await.unwrap();
+        assert_eq!(resp3.status(), StatusCode::UNAUTHORIZED, "chat/conversations/:id should require auth");
+    }
+
+    #[tokio::test]
+    async fn labs_history_response_shape() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/labs/history/HbA1c", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["test_name"], "HbA1c");
+        assert!(json["entries"].is_array(), "entries should be array");
+    }
+
+    #[tokio::test]
+    async fn labs_history_returns_empty_for_unknown_test() {
+        let (core, token, _tmp) = test_core_state_with_profile();
+        let app = mobile_api_router(core);
+
+        let req = make_request("GET", "/api/labs/history/NonExistentTest", Some(&token));
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["entries"].as_array().unwrap().len(), 0);
     }
 }

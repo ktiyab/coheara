@@ -1,4 +1,4 @@
-<!-- M1-03: Medication detail — bottom sheet overlay (cache + desktop enrichment) -->
+<!-- M1-03: Medication detail — bottom sheet overlay (aligned CA-05 desktop types) -->
 <script lang="ts">
 	import type { CachedMedication, MedicationDetail as MedicationDetailType } from '$lib/types/viewer.js';
 
@@ -10,7 +10,7 @@
 		onShare: (id: string) => void;
 	} = $props();
 
-	const sinceFormatted = $derived(formatDate(medication.since));
+	const sinceFormatted = $derived(medication.startDate ? formatDate(medication.startDate) : 'Unknown');
 
 	function formatDate(iso: string): string {
 		const d = new Date(iso);
@@ -18,10 +18,10 @@
 	}
 </script>
 
-<div class="detail-overlay" role="dialog" aria-label="Medication detail: {medication.name}">
+<div class="detail-overlay" role="dialog" aria-label="Medication detail: {medication.genericName}">
 	<div class="detail-sheet">
 		<div class="sheet-header">
-			<h2 class="sheet-title">{medication.name} {medication.dose}</h2>
+			<h2 class="sheet-title">{medication.genericName} {medication.dose}</h2>
 			<button class="close-btn" onclick={onClose} aria-label="Close detail">&times;</button>
 		</div>
 
@@ -30,18 +30,25 @@
 				<dt>Dose</dt>
 				<dd>{medication.dose} {medication.frequency}</dd>
 
-				<dt>Prescriber</dt>
-				<dd>{medication.prescriber}</dd>
+				{#if medication.prescriberName}
+					<dt>Prescriber</dt>
+					<dd>{medication.prescriberName}</dd>
+				{/if}
 
-				<dt>Purpose</dt>
-				<dd>{medication.purpose}</dd>
+				{#if medication.condition}
+					<dt>Condition</dt>
+					<dd>{medication.condition}</dd>
+				{/if}
 
 				<dt>Since</dt>
 				<dd>{sinceFormatted}</dd>
 
-				{#if medication.sourceDocumentTitle}
-					<dt>Source</dt>
-					<dd>{medication.sourceDocumentTitle}</dd>
+				<dt>Route</dt>
+				<dd>{medication.route}</dd>
+
+				{#if medication.brandName}
+					<dt>Brand</dt>
+					<dd>{medication.brandName}</dd>
 				{/if}
 			</dl>
 
@@ -59,13 +66,6 @@
 				<p class="loading-note">Loading history...</p>
 			{:else}
 				<p class="offline-note">Connect to your desktop for full details</p>
-			{/if}
-
-			{#if medication.notes}
-				<section class="notes-section">
-					<h3>Notes</h3>
-					<p>{medication.notes}</p>
-				</section>
 			{/if}
 
 			<button class="share-btn" onclick={() => onShare(medication.id)}>
@@ -146,13 +146,13 @@
 		margin: 0;
 	}
 
-	.history-section, .notes-section {
+	.history-section {
 		margin-top: 16px;
 		padding-top: 16px;
 		border-top: 1px solid #E7E5E4;
 	}
 
-	.history-section h3, .notes-section h3 {
+	.history-section h3 {
 		font-size: 14px;
 		font-weight: 600;
 		color: var(--color-text-muted);
@@ -169,12 +169,6 @@
 	.history-date {
 		color: var(--color-text-muted);
 		white-space: nowrap;
-	}
-
-	.notes-section p {
-		font-size: 14px;
-		line-height: 1.5;
-		margin: 0;
 	}
 
 	.loading-note, .offline-note {

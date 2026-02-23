@@ -1,4 +1,5 @@
 // M2-02: Query Router tests — safety blocklist, cache matching, routing logic, chips
+// CA-08: Mock factories aligned with desktop source of truth (viewer.ts CA-05)
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -17,30 +18,31 @@ import type { QuickQuestion } from '$lib/types/query-router.js';
 import { QUICK_QUESTION_CHIPS } from '$lib/types/query-router.js';
 import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment } from '$lib/types/viewer.js';
 
-// === TEST HELPERS ===
+// === TEST HELPERS (aligned CA-05 desktop types) ===
 
 function makeMed(overrides: Partial<CachedMedication> = {}): CachedMedication {
 	return {
-		id: 'med-1', name: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
-		prescriber: 'Dr. Ndiaye', purpose: 'Blood pressure', scheduleGroup: 'morning',
-		since: '2025-01-01', isActive: true, ...overrides
+		id: 'med-1', genericName: 'Lisinopril', dose: '10mg', frequency: 'Once daily',
+		route: 'oral', status: 'active', isOtc: false,
+		prescriberName: 'Dr. Ndiaye', condition: 'Blood pressure',
+		startDate: '2025-01-01', ...overrides
 	};
 }
 
 function makeLab(overrides: Partial<CachedLabResult> = {}): CachedLabResult {
 	return {
 		id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%',
-		referenceMin: 4, referenceMax: 5.6, isAbnormal: true,
-		trend: 'up', trendContext: 'worsening', testedAt: '2025-06-01',
-		...overrides
+		referenceRangeLow: 4, referenceRangeHigh: 5.6, abnormalFlag: 'H',
+		isAbnormal: true, collectionDate: '2025-06-01',
+		trendDirection: 'up', ...overrides
 	};
 }
 
 function makeEvent(overrides: Partial<CachedTimelineEvent> = {}): CachedTimelineEvent {
 	return {
-		id: 'event-1', eventType: 'medication_change', title: 'Lisinopril started',
-		description: 'Started 10mg', timestamp: '2025-06-01',
-		isPatientReported: false, ...overrides
+		id: 'event-1', eventType: 'medication_change', category: 'Medications',
+		description: 'Lisinopril started 10mg', date: '2025-06-01',
+		stillActive: false, ...overrides
 	};
 }
 
@@ -54,14 +56,14 @@ function makeAlert(overrides: Partial<CachedAlert> = {}): CachedAlert {
 
 function populateCache(): void {
 	applySyncPayload({
-		profile: { name: 'Thomas', blood_type: 'O+', allergies: ['Penicillin'], emergency_contacts: [] },
+		profile: { profileName: 'Thomas', totalDocuments: 5, extractionAccuracy: 0.88, allergies: [{ allergen: 'Penicillin', severity: 'high', verified: true }] },
 		medications: [makeMed()],
 		labs: [makeLab()],
 		timeline: [makeEvent()],
 		alerts: [makeAlert()],
-		appointment: { id: 'appt-1', doctorName: 'Dr. Chen', date: '2026-03-01T10:00:00Z', hasPrepData: true },
+		appointment: { id: 'appt-1', professionalName: 'Dr. Chen', date: '2026-03-01T10:00:00Z', appointmentType: 'Follow-up', prepAvailable: true },
 		versions: { medications: 1, labs: 1, timeline: 1, alerts: 1, appointments: 1, profile: 1 },
-		synced_at: new Date().toISOString()
+		syncedAt: new Date().toISOString()
 	});
 }
 
@@ -284,14 +286,8 @@ describe('query-router — routing', () => {
 	it('disconnected + SLM ready + low confidence routes SLM with caveat', () => {
 		setupSlmReady();
 		populateCache();
-		// "Tell me about myself" → no keyword match → confidence 0.3 → below 0.4 → NOT SLM
-		// We need a query that gives medium confidence (0.4-0.8)
-		// No exact keyword match but cache populated → 0.3 → deferred
-		// Actually for 0.7 (single keyword match) it goes to SLM high, for 0.3 it doesn't meet the 0.4 threshold
-		// Let me use a query with a keyword that matches but with empty data
-		// Actually let's just verify the deferred path for queries with no keyword match
 		const route = routeQuery('Tell me something general');
-		// This will be 0.3 confidence (populated cache, no keywords) → below 0.4 → fallback
+		// 0.3 confidence (populated cache, no keywords) → below 0.4 → fallback
 		expect(route.target).toBe('deferred');
 	});
 

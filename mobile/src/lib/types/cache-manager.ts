@@ -5,29 +5,21 @@ import type {
 	CachedTimelineEvent,
 	CachedAlert,
 	CachedAppointment,
-	CachedProfile,
-	EmergencyContact
+	CachedProfile
 } from './viewer.js';
 
-// === SYNC PAYLOAD (from desktop via M0-04) ===
-
-export interface SyncProfile {
-	name: string;
-	blood_type?: string;
-	allergies: string[];
-	emergency_contacts: EmergencyContact[];
-}
+// === SYNC PAYLOAD (from desktop via M0-04) — aligned CA-05 ===
 
 /** Desktop assembles this curated payload. Phone cannot request more. */
 export interface SyncPayload {
-	profile: SyncProfile;
+	profile: CachedProfile;
 	medications: CachedMedication[];
 	labs: CachedLabResult[];
 	timeline: CachedTimelineEvent[];
 	alerts: CachedAlert[];
 	appointment?: CachedAppointment;
 	versions: SyncVersions;
-	synced_at: string;
+	syncedAt: string;
 }
 
 export interface SyncVersions {
@@ -50,14 +42,14 @@ export interface DeltaPayload {
 	labs?: CachedLabResult[];
 	timeline?: CachedTimelineEvent[];
 	alerts?: CachedAlert[];
-	appointment?: CachedAppointment | null;
-	profile?: SyncProfile;
+	appointment?: CachedAppointment;
+	profile?: CachedProfile;
 	removed_medication_ids?: string[];
 	removed_lab_ids?: string[];
 	removed_timeline_ids?: string[];
 	removed_alert_ids?: string[];
 	versions: SyncVersions;
-	synced_at: string;
+	syncedAt: string;
 }
 
 // === DEFERRED QUESTIONS (M1-02 offline queue) ===
@@ -122,9 +114,6 @@ export interface CacheManager {
 	// Write operations (used by sync engine)
 	applySyncPayload(payload: SyncPayload): Promise<void>;
 	applyDeltaPayload(payload: DeltaPayload): Promise<void>;
-
-	// Journal
-	getUnsyncedJournalEntryCount(): Promise<number>;
 
 	// Deferred questions
 	saveDeferredQuestion(question: DeferredQuestion): Promise<void>;

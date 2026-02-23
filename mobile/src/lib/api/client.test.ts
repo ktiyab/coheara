@@ -40,7 +40,8 @@ function mockFetchResponse(status: number, body?: unknown, ok?: boolean): void {
 		ok: isOk,
 		status,
 		json: () => Promise.resolve(body),
-		text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body ?? ''))
+		text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body ?? '')),
+		headers: { get: (_name: string) => null }
 	}));
 }
 
@@ -94,7 +95,8 @@ describe('MobileApiClient — auth headers', () => {
 		const headers = options?.headers as Record<string, string>;
 		expect(headers['X-Device-Id']).toBe('dev-abc-123');
 		expect(headers['Authorization']).toBe('Bearer tok-xyz-789');
-		expect(headers['X-Nonce']).toBeTruthy();
+		expect(headers['X-Request-Nonce']).toBeTruthy();
+		expect(headers['X-Request-Timestamp']).toBeTruthy();
 	});
 
 	it('sends unique nonces (UUID format) per request', async () => {
@@ -102,10 +104,10 @@ describe('MobileApiClient — auth headers', () => {
 		mockFetchResponse(200, {});
 
 		await client.get('/api/first');
-		const nonce1 = (vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>)['X-Nonce'];
+		const nonce1 = (vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>)['X-Request-Nonce'];
 
 		await client.get('/api/second');
-		const nonce2 = (vi.mocked(fetch).mock.calls[1][1]?.headers as Record<string, string>)['X-Nonce'];
+		const nonce2 = (vi.mocked(fetch).mock.calls[1][1]?.headers as Record<string, string>)['X-Request-Nonce'];
 
 		expect(nonce1).not.toBe(nonce2);
 		// UUID v4 format check

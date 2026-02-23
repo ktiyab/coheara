@@ -19,6 +19,7 @@ use crate::db::DatabaseError;
 
 /// Version counters for all 6 entity types.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncVersions {
     pub medications: i64,
     pub labs: i64,
@@ -30,6 +31,7 @@ pub struct SyncVersions {
 
 /// Sync request from phone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncRequest {
     pub versions: SyncVersions,
     #[serde(default)]
@@ -38,6 +40,7 @@ pub struct SyncRequest {
 
 /// Sync response to phone. Fields are `None` if that entity type hasn't changed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub medications: Option<Vec<CachedMedication>>,
@@ -63,6 +66,7 @@ pub struct SyncResponse {
 
 /// Curated medication for phone cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedMedication {
     pub id: String,
     pub generic_name: String,
@@ -80,6 +84,7 @@ pub struct CachedMedication {
 
 /// Curated lab result for phone cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedLabResult {
     pub id: String,
     pub test_name: String,
@@ -97,6 +102,7 @@ pub struct CachedLabResult {
 
 /// Curated timeline event for phone cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedTimelineEvent {
     pub id: String,
     pub event_type: String,
@@ -112,6 +118,7 @@ pub struct CachedTimelineEvent {
 /// Currently populated from `dismissed_alerts` table only (all have `dismissed: true`).
 /// Active (non-dismissed) alerts require coherence engine persistence (RS-L2-03-001).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedAlert {
     pub id: String,
     pub title: String,
@@ -123,6 +130,7 @@ pub struct CachedAlert {
 
 /// Curated appointment for phone cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedAppointment {
     pub id: String,
     pub professional_name: String,
@@ -134,6 +142,7 @@ pub struct CachedAppointment {
 
 /// Curated profile summary for phone cache.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedProfile {
     pub profile_name: String,
     pub total_documents: u32,
@@ -143,6 +152,7 @@ pub struct CachedProfile {
 
 /// Allergy summary within profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedAllergy {
     pub allergen: String,
     pub severity: String,
@@ -155,6 +165,7 @@ pub struct CachedAllergy {
 
 /// Journal entry from phone (piggybacked on sync request).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MobileJournalEntry {
     pub id: String,
     pub severity: i32,
@@ -167,6 +178,7 @@ pub struct MobileJournalEntry {
 
 /// Result of processing piggybacked journal entries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JournalSyncResult {
     pub synced_ids: Vec<String>,
     pub rejected_ids: Vec<String>,
@@ -175,6 +187,7 @@ pub struct JournalSyncResult {
 
 /// Medication-symptom correlation found during journal sync.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JournalCorrelation {
     pub entry_id: String,
     pub medication_name: String,
@@ -1832,18 +1845,39 @@ mod tests {
     }
 
     #[test]
+    fn sync_request_deserializes_camel_case() {
+        // Phone sends camelCase — verify it deserializes correctly (CA-03)
+        let json = r#"{
+            "versions": {
+                "medications": 7,
+                "labs": 1,
+                "timeline": 0,
+                "alerts": 0,
+                "appointments": 0,
+                "profile": 2
+            },
+            "journalEntries": []
+        }"#;
+
+        let req: SyncRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.versions.medications, 7);
+        assert!(req.journal_entries.is_empty());
+    }
+
+    #[test]
     fn sync_request_with_journal_deserializes() {
+        // Phone sends camelCase (CA-03)
         let json = r#"{
             "versions": { "medications": 0, "labs": 0, "timeline": 0, "alerts": 0, "appointments": 0, "profile": 0 },
-            "journal_entries": [
+            "journalEntries": [
                 {
                     "id": "abc-123",
                     "severity": 6,
-                    "body_location": "head",
-                    "free_text": "Dizzy",
-                    "activity_context": null,
-                    "symptom_chip": "dizzy",
-                    "created_at": "2026-02-12T14:15:00+01:00"
+                    "bodyLocation": "head",
+                    "freeText": "Dizzy",
+                    "activityContext": null,
+                    "symptomChip": "dizzy",
+                    "createdAt": "2026-02-12T14:15:00+01:00"
                 }
             ]
         }"#;
@@ -1869,16 +1903,16 @@ mod tests {
         let obj = json_value.as_object().unwrap();
         // medications is present as top-level key (Some(vec![]))
         assert!(obj.contains_key("medications"));
-        // labs, timeline, alerts, appointment, profile, journal_sync are omitted (None)
+        // labs, timeline, alerts, appointment, profile, journalSync are omitted (None)
         assert!(!obj.contains_key("labs"));
         assert!(!obj.contains_key("timeline"));
         assert!(!obj.contains_key("alerts"));
         assert!(!obj.contains_key("appointment"));
         assert!(!obj.contains_key("profile"));
-        assert!(!obj.contains_key("journal_sync"));
-        // versions always present
+        assert!(!obj.contains_key("journalSync")); // camelCase (CA-03)
+        // versions always present; synced_at → syncedAt
         assert!(obj.contains_key("versions"));
-        assert!(obj.contains_key("synced_at"));
+        assert!(obj.contains_key("syncedAt")); // camelCase (CA-03)
     }
 
     // -----------------------------------------------------------------------

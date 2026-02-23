@@ -432,13 +432,8 @@ async fn handle_chat_query(
                     }
                 };
 
-                // 7. Send response token via WS (single token for sync pipeline)
-                let _ = tx.blocking_send(WsOutgoing::ChatToken {
-                    conversation_id: conv_id_str.clone(),
-                    token: display_text.clone(),
-                });
-
-                // 8. Build citation refs and send ChatComplete
+                // 7. Build citation refs and send ChatComplete with full content.
+                // Phone receives the entire answer in one message — no token buffering needed.
                 let citations: Vec<CitationRef> = response
                     .citations
                     .iter()
@@ -451,6 +446,7 @@ async fn handle_chat_query(
 
                 let _ = tx.blocking_send(WsOutgoing::ChatComplete {
                     conversation_id: conv_id_str.clone(),
+                    content: display_text.clone(),
                     citations,
                 });
 
@@ -475,12 +471,9 @@ async fn handle_chat_query(
                 // No AI available — send placeholder
                 let placeholder = "I'm not connected to the AI assistant yet. \
                     Please make sure Ollama is running with the MedGemma model on the desktop.";
-                let _ = tx.blocking_send(WsOutgoing::ChatToken {
-                    conversation_id: conv_id_str.clone(),
-                    token: placeholder.to_string(),
-                });
                 let _ = tx.blocking_send(WsOutgoing::ChatComplete {
                     conversation_id: conv_id_str.clone(),
+                    content: placeholder.to_string(),
                     citations: vec![],
                 });
                 manager

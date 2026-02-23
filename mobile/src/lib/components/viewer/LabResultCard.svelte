@@ -1,6 +1,6 @@
-<!-- M1-03: Lab result card — single lab row with trend arrow + reference range -->
+<!-- M1-03: Lab result card — single lab row with trend + reference range (aligned CA-05) -->
 <script lang="ts">
-	import type { CachedLabResult } from '$lib/types/viewer.js';
+	import type { CachedLabResult, LabTrend } from '$lib/types/viewer.js';
 	import LabTrendIndicator from './LabTrendIndicator.svelte';
 
 	const { lab, onTap }: {
@@ -8,7 +8,9 @@
 		onTap: (testName: string) => void;
 	} = $props();
 
-	const dateFormatted = $derived(formatLabDate(lab.testedAt));
+	const dateFormatted = $derived(formatLabDate(lab.collectionDate));
+	const displayValue = $derived(lab.valueText ?? (lab.value != null ? String(lab.value) : ''));
+	const hasReference = $derived(lab.referenceRangeLow != null && lab.referenceRangeHigh != null);
 
 	function formatLabDate(iso: string): string {
 		return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -19,25 +21,25 @@
 	class="lab-card"
 	class:abnormal={lab.isAbnormal}
 	onclick={() => onTap(lab.testName)}
-	aria-label="{lab.testName}, {lab.value} {lab.unit}, reference range {lab.referenceMin} to {lab.referenceMax}, {lab.isAbnormal ? 'abnormal' : 'normal'}, trend {lab.trendContext}, tested {dateFormatted}"
+	aria-label="{lab.testName}, {displayValue} {lab.unit ?? ''}, {hasReference ? `reference range ${lab.referenceRangeLow} to ${lab.referenceRangeHigh},` : ''} {lab.isAbnormal ? 'abnormal' : 'normal'}, tested {dateFormatted}"
 >
 	<div class="card-top">
 		{#if lab.isAbnormal}
 			<span class="abnormal-icon" aria-hidden="true">&#9888;</span>
 		{/if}
 		<span class="test-name">{lab.testName}</span>
-		<span class="value">{lab.value} {lab.unit}</span>
+		<span class="value">{displayValue} {lab.unit ?? ''}</span>
 	</div>
 	<div class="card-bottom">
-		<span class="reference">Ref: {lab.referenceMin}-{lab.referenceMax}</span>
-		<LabTrendIndicator trend={lab.trend} context={lab.trendContext} />
+		{#if hasReference}
+			<span class="reference">Ref: {lab.referenceRangeLow}-{lab.referenceRangeHigh}</span>
+		{/if}
+		{#if lab.trendDirection}
+			<LabTrendIndicator trend={lab.trendDirection as LabTrend} isAbnormal={lab.isAbnormal} />
+		{/if}
 	</div>
 	<div class="card-date">
 		{dateFormatted}
-		{#if lab.labName}
-			<span class="separator" aria-hidden="true">&middot;</span>
-			{lab.labName}
-		{/if}
 	</div>
 </button>
 

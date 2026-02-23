@@ -1,4 +1,5 @@
 // M2-01: SLM Context Assembly — cache → structured prompt, sanitization
+// CA-08: Property names aligned with desktop source of truth (viewer.ts CA-05)
 import type { CachedMedication, CachedLabResult, CachedTimelineEvent, CachedAlert, CachedAppointment, CachedProfile } from '$lib/types/viewer.js';
 import type { CacheScope } from '$lib/types/slm.js';
 import { SLM_SYSTEM_PROMPT } from '$lib/types/slm.js';
@@ -30,7 +31,8 @@ export function formatMedications(meds: CachedMedication[]): string {
 	if (meds.length === 0) return '';
 	const lines = ['CURRENT MEDICATIONS:'];
 	for (const m of meds) {
-		lines.push(`- ${sanitizeForContext(m.name)} ${sanitizeForContext(m.dose)}, ${sanitizeForContext(m.frequency)} (prescribed by ${sanitizeForContext(m.prescriber)})`);
+		const prescriber = m.prescriberName ? ` (prescribed by ${sanitizeForContext(m.prescriberName)})` : '';
+		lines.push(`- ${sanitizeForContext(m.genericName)} ${sanitizeForContext(m.dose)}, ${sanitizeForContext(m.frequency)}${prescriber}`);
 	}
 	return lines.join('\n');
 }
@@ -41,8 +43,12 @@ export function formatLabs(labs: CachedLabResult[]): string {
 	const lines = ['RECENT LAB RESULTS:'];
 	for (const l of labs) {
 		const flag = l.isAbnormal ? ' [ABNORMAL]' : '';
-		const range = `(range: ${l.referenceMin}-${l.referenceMax} ${l.unit})`;
-		lines.push(`- ${sanitizeForContext(l.testName)}: ${l.value} ${l.unit} ${range}${flag} — ${l.testedAt}`);
+		const low = l.referenceRangeLow ?? '?';
+		const high = l.referenceRangeHigh ?? '?';
+		const unit = l.unit ?? '';
+		const range = `(range: ${low}-${high} ${unit})`;
+		const value = l.value != null ? String(l.value) : (l.valueText ?? 'N/A');
+		lines.push(`- ${sanitizeForContext(l.testName)}: ${value} ${unit} ${range}${flag} — ${l.collectionDate}`);
 	}
 	return lines.join('\n');
 }
@@ -52,7 +58,7 @@ export function formatTimeline(events: CachedTimelineEvent[]): string {
 	if (events.length === 0) return '';
 	const lines = ['RECENT TIMELINE:'];
 	for (const e of events) {
-		lines.push(`- ${e.timestamp}: ${e.eventType} — ${sanitizeForContext(e.title)}`);
+		lines.push(`- ${e.date}: ${e.eventType} — ${sanitizeForContext(e.description)}`);
 	}
 	return lines.join('\n');
 }
@@ -72,24 +78,17 @@ export function formatAppointment(appt: CachedAppointment): string {
 	return [
 		'NEXT APPOINTMENT:',
 		`- Date: ${appt.date}`,
-		`- Doctor: ${sanitizeForContext(appt.doctorName)}`,
-		appt.purpose ? `- Purpose: ${sanitizeForContext(appt.purpose)}` : ''
+		`- Doctor: ${sanitizeForContext(appt.professionalName)}`,
+		appt.appointmentType ? `- Type: ${sanitizeForContext(appt.appointmentType)}` : ''
 	].filter(Boolean).join('\n');
 }
 
 /** Format profile for SLM context */
 export function formatProfile(profile: CachedProfile): string {
 	const lines = ['PATIENT PROFILE:'];
-	lines.push(`- Name: ${sanitizeForContext(profile.name)}`);
-	if (profile.bloodType) lines.push(`- Blood type: ${profile.bloodType}`);
+	lines.push(`- Name: ${sanitizeForContext(profile.profileName)}`);
 	if (profile.allergies.length > 0) {
-		lines.push(`- Allergies: ${profile.allergies.map(sanitizeForContext).join(', ')}`);
-	}
-	if (profile.emergencyContacts.length > 0) {
-		const contacts = profile.emergencyContacts
-			.map((c) => `${sanitizeForContext(c.name)} (${sanitizeForContext(c.relation)})`)
-			.join(', ');
-		lines.push(`- Emergency contacts: ${contacts}`);
+		lines.push(`- Allergies: ${profile.allergies.map((a) => sanitizeForContext(a.allergen)).join(', ')}`);
 	}
 	return lines.join('\n');
 }
@@ -132,7 +131,7 @@ export function assemblePrompt(
 	const sections: string[] = [];
 
 	if (scope.medications) {
-		const activeMeds = data.medications.filter((m) => m.isActive);
+		const activeMeds = data.medications.filter((m) => m.status === 'active');
 		const block = formatMedications(activeMeds);
 		if (block) sections.push(block);
 	}

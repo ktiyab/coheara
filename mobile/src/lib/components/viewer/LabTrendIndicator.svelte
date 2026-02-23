@@ -1,16 +1,16 @@
-<!-- M1-03: Lab trend indicator — arrow + label + color (Lena: colorblind-safe) -->
+<!-- M1-03: Lab trend indicator — arrow + label + color (aligned CA-05) -->
 <script lang="ts">
-	import type { LabTrend, LabTrendContext } from '$lib/types/viewer.js';
+	import type { LabTrend } from '$lib/types/viewer.js';
 	import { trendArrow, trendLabel, trendColor } from '$lib/utils/viewer.js';
 
-	const { trend, context }: {
+	const { trend, isAbnormal }: {
 		trend: LabTrend;
-		context: LabTrendContext;
+		isAbnormal: boolean;
 	} = $props();
 
 	const arrow = $derived(trendArrow(trend));
-	const label = $derived(trendLabel(context));
-	const color = $derived(trendColor(context));
+	const label = $derived(trendLabel(trend));
+	const color = $derived(trendColor(trend, isAbnormal));
 </script>
 
 <span

@@ -217,7 +217,7 @@
 	{#if $captureStep === 'camera'}
 		<div class="camera-header">
 			<h1>Capture Document</h1>
-			<a class="close-btn" href="/more" aria-label="Close">&times;</a>
+			<a class="close-btn" href="/documents" aria-label="Close">&times;</a>
 		</div>
 
 		{#if !$isConnected}
@@ -256,7 +256,7 @@
 
 	{:else if $captureStep === 'preview'}
 		<div class="preview-header">
-			<a class="back-btn" href="/more" aria-label="Cancel">&larr;</a>
+			<a class="back-btn" href="/documents" aria-label="Cancel">&larr;</a>
 		</div>
 
 		{#if $captureSession}
@@ -294,7 +294,7 @@
 					It will be sent when you connect to your desktop.
 				</p>
 			{/if}
-			<a class="done-link" href="/more">Done</a>
+			<a class="done-link" href="/documents">Done</a>
 		</div>
 	{/if}
 </div>

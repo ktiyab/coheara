@@ -154,8 +154,9 @@ pub enum WsOutgoing {
     Revoked {},
     /// Streaming chat token.
     ChatToken { conversation_id: String, token: String },
-    /// Chat response complete with citations.
-    ChatComplete { conversation_id: String, citations: Vec<CitationRef> },
+    /// Chat response complete with full content + citations.
+    /// Phone receives the entire answer in one message (no token buffering needed).
+    ChatComplete { conversation_id: String, content: String, citations: Vec<CitationRef> },
     /// Chat error during generation.
     ChatError { conversation_id: String, error: String },
     /// Critical health alert (BP-02: vague notification, detail inside app).
@@ -313,6 +314,29 @@ impl DeviceManager {
         self.tokens
             .insert(device_id, TokenEntry::new(token_hash));
         Ok(())
+    }
+
+    /// Update device metadata from request headers (CA-01).
+    /// Called on each authenticated request to keep device info current
+    /// (e.g., phone renamed, OS updated). Only updates non-empty values.
+    pub fn update_device_metadata(
+        &mut self,
+        device_id: &str,
+        name: Option<&str>,
+        model: Option<&str>,
+    ) {
+        if let Some(device) = self.devices.get_mut(device_id) {
+            if let Some(n) = name {
+                if !n.is_empty() {
+                    device.device_name = n.to_string();
+                }
+            }
+            if let Some(m) = model {
+                if !m.is_empty() {
+                    device.device_model = m.to_string();
+                }
+            }
+        }
     }
 
     /// Unpair (revoke) a device. Removes tokens and active connection.
@@ -655,6 +679,31 @@ mod tests {
         assert_eq!(device.device_name, "Test Phone");
         assert_eq!(device.device_model, "iPhone 15");
         assert!(!device.is_revoked);
+    }
+
+    #[test]
+    fn update_device_metadata_updates_name_and_model() {
+        let (mut mgr, _) = make_manager_with_device();
+        mgr.update_device_metadata("dev-1", Some("New Name"), Some("Pixel 9"));
+        let device = mgr.get_device("dev-1").unwrap();
+        assert_eq!(device.device_name, "New Name");
+        assert_eq!(device.device_model, "Pixel 9");
+    }
+
+    #[test]
+    fn update_device_metadata_skips_empty_values() {
+        let (mut mgr, _) = make_manager_with_device();
+        mgr.update_device_metadata("dev-1", Some(""), None);
+        let device = mgr.get_device("dev-1").unwrap();
+        assert_eq!(device.device_name, "Test Phone"); // Unchanged
+        assert_eq!(device.device_model, "iPhone 15"); // Unchanged
+    }
+
+    #[test]
+    fn update_device_metadata_ignores_unknown_device() {
+        let (mut mgr, _) = make_manager_with_device();
+        mgr.update_device_metadata("unknown", Some("X"), Some("Y")); // No panic
+        assert!(mgr.get_device("unknown").is_none());
     }
 
     #[test]
@@ -1006,6 +1055,7 @@ mod tests {
     fn ws_outgoing_chat_complete_serializes() {
         let msg = WsOutgoing::ChatComplete {
             conversation_id: "conv-1".into(),
+            content: "Based on your records, your HbA1c is 7.2%.".into(),
             citations: vec![CitationRef {
                 document_id: "doc-1".into(),
                 document_title: "Lab Report".into(),
@@ -1014,6 +1064,7 @@ mod tests {
         };
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["type"], "ChatComplete");
+        assert_eq!(json["content"], "Based on your records, your HbA1c is 7.2%.");
         assert_eq!(json["citations"][0]["document_title"], "Lab Report");
     }
 

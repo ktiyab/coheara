@@ -1,4 +1,4 @@
-// M1-03: Viewer utility tests — 39 tests
+// M1-03: Viewer utility tests — aligned CA-05 desktop types
 import { describe, it, expect } from 'vitest';
 import {
 	searchMedications,
@@ -8,7 +8,6 @@ import {
 	trendArrow,
 	trendLabel,
 	trendColor,
-	computeTrendContext,
 	groupTimelineByDate,
 	filterTimelineEvents,
 	timelineEventIcon,
@@ -27,30 +26,31 @@ import type {
 } from '$lib/types/viewer.js';
 import { FRESHNESS_THRESHOLDS } from '$lib/types/viewer.js';
 
-// --- Test data factories ---
+// --- Test data factories (aligned CA-05 desktop types) ---
 
 function makeMed(overrides: Partial<CachedMedication> = {}): CachedMedication {
 	return {
-		id: 'med-1', name: 'Metformin', dose: '500mg', frequency: 'Twice daily',
-		prescriber: 'Dr. Chen', purpose: 'For blood sugar', scheduleGroup: 'morning',
-		since: '2024-01-15', isActive: true, ...overrides
+		id: 'med-1', genericName: 'Metformin', dose: '500mg', frequency: 'Twice daily',
+		route: 'oral', status: 'active', isOtc: false,
+		prescriberName: 'Dr. Chen', condition: 'For blood sugar',
+		startDate: '2024-01-15', ...overrides
 	};
 }
 
 function makeLab(overrides: Partial<CachedLabResult> = {}): CachedLabResult {
 	return {
 		id: 'lab-1', testName: 'HbA1c', value: 7.2, unit: '%',
-		referenceMin: 4.0, referenceMax: 5.6, isAbnormal: true,
-		trend: 'down', trendContext: 'improving', testedAt: '2026-02-08T10:00:00Z',
-		...overrides
+		referenceRangeLow: 4.0, referenceRangeHigh: 5.6, abnormalFlag: 'H',
+		isAbnormal: true, collectionDate: '2026-02-08T10:00:00Z',
+		trendDirection: 'down', ...overrides
 	};
 }
 
 function makeEvent(overrides: Partial<CachedTimelineEvent> = {}): CachedTimelineEvent {
 	return {
-		id: 'evt-1', eventType: 'lab_result', title: 'Lab results processed',
+		id: 'evt-1', eventType: 'lab_result', category: 'Lab Results',
 		description: 'New blood work from Central Hospital',
-		timestamp: '2026-02-12T09:30:00Z', isPatientReported: false,
+		date: '2026-02-12T09:30:00Z', stillActive: false,
 		...overrides
 	};
 }
@@ -59,9 +59,9 @@ function makeEvent(overrides: Partial<CachedTimelineEvent> = {}): CachedTimeline
 
 describe('medication search (in-memory, Viktor)', () => {
 	const meds = [
-		makeMed({ id: 'a', name: 'Metformin', genericName: 'metformin hydrochloride', purpose: 'For blood sugar' }),
-		makeMed({ id: 'b', name: 'Lisinopril', dose: '10mg', prescriber: 'Dr. Ndiaye', purpose: 'For blood pressure' }),
-		makeMed({ id: 'c', name: 'Amlodipine', dose: '5mg', prescriber: 'Dr. Ndiaye', purpose: 'For blood pressure' })
+		makeMed({ id: 'a', genericName: 'Metformin', brandName: 'Glucophage', condition: 'For blood sugar' }),
+		makeMed({ id: 'b', genericName: 'Lisinopril', dose: '10mg', prescriberName: 'Dr. Ndiaye', condition: 'For blood pressure' }),
+		makeMed({ id: 'c', genericName: 'Amlodipine', dose: '5mg', prescriberName: 'Dr. Ndiaye', condition: 'For blood pressure' })
 	];
 
 	it('returns all medications for empty query', () => {
@@ -69,15 +69,21 @@ describe('medication search (in-memory, Viktor)', () => {
 		expect(searchMedications(meds, '  ')).toHaveLength(3);
 	});
 
-	it('searches by medication name (case-insensitive)', () => {
+	it('searches by generic name (case-insensitive)', () => {
 		const results = searchMedications(meds, 'metformin');
 		expect(results).toHaveLength(1);
-		expect(results[0].name).toBe('Metformin');
+		expect(results[0].genericName).toBe('Metformin');
 	});
 
-	it('searches by purpose (Dr. Diallo: "blood" matches purpose)', () => {
+	it('searches by brand name', () => {
+		const results = searchMedications(meds, 'glucophage');
+		expect(results).toHaveLength(1);
+		expect(results[0].genericName).toBe('Metformin');
+	});
+
+	it('searches by condition (Dr. Diallo: "blood" matches condition)', () => {
 		const results = searchMedications(meds, 'blood');
-		expect(results).toHaveLength(3); // All have "blood" in purpose or generic
+		expect(results).toHaveLength(3); // All have "blood" in condition
 	});
 
 	it('searches by prescriber name', () => {
@@ -88,7 +94,7 @@ describe('medication search (in-memory, Viktor)', () => {
 	it('searches by dose', () => {
 		const results = searchMedications(meds, '10mg');
 		expect(results).toHaveLength(1);
-		expect(results[0].name).toBe('Lisinopril');
+		expect(results[0].genericName).toBe('Lisinopril');
 	});
 
 	it('returns empty for no match', () => {
@@ -145,45 +151,24 @@ describe('freshness indicator', () => {
 
 // === LAB TREND INDICATORS ===
 
-describe('lab trend indicators (Dr. Diallo: clinical meaning)', () => {
+describe('lab trend indicators', () => {
 	it('returns correct trend arrows', () => {
 		expect(trendArrow('up')).toBe('\u2191');
 		expect(trendArrow('down')).toBe('\u2193');
 		expect(trendArrow('stable')).toBe('\u2192');
-		expect(trendArrow('first')).toBe('\u2014');
 	});
 
 	it('returns correct trend labels', () => {
-		expect(trendLabel('worsening')).toBe('Worsening');
-		expect(trendLabel('improving')).toBe('Improving');
-		expect(trendLabel('approaching')).toBe('Approaching limit');
+		expect(trendLabel('up')).toBe('Rising');
+		expect(trendLabel('down')).toBe('Falling');
 		expect(trendLabel('stable')).toBe('Stable');
-		expect(trendLabel('first')).toBe('First result');
 	});
 
-	it('maps trend context to clinical colors', () => {
-		expect(trendColor('worsening')).toBe('var(--color-error)');
-		expect(trendColor('improving')).toBe('var(--color-success)');
-		expect(trendColor('approaching')).toBe('var(--color-warning)');
-		expect(trendColor('stable')).toBe('var(--color-text-muted)');
-	});
-
-	it('computes trend context: up + abnormal = worsening', () => {
-		expect(computeTrendContext('up', true, false)).toBe('worsening');
-	});
-
-	it('computes trend context: down + was abnormal = improving', () => {
-		expect(computeTrendContext('down', false, true)).toBe('improving');
-		expect(computeTrendContext('down', true, true)).toBe('improving');
-	});
-
-	it('computes trend context: up + normal + was normal = approaching', () => {
-		expect(computeTrendContext('up', false, false)).toBe('approaching');
-	});
-
-	it('computes trend context: stable and first', () => {
-		expect(computeTrendContext('stable', false, false)).toBe('stable');
-		expect(computeTrendContext('first', false, false)).toBe('first');
+	it('maps trend to clinical colors (abnormal context)', () => {
+		expect(trendColor('up', true)).toBe('var(--color-error)');
+		expect(trendColor('up', false)).toBe('var(--color-text-muted)');
+		expect(trendColor('stable', false)).toBe('var(--color-text-muted)');
+		expect(trendColor('down', true)).toBe('var(--color-error)');
 	});
 });
 
@@ -193,10 +178,10 @@ describe('timeline grouping and filtering', () => {
 	it('groups events by date with Today/Yesterday labels', () => {
 		const today = new Date('2026-02-12T15:00:00Z');
 		const events = [
-			makeEvent({ id: 'a', timestamp: '2026-02-12T09:30:00Z' }),
-			makeEvent({ id: 'b', timestamp: '2026-02-12T14:00:00Z' }),
-			makeEvent({ id: 'c', timestamp: '2026-02-11T11:00:00Z' }),
-			makeEvent({ id: 'd', timestamp: '2026-02-09T16:00:00Z' })
+			makeEvent({ id: 'a', date: '2026-02-12T09:30:00Z' }),
+			makeEvent({ id: 'b', date: '2026-02-12T14:00:00Z' }),
+			makeEvent({ id: 'c', date: '2026-02-11T11:00:00Z' }),
+			makeEvent({ id: 'd', date: '2026-02-09T16:00:00Z' })
 		];
 
 		const groups = groupTimelineByDate(events, today);
@@ -211,8 +196,8 @@ describe('timeline grouping and filtering', () => {
 	it('sorts events within groups by time descending', () => {
 		const today = new Date('2026-02-12T18:00:00Z');
 		const events = [
-			makeEvent({ id: 'a', timestamp: '2026-02-12T09:00:00Z' }),
-			makeEvent({ id: 'b', timestamp: '2026-02-12T15:00:00Z' })
+			makeEvent({ id: 'a', date: '2026-02-12T09:00:00Z' }),
+			makeEvent({ id: 'b', date: '2026-02-12T15:00:00Z' })
 		];
 
 		const groups = groupTimelineByDate(events, today);
@@ -234,15 +219,15 @@ describe('timeline grouping and filtering', () => {
 		expect(filterTimelineEvents(events, 'appointment')).toHaveLength(0);
 	});
 
-	it('distinguishes patient-reported events (LC-06)', () => {
+	it('tracks stillActive status on events', () => {
 		const events = [
-			makeEvent({ id: 'a', eventType: 'journal', isPatientReported: true }),
-			makeEvent({ id: 'b', eventType: 'lab_result', isPatientReported: false })
+			makeEvent({ id: 'a', eventType: 'journal', stillActive: true }),
+			makeEvent({ id: 'b', eventType: 'lab_result', stillActive: false })
 		];
 
-		const journal = events.filter((e) => e.isPatientReported);
-		expect(journal).toHaveLength(1);
-		expect(journal[0].eventType).toBe('journal');
+		const active = events.filter((e) => e.stillActive);
+		expect(active).toHaveLength(1);
+		expect(active[0].eventType).toBe('journal');
 	});
 
 	it('maps event types to icons and colors', () => {
@@ -259,8 +244,8 @@ describe('timeline grouping and filtering', () => {
 describe('share sheet (Nadia: reduced subset)', () => {
 	it('generates medication share with names + doses only', () => {
 		const meds = [
-			makeMed({ id: 'a', name: 'Metformin', dose: '500mg', frequency: 'Twice daily', scheduleGroup: 'morning' }),
-			makeMed({ id: 'b', name: 'Amlodipine', dose: '5mg', frequency: 'Once daily', scheduleGroup: 'evening' })
+			makeMed({ id: 'a', genericName: 'Metformin', dose: '500mg', frequency: 'Twice daily' }),
+			makeMed({ id: 'b', genericName: 'Amlodipine', dose: '5mg', frequency: 'Once daily' })
 		];
 
 		const payload = shareMedicationList(meds, 'Mamadou', '2026-02-12T09:30:00Z');
@@ -272,7 +257,7 @@ describe('share sheet (Nadia: reduced subset)', () => {
 
 	it('generates lab share with values + ranges + trends', () => {
 		const labs = [
-			makeLab({ id: 'a', testName: 'HbA1c', value: 7.2, unit: '%', referenceMin: 4.0, referenceMax: 5.6, trend: 'down', trendContext: 'improving' })
+			makeLab({ id: 'a', testName: 'HbA1c', value: 7.2, unit: '%', referenceRangeLow: 4.0, referenceRangeHigh: 5.6, trendDirection: 'down' })
 		];
 
 		const payload = shareLabSummary(labs, 'Thomas', null);
@@ -280,7 +265,6 @@ describe('share sheet (Nadia: reduced subset)', () => {
 		expect(payload.text).toContain('HbA1c');
 		expect(payload.text).toContain('7.2');
 		expect(payload.text).toContain('4-5.6');
-		expect(payload.text).toContain('Improving');
 	});
 
 	it('generates appointment prep share for patient view', () => {
@@ -294,8 +278,8 @@ describe('share sheet (Nadia: reduced subset)', () => {
 			},
 			forDoctor: {
 				lastVisitDate: 'Nov 15, 2025',
-				medicationChanges: ['Lisinopril: 10mg → 20mg'],
-				labResults: ['HbA1c: 7.8% → 7.2%'],
+				medicationChanges: ['Lisinopril: 10mg \u2192 20mg'],
+				labResults: ['HbA1c: 7.8% \u2192 7.2%'],
 				patientReportedSymptoms: ['Dizziness (3 entries)'],
 				activeAlerts: ['Potassium rising']
 			}
@@ -315,8 +299,8 @@ describe('share sheet (Nadia: reduced subset)', () => {
 			forPatient: { thingsToMention: [], questionsToConsider: [] },
 			forDoctor: {
 				lastVisitDate: 'Nov 15, 2025',
-				medicationChanges: ['Lisinopril: 10mg → 20mg'],
-				labResults: ['HbA1c: 7.8% → 7.2%'],
+				medicationChanges: ['Lisinopril: 10mg \u2192 20mg'],
+				labResults: ['HbA1c: 7.8% \u2192 7.2%'],
 				patientReportedSymptoms: ['Dizziness (3 entries)'],
 				activeAlerts: ['Potassium rising']
 			}

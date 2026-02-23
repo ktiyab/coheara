@@ -1,4 +1,5 @@
-// M1-02: Chat store — conversation state, streaming, deferred questions
+// M1-02: Chat store — conversation state, processing, deferred questions
+// CA-07: Phone receives complete answer in one ChatComplete — no token buffering.
 import { writable, derived, get } from 'svelte/store';
 import type {
 	ChatMessage,
@@ -11,7 +12,7 @@ import type {
 	WsChatMessage,
 	WsCitationRef
 } from '$lib/types/chat.js';
-import { LOADING_TIMEOUT_MS, TOKEN_TIMEOUT_MS } from '$lib/types/chat.js';
+import { PROCESSING_TIMEOUT_MS, PROCESSING_STAGES } from '$lib/types/chat.js';
 
 // --- Core stores ---
 
@@ -24,7 +25,7 @@ export const activeConversationId = writable<string | null>(null);
 /** Conversation list */
 export const conversations = writable<ConversationSummary[]>([]);
 
-/** Streaming state */
+/** Processing state */
 export const streamState = writable<StreamState>({ phase: 'idle' });
 
 /** Deferred question queue (offline questions) */
@@ -32,14 +33,14 @@ export const deferredQuestions = writable<DeferredQuestion[]>([]);
 
 // --- Derived stores ---
 
-/** Whether a response is currently streaming */
+/** Whether the desktop is processing a query */
 export const isStreaming = derived(streamState, ($s) =>
-	$s.phase === 'loading' || $s.phase === 'streaming'
+	$s.phase === 'processing'
 );
 
 /** Whether the chat input should be disabled */
 export const inputDisabled = derived(streamState, ($s) =>
-	$s.phase === 'loading' || $s.phase === 'streaming'
+	$s.phase === 'processing'
 );
 
 /** Number of pending deferred questions */
@@ -47,10 +48,16 @@ export const deferredCount = derived(deferredQuestions, ($q) =>
 	$q.filter((q) => !q.answered).length
 );
 
-/** Accumulated streaming tokens for display */
-export const streamingContent = derived(streamState, ($s) =>
-	$s.phase === 'streaming' ? $s.tokens : ''
-);
+/** Current processing stage label (time-based, not token-based) */
+export const processingStage = derived(streamState, ($s) => {
+	if ($s.phase !== 'processing') return '';
+	const elapsed = Date.now() - $s.startedAt;
+	let label = PROCESSING_STAGES[0].label;
+	for (const stage of PROCESSING_STAGES) {
+		if (elapsed >= stage.afterMs) label = stage.label;
+	}
+	return label;
+});
 
 // --- Quick questions (Mamadou) ---
 
@@ -60,76 +67,48 @@ export const DEFAULT_QUICK_QUESTIONS: readonly QuickQuestion[] = [
 	{ text: 'What should I tell my doctor?', category: 'general' }
 ] as const;
 
-// --- Streaming management ---
+// --- Processing management ---
 
-let loadingTimer: ReturnType<typeof setTimeout> | null = null;
-let tokenTimer: ReturnType<typeof setTimeout> | null = null;
+let processingTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Start a new chat query — sets loading state */
-export function startQuery(source: ChatSource): void {
+/** Start a new query — sets processing state */
+export function startQuery(_source: ChatSource): void {
 	const now = Date.now();
-	streamState.set({ phase: 'loading', startedAt: now });
+	streamState.set({ phase: 'processing', startedAt: now });
 
 	clearTimers();
-	loadingTimer = setTimeout(() => {
+	processingTimer = setTimeout(() => {
 		const current = get(streamState);
-		if (current.phase === 'loading') {
+		if (current.phase === 'processing') {
 			streamState.set({
 				phase: 'error',
 				message: 'Taking longer than usual. Check your desktop is active.'
 			});
 		}
-	}, LOADING_TIMEOUT_MS);
+	}, PROCESSING_TIMEOUT_MS);
 }
 
-/** Handle incoming WebSocket chat message */
+/** Handle incoming WebSocket chat message.
+ *  Phone ignores ChatToken — only processes ChatComplete (full answer). */
 export function handleWsChatMessage(msg: WsChatMessage): void {
 	switch (msg.type) {
 		case 'ChatToken':
-			handleToken(msg.conversation_id, msg.token);
+			// Intentionally ignored — phone receives complete answer in ChatComplete
 			break;
 		case 'ChatComplete':
-			handleComplete(msg.conversation_id, msg.citations);
+			handleComplete(msg.conversation_id, msg.content, msg.citations);
 			break;
 		case 'ChatError':
-			handleStreamError(msg.conversation_id, msg.error);
+			handleStreamError(msg.error);
 			break;
 	}
 }
 
-function handleToken(conversationId: string, token: string): void {
-	clearTimers();
-
-	streamState.update(($s) => {
-		if ($s.phase === 'loading') {
-			return { phase: 'streaming', tokens: token, conversationId };
-		}
-		if ($s.phase === 'streaming') {
-			return { ...$s, tokens: $s.tokens + token };
-		}
-		return $s;
-	});
-
-	// Reset token timeout
-	tokenTimer = setTimeout(() => {
-		const current = get(streamState);
-		if (current.phase === 'streaming') {
-			streamState.set({
-				phase: 'error',
-				message: 'Connection lost. Your answer may be incomplete.',
-				partial: current.tokens
-			});
-		}
-	}, TOKEN_TIMEOUT_MS);
-}
-
 let wsMessageCounter = 0;
 
-function handleComplete(conversationId: string, wsCitations: WsCitationRef[]): void {
+function handleComplete(conversationId: string, content: string, wsCitations: WsCitationRef[]): void {
 	clearTimers();
 
-	const current = get(streamState);
-	const content = current.phase === 'streaming' ? current.tokens : '';
 	const messageId = `ws-${Date.now()}-${++wsMessageCounter}`;
 
 	// Map WS citation refs to display citations
@@ -141,7 +120,7 @@ function handleComplete(conversationId: string, wsCitations: WsCitationRef[]): v
 		relevanceScore: 0
 	}));
 
-	// Add complete message to messages list
+	// Add complete message to messages list — full answer appears at once
 	const message: ChatMessage = {
 		id: messageId,
 		conversationId,
@@ -158,13 +137,9 @@ function handleComplete(conversationId: string, wsCitations: WsCitationRef[]): v
 	streamState.set({ phase: 'complete', messageId, conversationId });
 }
 
-function handleStreamError(conversationId: string, error: string): void {
+function handleStreamError(error: string): void {
 	clearTimers();
-
-	const current = get(streamState);
-	const partial = current.phase === 'streaming' ? current.tokens : undefined;
-
-	streamState.set({ phase: 'error', message: error, partial });
+	streamState.set({ phase: 'error', message: error });
 }
 
 /** Add a patient message to the conversation */
@@ -254,6 +229,5 @@ export function resetChatState(): void {
 }
 
 function clearTimers(): void {
-	if (loadingTimer !== null) { clearTimeout(loadingTimer); loadingTimer = null; }
-	if (tokenTimer !== null) { clearTimeout(tokenTimer); tokenTimer = null; }
+	if (processingTimer !== null) { clearTimeout(processingTimer); processingTimer = null; }
 }

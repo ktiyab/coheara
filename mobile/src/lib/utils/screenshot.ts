@@ -31,13 +31,13 @@ export const SENSITIVE_SCREENS: ReadonlySet<SensitiveScreen> = new Set([
 	'medications',
 	'labs',
 	'alerts',
-	'chat',
+	'ask',
 	'journal',
 	'appointment_prep'
 ]);
 
 /** Non-sensitive screens (screenshot allowed) */
-const NON_SENSITIVE = new Set(['home', 'settings', 'pairing', 'more']);
+const NON_SENSITIVE = new Set(['home', 'settings', 'pairing', 'documents']);
 
 /** Check if a screen requires screenshot prevention */
 export function isSensitiveScreen(screenId: string): boolean {

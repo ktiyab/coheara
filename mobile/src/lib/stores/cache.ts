@@ -6,8 +6,7 @@ import type {
 	CachedTimelineEvent,
 	CachedAlert,
 	CachedAppointment,
-	CachedProfile,
-	ScheduleGroup
+	CachedProfile
 } from '$lib/types/viewer.js';
 
 // --- Core cache stores ---
@@ -35,35 +34,14 @@ export const lastSyncTimestamp = writable<string | null>(null);
 
 // --- Derived stores ---
 
-/** Medications grouped by schedule (Dr. Diallo: "That's how pill boxes work") */
-export const medicationsBySchedule = derived(medications, ($meds) => {
-	const groups: Record<ScheduleGroup | 'discontinued', CachedMedication[]> = {
-		morning: [],
-		evening: [],
-		as_needed: [],
-		multiple: [],
-		discontinued: []
-	};
-
-	for (const med of $meds) {
-		if (!med.isActive) {
-			groups.discontinued.push(med);
-		} else {
-			groups[med.scheduleGroup].push(med);
-		}
-	}
-
-	return groups;
-});
-
 /** Active medication count */
 export const activeMedicationCount = derived(medications, ($meds) =>
-	$meds.filter((m) => m.isActive).length
+	$meds.filter((m) => m.status === 'active').length
 );
 
 /** Discontinued medication count */
 export const discontinuedMedicationCount = derived(medications, ($meds) =>
-	$meds.filter((m) => !m.isActive).length
+	$meds.filter((m) => m.status !== 'active').length
 );
 
 /** Abnormal lab results (shown in top banner) */
@@ -73,7 +51,7 @@ export const abnormalLabs = derived(labResults, ($labs) =>
 
 /** Lab results sorted by date (most recent first — Dr. Diallo: "I want to see what's new") */
 export const labResultsSorted = derived(labResults, ($labs) =>
-	[...$labs].sort((a, b) => new Date(b.testedAt).getTime() - new Date(a.testedAt).getTime())
+	[...$labs].sort((a, b) => new Date(b.collectionDate).getTime() - new Date(a.collectionDate).getTime())
 );
 
 /** Undismissed alert count */

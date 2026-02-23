@@ -1,4 +1,4 @@
-<!-- M1-02: Chat tab — conversational AI interface -->
+<!-- M1-02: Ask tab — conversational AI interface (rebranded from Chat) -->
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { isConnected, hasData } from '$lib/stores/connection.js';
@@ -7,7 +7,7 @@
 		streamState,
 		isStreaming,
 		inputDisabled,
-		streamingContent,
+		processingStage,
 		addPatientMessage,
 		setMessageFeedback,
 		startQuery,
@@ -41,10 +41,10 @@
 		userScrolledUp = scrollHeight - scrollTop - clientHeight > 50;
 	}
 
-	// Auto-scroll when messages change or streaming content updates (RS-M1-02-004)
+	// Auto-scroll when messages change or processing stage updates (RS-M1-02-004)
 	$effect(() => {
 		void $messages;
-		void $streamingContent;
+		void $processingStage;
 		tick().then(() => scrollToBottom());
 	});
 
@@ -98,18 +98,18 @@
 <div class="chat-screen">
 	<!-- Header with source indicator -->
 	<div class="chat-header">
-		<h1>Chat</h1>
+		<h1>Ask</h1>
 		<SourceIndicator source={chatSource} />
 	</div>
 
 	{#if chatSource === 'unavailable' && !$hasData}
 		<!-- Offline without data -->
 		<div class="offline-message">
-			<p>Chat is available when connected to your desktop.</p>
-			<p>Your medications and journal are still available offline.</p>
+			<p>Ask is available when connected to your desktop.</p>
+			<p>Your timeline and documents are still available offline.</p>
 			<div class="offline-actions">
-				<a href="/meds" class="offline-link">View Medications</a>
-				<a href="/journal" class="offline-link">Open Journal</a>
+				<a href="/timeline" class="offline-link">View Timeline</a>
+				<a href="/documents" class="offline-link">View Documents</a>
 			</div>
 		</div>
 	{:else}
@@ -123,20 +123,12 @@
 				/>
 			{/each}
 
-			{#if $streamState.phase === 'loading'}
-				<div class="typing-indicator" aria-label="Coheara is thinking">
-					<span class="dot-pulse"></span>
-					Thinking&hellip;
-				</div>
-			{/if}
-
-			{#if $streamState.phase === 'streaming'}
-				<div class="streaming-bubble" role="status" aria-label="Coheara is responding">
-					<div class="avatar" aria-hidden="true">C</div>
-					<div class="bubble-content">
-						<p>{$streamingContent}</p>
-						<span class="typing-cursor" aria-hidden="true">|</span>
+			{#if $streamState.phase === 'processing'}
+				<div class="processing-indicator" role="status" aria-label="Processing your question">
+					<div class="processing-icon" aria-hidden="true">
+						<span class="spinner"></span>
 					</div>
+					<p class="processing-stage">{$processingStage}</p>
 				</div>
 			{/if}
 
@@ -216,59 +208,44 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	.typing-indicator {
+	.processing-indicator {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 12px 16px;
-		color: var(--color-text-muted);
-		font-size: 14px;
+		gap: 12px;
+		padding: 16px;
+		margin: 8px 0;
+		background: #F0F9FF;
+		border-radius: 12px;
+		border: 1px solid #BFDBFE;
 	}
 
-	.streaming-bubble {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 12px;
-		max-width: 85%;
-	}
-
-	.streaming-bubble .avatar {
+	.processing-icon {
 		width: 32px;
 		height: 32px;
-		border-radius: 50%;
-		background: var(--color-primary);
-		color: white;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 14px;
-		font-weight: 700;
 		flex-shrink: 0;
 	}
 
-	.streaming-bubble .bubble-content {
-		padding: 12px 16px;
-		background: white;
-		border: 1px solid #E7E5E4;
-		border-radius: 16px;
-		border-bottom-left-radius: 4px;
+	.spinner {
+		width: 20px;
+		height: 20px;
+		border: 2px solid #BFDBFE;
+		border-top-color: var(--color-primary);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
 	}
 
-	.streaming-bubble .bubble-content p {
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.processing-stage {
 		margin: 0;
-		font-size: 16px;
-		line-height: 1.5;
-		white-space: pre-wrap;
-	}
-
-	.typing-cursor {
-		animation: blink 1s infinite;
-		color: var(--color-primary);
-	}
-
-	@keyframes blink {
-		0%, 50% { opacity: 1; }
-		51%, 100% { opacity: 0; }
+		font-size: 14px;
+		color: var(--color-text-muted);
+		line-height: 1.4;
 	}
 
 	.error-message {

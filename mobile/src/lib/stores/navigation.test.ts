@@ -1,4 +1,4 @@
-// M1-01: Navigation store tests — 5 tests
+// M1-01: Navigation store tests — mirrors desktop nav (Home, Ask, Documents, Timeline, Settings)
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
@@ -25,7 +25,7 @@ describe('navigation store', () => {
 	});
 
 	it('switches between all 5 tabs', () => {
-		const tabIds = ['home', 'chat', 'meds', 'journal', 'more'] as const;
+		const tabIds = ['home', 'ask', 'documents', 'timeline', 'settings'] as const;
 
 		for (const tabId of tabIds) {
 			navigateToTab(tabId);
@@ -46,30 +46,36 @@ describe('navigation store', () => {
 			expect(typeof tab.offlineAvailable).toBe('boolean');
 		}
 
-		// Chat is online-only, others are offline-available
-		const chatTab = TAB_CONFIGS.find((t) => t.id === 'chat');
-		expect(chatTab?.offlineAvailable).toBe(false);
+		// Ask is online-only, others are offline-available
+		const askTab = TAB_CONFIGS.find((t) => t.id === 'ask');
+		expect(askTab?.offlineAvailable).toBe(false);
 
 		const homeTab = TAB_CONFIGS.find((t) => t.id === 'home');
 		expect(homeTab?.offlineAvailable).toBe(true);
 
-		const medsTab = TAB_CONFIGS.find((t) => t.id === 'meds');
-		expect(medsTab?.offlineAvailable).toBe(true);
+		const docsTab = TAB_CONFIGS.find((t) => t.id === 'documents');
+		expect(docsTab?.offlineAvailable).toBe(true);
+
+		const timelineTab = TAB_CONFIGS.find((t) => t.id === 'timeline');
+		expect(timelineTab?.offlineAvailable).toBe(true);
+
+		const settingsTab = TAB_CONFIGS.find((t) => t.id === 'settings');
+		expect(settingsTab?.offlineAvailable).toBe(true);
 	});
 
 	it('supports back navigation through history', () => {
-		navigateToTab('chat');
-		navigateToTab('meds');
-		navigateToTab('journal');
-		expect(get(activeTab)).toBe('journal');
+		navigateToTab('ask');
+		navigateToTab('documents');
+		navigateToTab('timeline');
+		expect(get(activeTab)).toBe('timeline');
 
 		const didNav1 = navigateBack();
 		expect(didNav1).toBe(true);
-		expect(get(activeTab)).toBe('meds');
+		expect(get(activeTab)).toBe('documents');
 
 		const didNav2 = navigateBack();
 		expect(didNav2).toBe(true);
-		expect(get(activeTab)).toBe('chat');
+		expect(get(activeTab)).toBe('ask');
 
 		const didNav3 = navigateBack();
 		expect(didNav3).toBe(true);
@@ -83,19 +89,20 @@ describe('navigation store', () => {
 
 	it('resolves deep links to correct tabs', () => {
 		expect(resolveDeepLink('/')).toBe('home');
-		expect(resolveDeepLink('/chat')).toBe('chat');
-		expect(resolveDeepLink('/meds')).toBe('meds');
-		expect(resolveDeepLink('/meds/med-123')).toBe('meds');
-		expect(resolveDeepLink('/journal')).toBe('journal');
-		expect(resolveDeepLink('/more')).toBe('more');
-		expect(resolveDeepLink('/more/timeline')).toBe('more');
+		expect(resolveDeepLink('/ask')).toBe('ask');
+		expect(resolveDeepLink('/ask/history')).toBe('ask');
+		expect(resolveDeepLink('/documents')).toBe('documents');
+		expect(resolveDeepLink('/documents/upload')).toBe('documents');
+		expect(resolveDeepLink('/timeline')).toBe('timeline');
+		expect(resolveDeepLink('/timeline/event-123')).toBe('timeline');
+		expect(resolveDeepLink('/settings')).toBe('settings');
 		expect(resolveDeepLink('/unknown')).toBeNull();
 
 		// Route mapping
 		expect(getTabRoute('home')).toBe('/');
-		expect(getTabRoute('chat')).toBe('/chat');
-		expect(getTabRoute('meds')).toBe('/meds');
-		expect(getTabRoute('journal')).toBe('/journal');
-		expect(getTabRoute('more')).toBe('/more');
+		expect(getTabRoute('ask')).toBe('/ask');
+		expect(getTabRoute('documents')).toBe('/documents');
+		expect(getTabRoute('timeline')).toBe('/timeline');
+		expect(getTabRoute('settings')).toBe('/settings');
 	});
 });

@@ -104,31 +104,19 @@ export function stalenessWarningMessage(tier: FreshnessTier): string {
 
 /** Apply a full sync payload (first sync or full re-sync) */
 export function applySyncPayload(payload: SyncPayload): void {
-	// Map SyncProfile to CachedProfile (RS-M1-06-003: preserve emergency contacts)
-	const mappedProfile: CachedProfile = {
-		name: payload.profile.name,
-		bloodType: payload.profile.blood_type,
-		allergies: payload.profile.allergies,
-		emergencyContacts: payload.profile.emergency_contacts.map((c) => ({
-			name: c.name,
-			phone: c.phone,
-			relation: c.relation
-		}))
-	};
-
 	loadCacheData({
 		medications: payload.medications,
 		labResults: payload.labs,
 		timelineEvents: payload.timeline,
 		alerts: payload.alerts,
 		appointment: payload.appointment ?? null,
-		profile: mappedProfile,
-		syncTimestamp: payload.synced_at
+		profile: payload.profile,
+		syncTimestamp: payload.syncedAt
 	});
 
 	syncState.set({
 		versions: payload.versions,
-		lastSyncAt: payload.synced_at,
+		lastSyncAt: payload.syncedAt,
 		cachePopulated: true
 	});
 }
@@ -212,26 +200,17 @@ export function applyDeltaPayload(payload: DeltaPayload): void {
 		nextAppointment.set(payload.appointment);
 	}
 
-	// Update profile (RS-M1-06-003: preserve emergency contacts)
+	// Update profile (desktop sends CachedProfile directly)
 	if (payload.profile) {
-		profile.set({
-			name: payload.profile.name,
-			bloodType: payload.profile.blood_type,
-			allergies: payload.profile.allergies,
-			emergencyContacts: payload.profile.emergency_contacts.map((c) => ({
-				name: c.name,
-				phone: c.phone,
-				relation: c.relation
-			}))
-		});
+		profile.set(payload.profile);
 	}
 
 	// Update sync state
-	lastSyncTimestamp.set(payload.synced_at);
+	lastSyncTimestamp.set(payload.syncedAt);
 	syncState.update(($s) => ({
 		...$s,
 		versions: payload.versions,
-		lastSyncAt: payload.synced_at
+		lastSyncAt: payload.syncedAt
 	}));
 }
 
