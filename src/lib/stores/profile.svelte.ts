@@ -34,6 +34,14 @@ class ProfileStore {
 	get isAiAvailable(): boolean {
 		return this.aiStatus?.ollama_available ?? false;
 	}
+
+	/** F7: Clear all state on lock/switch to prevent stale data leakage. */
+	reset() {
+		this.name = '';
+		this.colorIndex = null;
+		this.aiStatus = null;
+		this.activeInfo = null;
+	}
 }
 
 export const profile = new ProfileStore();

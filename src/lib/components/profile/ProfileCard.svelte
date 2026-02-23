@@ -9,6 +9,9 @@
     profile: ProfileInfo;
     isActive: boolean;
     isOwnProfile: boolean;
+    /** F7: Whether this profile can be deleted. Managed profiles viewing
+     *  their own card should NOT see delete — only the caregiver can delete. */
+    canDelete?: boolean;
     hasDependents: boolean;
     onSwitchTo: () => void;
     onDelete: () => void;
@@ -18,6 +21,7 @@
     profile: profileInfo,
     isActive,
     isOwnProfile,
+    canDelete = true,
     hasDependents,
     onSwitchTo,
     onDelete,
@@ -88,7 +92,7 @@
       </button>
     {/if}
 
-    {#if !hasDependents}
+    {#if canDelete && !hasDependents}
       <button
         class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg
                text-stone-400 dark:text-gray-500 hover:bg-red-50 hover:text-red-600
@@ -99,7 +103,7 @@
       >
         <DeleteIcon class="w-5 h-5" />
       </button>
-    {:else}
+    {:else if canDelete && hasDependents}
       <button
         class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg
                text-stone-300 dark:text-gray-600 cursor-not-allowed"

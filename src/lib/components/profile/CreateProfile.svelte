@@ -2,25 +2,34 @@
   import { tick } from 'svelte';
   import { t } from 'svelte-i18n';
   import { createProfile } from '$lib/api/profile';
-  import type { ProfileCreateResult } from '$lib/types/profile';
+  import type { ProfileCreateResult, ProfileInfo } from '$lib/types/profile';
   import PasswordStrengthBar from '$lib/components/ui/PasswordStrengthBar.svelte';
   import DateOfBirthInput from '$lib/components/ui/DateOfBirthInput.svelte';
   import { COUNTRIES } from '$lib/data/countries';
 
   interface Props {
     isCaregiverPath?: boolean;
+    /** F7: When false, backend won't switch active session to the new profile. */
+    autoOpen?: boolean;
+    /** F7: Active caregiver's profile — used to pre-fill caregiver name (readonly),
+     *  country and address (editable) when creating a managed profile. */
+    caregiverInfo?: ProfileInfo | null;
     onCreated: (result: ProfileCreateResult) => void;
     onError: (error: string) => void;
   }
-  let { isCaregiverPath = false, onCreated, onError }: Props = $props();
+  let { isCaregiverPath = false, autoOpen, caregiverInfo, onCreated, onError }: Props = $props();
+
+  // F7: Whether caregiver name is auto-filled and locked
+  let caregiverLocked = $derived(isCaregiverPath && caregiverInfo != null);
 
   let name = $state('');
   let password = $state('');
   let confirmPassword = $state('');
-  let caregiverName = $state('');
+  // F7: Pre-fill from caregiver info when creating a managed profile
+  let caregiverName = $state(caregiverInfo?.name ?? '');
   let dateOfBirth = $state('');
-  let country = $state('');
-  let address = $state('');
+  let country = $state((isCaregiverPath && caregiverInfo?.country) ? caregiverInfo.country : '');
+  let address = $state((isCaregiverPath && caregiverInfo?.address) ? caregiverInfo.address : '');
   let loading = $state(false);
 
   const inputClass = `px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-lg min-h-[44px]
@@ -49,6 +58,7 @@
         dateOfBirth || null,
         country || null,
         address.trim() || null,
+        autoOpen ?? null,
       );
       onCreated(result);
     } catch (e) {
@@ -92,12 +102,21 @@
       {#if isCaregiverPath}
         <label class="flex flex-col gap-1">
           <span class="text-stone-600 dark:text-gray-400 text-sm font-medium">{$t('profile.caregiver_name_label')}</span>
-          <input
-            type="text"
-            bind:value={caregiverName}
-            placeholder={$t('profile.caregiver_placeholder')}
-            class={inputClass}
-          />
+          {#if caregiverLocked}
+            <input
+              type="text"
+              value={caregiverName}
+              readonly
+              class="{inputClass} bg-stone-100 dark:bg-gray-800 cursor-not-allowed opacity-75"
+            />
+          {:else}
+            <input
+              type="text"
+              bind:value={caregiverName}
+              placeholder={$t('profile.caregiver_placeholder')}
+              class={inputClass}
+            />
+          {/if}
         </label>
       {/if}
 

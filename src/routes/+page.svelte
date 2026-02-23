@@ -29,10 +29,15 @@
   import AiSetupWizard from '$lib/components/settings/AiSetupWizard.svelte';
   import ProfilesScreen from '$lib/components/profile/ProfilesScreen.svelte';
   import CreateProfile from '$lib/components/profile/CreateProfile.svelte';
+  import RecoveryPhraseDisplay from '$lib/components/profile/RecoveryPhraseDisplay.svelte';
+  import type { ProfileCreateResult } from '$lib/types/profile';
   import { ArrowForwardIcon } from '$lib/components/icons/md';
 
   // Spec 45 [PU-02]: Active profile info (used by sidebar avatar)
   let activeProfileInfo: ProfileInfo | null = $state(null);
+
+  // F7: Recovery phrase display for managed profile creation
+  let f6RecoveryResult = $state<ProfileCreateResult | null>(null);
 
   onMount(async () => {
     // I18N-04: Upgrade locale from saved user preference (i18n already initialized in +layout.svelte)
@@ -135,18 +140,31 @@
   {:else if navigation.activeScreen === 'profiles'}
     <ProfilesScreen />
   {:else if navigation.activeScreen === 'profiles-create'}
-    <div class="max-w-lg mx-auto px-[var(--spacing-page-x)] py-8">
-      <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-6">
-        {$t('profile.profiles_create_heading')}
-      </h1>
-      <CreateProfile
-        isCaregiverPath={true}
-        onCreated={async () => {
-          await profiles.refresh();
-          navigation.navigate('profiles');
-        }}
-        onError={() => {}}
-      />
+    <div class="max-w-md mx-auto px-[var(--spacing-page-x)] py-8 w-full">
+      {#if f6RecoveryResult}
+        <RecoveryPhraseDisplay
+          words={f6RecoveryResult.recovery_phrase}
+          profileName={f6RecoveryResult.profile.name}
+          onConfirmed={() => {
+            f6RecoveryResult = null;
+            navigation.navigate('profiles');
+          }}
+        />
+      {:else}
+        <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-6 text-center">
+          {$t('profile.profiles_create_heading')}
+        </h1>
+        <CreateProfile
+          isCaregiverPath={true}
+          autoOpen={false}
+          caregiverInfo={profile.activeInfo}
+          onCreated={async (result) => {
+            await profiles.refresh();
+            f6RecoveryResult = result;
+          }}
+          onError={() => {}}
+        />
+      {/if}
     </div>
   {:else if navigation.activeScreen === 'import'}
     <ImportScreen droppedFiles={navigation.screenParams.droppedFiles} />

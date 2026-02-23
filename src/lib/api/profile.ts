@@ -12,6 +12,7 @@ export async function createProfile(
   dateOfBirth: string | null = null,
   country: string | null = null,
   address: string | null = null,
+  autoOpen: boolean | null = null,
 ): Promise<ProfileCreateResult> {
   return invoke<ProfileCreateResult>('create_profile', {
     name,
@@ -20,6 +21,7 @@ export async function createProfile(
     dateOfBirth,
     country,
     address,
+    autoOpen,
   });
 }
 

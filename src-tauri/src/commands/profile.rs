@@ -21,8 +21,10 @@ pub fn list_profiles(state: State<'_, Arc<CoreState>>) -> Result<Vec<ProfileInfo
     profile::list_profiles(&state.profiles_dir).map_err(|e| e.to_string())
 }
 
-/// Create a new profile, auto-open session, return info + recovery phrase.
+/// Create a new profile, optionally auto-open session, return info + recovery phrase.
 /// Runs on a blocking thread to avoid freezing the UI (Argon2 KDF is CPU-heavy).
+/// F7: `auto_open` defaults to true (backward-compatible). Set to false when creating
+/// managed profiles from caregiver session to avoid hijacking the active session.
 #[tauri::command]
 pub async fn create_profile(
     name: String,
@@ -31,6 +33,7 @@ pub async fn create_profile(
     date_of_birth: Option<String>,
     country: Option<String>,
     address: Option<String>,
+    auto_open: Option<bool>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileCreateResult, String> {
     let state = state.inner().clone();
@@ -74,18 +77,20 @@ pub async fn create_profile(
         )
         .map_err(|e| e.to_string())?;
 
-        // Auto-open the newly created profile
-        let session = profile::open_profile(&state.profiles_dir, &info.id, &password)
-            .map_err(|e| e.to_string())?;
+        // F7: Only auto-open if requested (default: true for backward compatibility)
+        if auto_open.unwrap_or(true) {
+            let session = profile::open_profile(&state.profiles_dir, &info.id, &password)
+                .map_err(|e| e.to_string())?;
 
-        state.set_session(session).map_err(|e| e.to_string())?;
-        state.update_activity();
+            state.set_session(session).map_err(|e| e.to_string())?;
+            state.update_activity();
 
-        // Notify connected phones about profile change (RS-M0-03-003)
-        if let Ok(mut devices) = state.write_devices() {
-            devices.broadcast(WsOutgoing::ProfileChanged {
-                profile_name: info.name.clone(),
-            });
+            // Notify connected phones about profile change (RS-M0-03-003)
+            if let Ok(mut devices) = state.write_devices() {
+                devices.broadcast(WsOutgoing::ProfileChanged {
+                    profile_name: info.name.clone(),
+                });
+            }
         }
 
         Ok(ProfileCreateResult {

@@ -4,6 +4,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { isProfileActive, listProfiles, getActiveProfileInfo } from '$lib/api/profile';
   import { isTauriEnv } from '$lib/utils/tauri';
+  import { onProfileSwitch } from '$lib/utils/session-events';
+  import { profile } from '$lib/stores/profile.svelte';
   import type { ProfileInfo, AppScreen } from '$lib/types/profile';
   import TrustScreen from './TrustScreen.svelte';
   import ProfileTypeChoice from './ProfileTypeChoice.svelte';
@@ -30,15 +32,24 @@
   // Spec 45 [ON-02]: Track caregiver path selection from ProfileTypeChoice
   let isCaregiverPath = $state(false);
 
-  /** Redirect to the appropriate auth screen when session is lost.
-   *  Reuses stored selectedProfile when available; falls back to profile list. */
-  async function redirectToAuth() {
-    if (!selectedProfile) {
-      try { profiles = await listProfiles(); } catch { profiles = []; }
-      if (profiles.length === 0) { screen = 'trust'; return; }
-      if (profiles.length === 1) selectedProfile = profiles[0];
+  /** F7: Redirect to auth screen — ALWAYS refreshes profile list from disk.
+   *  Pass targetProfileId to pre-select a specific profile in the picker. */
+  async function redirectToAuth(targetProfileId?: string) {
+    profile.reset(); // Clear stale data to prevent leakage between sessions
+
+    try { profiles = await listProfiles(); } catch { profiles = []; }
+    if (profiles.length === 0) { screen = 'trust'; return; }
+
+    // Pre-select: explicit target > cached > auto (single profile)
+    if (targetProfileId) {
+      selectedProfile = profiles.find(p => p.id === targetProfileId) ?? null;
+    } else if (selectedProfile) {
+      // Re-validate cached selection against fresh list
+      selectedProfile = profiles.find(p => p.id === selectedProfile!.id) ?? null;
     }
-    screen = selectedProfile ? 'unlock' : 'picker';
+    if (profiles.length === 1) selectedProfile = profiles[0];
+
+    screen = 'picker'; // ALWAYS picker — LockScreen handles single/multi display
   }
 
   onMount(async () => {
@@ -67,7 +78,7 @@
         screen = 'trust';
       } else if (profiles.length === 1) {
         selectedProfile = profiles[0];
-        screen = 'unlock';
+        screen = 'picker'; // F7: Always use picker — LockScreen handles single/multi
       } else {
         screen = 'picker';
       }
@@ -75,6 +86,14 @@
       // Backend not ready — show first-launch screen rather than infinite loading
       screen = 'trust';
     }
+  });
+
+  // F7: Instant profile switch event listener — replaces 30s polling delay
+  onMount(() => {
+    if (!isTauriEnv()) return;
+    return onProfileSwitch(async (detail) => {
+      if (screen === 'app') await redirectToAuth(detail.targetProfileId);
+    });
   });
 
   // Periodic inactivity check — only in Tauri mode

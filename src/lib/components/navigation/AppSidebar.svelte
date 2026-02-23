@@ -5,7 +5,8 @@
   import { profile } from '$lib/stores/profile.svelte';
   import { profiles } from '$lib/stores/profiles.svelte';
   import { lockProfile } from '$lib/api/profile';
-  import { PROFILE_COLORS } from '$lib/types/profile';
+  import { dispatchProfileSwitch } from '$lib/utils/session-events';
+  import { PROFILE_COLORS, type ProfileInfo } from '$lib/types/profile';
   import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
   import ProfilePopover from '$lib/components/profile/ProfilePopover.svelte';
   import type { Component } from 'svelte';
@@ -43,9 +44,11 @@
     navigation.navigate(screen);
   }
 
-  async function handleSwitchTo() {
+  /** F7: Switch to a specific profile — lock + dispatch event with target ID. */
+  async function handleSwitchTo(targetProfile: ProfileInfo) {
     popoverOpen = false;
     await lockProfile();
+    dispatchProfileSwitch(targetProfile.id);
   }
 
   function handleManage() {
@@ -58,9 +61,11 @@
     navigation.navigate('profiles-create');
   }
 
+  /** F7: Lock without targeting a specific profile — picker shows all. */
   async function handleLock() {
     popoverOpen = false;
     await lockProfile();
+    dispatchProfileSwitch();
   }
 </script>
 

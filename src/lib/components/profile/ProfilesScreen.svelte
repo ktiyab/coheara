@@ -6,7 +6,9 @@
   import { profile } from '$lib/stores/profile.svelte';
   import { profiles } from '$lib/stores/profiles.svelte';
   import { lockProfile, deleteProfile } from '$lib/api/profile';
+  import { dispatchProfileSwitch } from '$lib/utils/session-events';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import type { ProfileInfo } from '$lib/types/profile';
   import ProfileCard from './ProfileCard.svelte';
   import { PlusIcon } from '$lib/components/icons/md';
 
@@ -21,8 +23,10 @@
     profiles.refresh();
   });
 
-  async function handleSwitchTo() {
+  /** F7: Switch to a specific profile — lock + dispatch event with target ID. */
+  async function handleSwitchTo(targetProfile: ProfileInfo) {
     await lockProfile();
+    dispatchProfileSwitch(targetProfile.id);
   }
 
   async function handleDelete(profileId: string) {
@@ -57,6 +61,7 @@
         profile={activeInfo}
         isActive={true}
         isOwnProfile={true}
+        canDelete={profile.isSelfManaged}
         hasDependents={profiles.hasDependents(activeInfo.name)}
         onSwitchTo={() => {}}
         onDelete={() => handleDelete(activeInfo.id)}
@@ -78,8 +83,9 @@
               profile={fp}
               isActive={false}
               isOwnProfile={false}
+              canDelete={true}
               hasDependents={profiles.hasDependents(fp.name)}
-              onSwitchTo={handleSwitchTo}
+              onSwitchTo={() => handleSwitchTo(fp)}
               onDelete={() => handleDelete(fp.id)}
             />
           {/each}
