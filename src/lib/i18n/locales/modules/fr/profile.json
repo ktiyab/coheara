@@ -81,6 +81,20 @@
     "recovery_verify_heading": "V\u00e9rifiez votre phrase de r\u00e9cup\u00e9ration (optionnel mais recommand\u00e9)",
     "recovery_verify_word": "Quel est le mot n\u00b0{num}\u00a0?",
     "recovery_verify_error": "Cela ne correspond pas. Veuillez v\u00e9rifier votre phrase \u00e9crite.",
-    "recovery_verify_submit": "V\u00e9rifier"
+    "recovery_verify_submit": "V\u00e9rifier",
+    "popover_family_heading": "Membres de la famille",
+    "popover_manage": "G\u00e9rer les profils",
+    "popover_add": "Ajouter un membre de la famille",
+    "switch_to": "Passer \u00e0 {name}",
+    "self_managed_label": "Autonome",
+    "viewing_managed": "G\u00e9r\u00e9 par {caregiver}",
+    "profiles_heading": "Profils",
+    "your_profile_section": "Votre profil",
+    "family_section": "Membres de la famille",
+    "created_label": "Cr\u00e9\u00e9 le {date}",
+    "no_family_members": "Aucun membre de la famille",
+    "no_family_hint": "Vous pouvez ajouter des profils pour les personnes dont vous prenez soin",
+    "delete_has_dependents": "Impossible de supprimer\u00a0: g\u00e8re {count} personne(s) \u00e0 charge",
+    "profiles_create_heading": "Ajouter un nouveau profil"
   }
 }

@@ -81,6 +81,20 @@
     "recovery_verify_heading": "\u00dcberpr\u00fcfen Sie Ihre Wiederherstellungsphrase (optional, aber empfohlen)",
     "recovery_verify_word": "Welches ist Wort Nr. {num}?",
     "recovery_verify_error": "Das stimmt nicht \u00fcberein. Bitte \u00fcberpr\u00fcfen Sie Ihre aufgeschriebene Phrase.",
-    "recovery_verify_submit": "\u00dcberpr\u00fcfen"
+    "recovery_verify_submit": "\u00dcberpr\u00fcfen",
+    "popover_family_heading": "Familienmitglieder",
+    "popover_manage": "Profile verwalten",
+    "popover_add": "Familienmitglied hinzuf\u00fcgen",
+    "switch_to": "Zu {name} wechseln",
+    "self_managed_label": "Selbstverwaltet",
+    "viewing_managed": "Verwaltet von {caregiver}",
+    "profiles_heading": "Profile",
+    "your_profile_section": "Dein Profil",
+    "family_section": "Familienmitglieder",
+    "created_label": "Erstellt am {date}",
+    "no_family_members": "Noch keine Familienmitglieder",
+    "no_family_hint": "Du kannst Profile f\u00fcr Personen erstellen, die du betreust",
+    "delete_has_dependents": "L\u00f6schen nicht m\u00f6glich: verwaltet {count} abh\u00e4ngige(s) Profil(e)",
+    "profiles_create_heading": "Neues Profil hinzuf\u00fcgen"
   }
 }

@@ -24,6 +24,8 @@
     "import": "Importieren",
     "transfer": "Übertragung",
     "breadcrumb": "Brotkrümel-Navigation",
-    "profile_status_active": "Aktives Profil"
+    "profile_status_active": "Aktives Profil",
+    "profiles": "Profile",
+    "profiles-create": "Profil hinzuf\u00fcgen"
   }
 }

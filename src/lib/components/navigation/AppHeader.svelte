@@ -43,12 +43,19 @@
       <Breadcrumbs />
       <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100 truncate">{screenTitle}</h1>
     {:else}
-      <!-- Sidebar screens: profile indicator (data owner) -->
+      <!-- Sidebar screens: profile indicator (data owner) + F6 managed-by badge -->
       <div class="flex items-center gap-2.5">
         <Avatar name={profile.name || 'P'} size="sm" color={profileColor} />
-        <span class="text-sm font-medium text-stone-700 dark:text-gray-200 truncate max-w-[160px]">
-          {profile.name || $t('common.patient')}
-        </span>
+        <div class="flex flex-col min-w-0">
+          <span class="text-sm font-medium text-stone-700 dark:text-gray-200 truncate max-w-[160px]">
+            {profile.name || $t('common.patient')}
+          </span>
+          {#if profile.managedBy}
+            <span class="text-xs text-amber-600 dark:text-amber-400 truncate max-w-[160px]">
+              {$t('profile.viewing_managed', { values: { caregiver: profile.managedBy } })}
+            </span>
+          {/if}
+        </div>
       </div>
     {/if}
   </div>

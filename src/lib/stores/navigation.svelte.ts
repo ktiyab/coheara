@@ -20,7 +20,9 @@ const SIDEBAR_SCREENS = new Set([
 	'settings',
 	'ai-settings',
 	'import',
-	'pairing'
+	'pairing',
+	'profiles',
+	'profiles-create'
 ]);
 
 /** Navigation sections for sidebar grouping. */

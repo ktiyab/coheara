@@ -24,6 +24,8 @@
     "import": "Import",
     "transfer": "Transfer",
     "breadcrumb": "Breadcrumb",
-    "profile_status_active": "Active profile"
+    "profile_status_active": "Active profile",
+    "profiles": "Profiles",
+    "profiles-create": "Add Profile"
   }
 }

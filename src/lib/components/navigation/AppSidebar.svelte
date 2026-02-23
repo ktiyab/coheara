@@ -1,10 +1,13 @@
-<!-- D6: Desktop sidebar — LP-06 + AUDIT_01: flat list, 3px left bar, MD icons. -->
+<!-- D6 + F6: Desktop sidebar — flat list, 3px left bar, MD icons, profile popover. -->
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
+  import { profiles } from '$lib/stores/profiles.svelte';
   import { lockProfile } from '$lib/api/profile';
-  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, LockIcon } from '$lib/components/icons/md';
+  import { PROFILE_COLORS } from '$lib/types/profile';
+  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
+  import ProfilePopover from '$lib/components/profile/ProfilePopover.svelte';
   import type { Component } from 'svelte';
 
   type NavItem = {
@@ -23,9 +26,41 @@
   ];
 
   let collapsed = $derived(navigation.sidebarCollapsed);
+  let popoverOpen = $state(false);
+
+  /** F6: Derive managed profiles for the active user. */
+  let activeInfo = $derived(profile.activeInfo);
+  let managedProfiles = $derived(
+    activeInfo ? profiles.managedBy(activeInfo.name) : []
+  );
+  let profileColor = $derived(
+    activeInfo?.color_index != null
+      ? PROFILE_COLORS[activeInfo.color_index % PROFILE_COLORS.length]
+      : null
+  );
 
   function handleNav(screen: string) {
     navigation.navigate(screen);
+  }
+
+  async function handleSwitchTo() {
+    popoverOpen = false;
+    await lockProfile();
+  }
+
+  function handleManage() {
+    popoverOpen = false;
+    navigation.navigate('profiles');
+  }
+
+  function handleAdd() {
+    popoverOpen = false;
+    navigation.navigate('profiles-create');
+  }
+
+  async function handleLock() {
+    popoverOpen = false;
+    await lockProfile();
   }
 </script>
 
@@ -85,51 +120,60 @@
     </ul>
   </div>
 
-  <!-- Profile section (bottom) — 2-line layout (AUDIT_01 §1D) -->
-  <div class="flex-shrink-0 border-t border-stone-100 dark:border-gray-800 p-2">
+  <!-- F6: Profile section (bottom) — popover trigger -->
+  <div class="flex-shrink-0 border-t border-stone-100 dark:border-gray-800 p-2 relative">
     {#if collapsed}
+      <!-- Collapsed: colored avatar circle — click opens popover -->
       <button
         class="w-full flex items-center justify-center rounded-lg min-h-[44px]
-               text-stone-500 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
-        onclick={async () => { await lockProfile(); }}
-        title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
+               hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
+        onclick={() => { popoverOpen = !popoverOpen; }}
+        title={profile.name ?? 'Profile'}
+        aria-label={$t('profile.profiles_heading') ?? 'Profiles'}
+        aria-expanded={popoverOpen}
       >
-        <LockIcon class="w-6 h-6" />
+        <div
+          class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+          style:background-color={profileColor ?? 'var(--color-primary)'}
+        >
+          {(profile.name ?? 'P').charAt(0).toUpperCase()}
+        </div>
       </button>
     {:else}
-      <div class="px-3 py-2">
-        <!-- Line 1: Avatar + name -->
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {(profile.name ?? 'P').charAt(0).toUpperCase()}
-          </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm text-stone-700 dark:text-gray-300 truncate font-medium">{profile.name ?? 'Patient'}</p>
-            <p class="text-xs text-stone-400 dark:text-gray-500 truncate">{$t('nav.profile_status_active') ?? 'Active profile'}</p>
-          </div>
+      <!-- Expanded: avatar + name + chevron — click toggles popover -->
+      <button
+        class="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 min-h-[44px]
+               hover:bg-stone-50 dark:hover:bg-gray-800/50 transition-colors text-left"
+        onclick={() => { popoverOpen = !popoverOpen; }}
+        aria-label={$t('profile.profiles_heading') ?? 'Profiles'}
+        aria-expanded={popoverOpen}
+      >
+        <div
+          class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+          style:background-color={profileColor ?? 'var(--color-primary)'}
+        >
+          {(profile.name ?? 'P').charAt(0).toUpperCase()}
         </div>
-        <!-- Line 2: Utility icons -->
-        <div class="flex items-center gap-1 mt-2">
-          <button
-            class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg
-                   text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
-            onclick={() => navigation.navigate('settings')}
-            title={$t('nav.settings') ?? 'Settings'}
-            aria-label={$t('nav.settings') ?? 'Settings'}
-          >
-            <SettingsIcon class="w-5 h-5" />
-          </button>
-          <button
-            class="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg
-                   text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
-            onclick={async () => { await lockProfile(); }}
-            title={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
-            aria-label={$t('settings.hub_switch_title') ?? 'Lock & switch profile'}
-          >
-            <LockIcon class="w-5 h-5" />
-          </button>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-stone-700 dark:text-gray-300 truncate font-medium">{profile.name ?? 'Patient'}</p>
+          <p class="text-xs text-stone-400 dark:text-gray-500 truncate">{$t('nav.profile_status_active') ?? 'Active profile'}</p>
         </div>
-      </div>
+        <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 flex-shrink-0 transition-transform {popoverOpen ? 'rotate-180' : ''}" />
+      </button>
+    {/if}
+
+    <!-- Popover -->
+    {#if popoverOpen && activeInfo}
+      <ProfilePopover
+        activeProfile={activeInfo}
+        {managedProfiles}
+        isSelfManaged={profile.isSelfManaged}
+        onSwitchTo={handleSwitchTo}
+        onManage={handleManage}
+        onAdd={handleAdd}
+        onLock={handleLock}
+        onClose={() => { popoverOpen = false; }}
+      />
     {/if}
   </div>
 </nav>

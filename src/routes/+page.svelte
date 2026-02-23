@@ -7,6 +7,7 @@
   import { getUserPreference } from '$lib/api/ai';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
+  import { profiles } from '$lib/stores/profiles.svelte';
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
   import { isTauriEnv } from '$lib/utils/tauri';
@@ -26,6 +27,8 @@
   import PairingScreen from '$lib/components/settings/PairingScreen.svelte';
   import AiSettingsScreen from '$lib/components/settings/AiSettingsScreen.svelte';
   import AiSetupWizard from '$lib/components/settings/AiSetupWizard.svelte';
+  import ProfilesScreen from '$lib/components/profile/ProfilesScreen.svelte';
+  import CreateProfile from '$lib/components/profile/CreateProfile.svelte';
   import { ArrowForwardIcon } from '$lib/components/icons/md';
 
   // Spec 45 [PU-02]: Active profile info (used by sidebar avatar)
@@ -43,7 +46,10 @@
     try {
       profile.name = await getActiveProfileName();
       activeProfileInfo = await getActiveProfileInfo();
+      profile.activeInfo = activeProfileInfo;
       profile.colorIndex = activeProfileInfo?.color_index ?? null;
+      // F6: Load all profiles for sidebar popover
+      profiles.refresh().catch(() => {});
     } catch {
       profile.name = 'Patient';
     }
@@ -126,6 +132,22 @@
     <AiSetupWizard />
   {:else if navigation.activeScreen === 'pairing'}
     <PairingScreen />
+  {:else if navigation.activeScreen === 'profiles'}
+    <ProfilesScreen />
+  {:else if navigation.activeScreen === 'profiles-create'}
+    <div class="max-w-lg mx-auto px-[var(--spacing-page-x)] py-8">
+      <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-6">
+        {$t('profile.profiles_create_heading')}
+      </h1>
+      <CreateProfile
+        isCaregiverPath={true}
+        onCreated={async () => {
+          await profiles.refresh();
+          navigation.navigate('profiles');
+        }}
+        onError={() => {}}
+      />
+    </div>
   {:else if navigation.activeScreen === 'import'}
     <ImportScreen droppedFiles={navigation.screenParams.droppedFiles} />
   {:else if navigation.activeScreen === 'documents'}

@@ -24,6 +24,8 @@
     "import": "Importer",
     "transfer": "Transfert",
     "breadcrumb": "Fil d'Ariane",
-    "profile_status_active": "Profil actif"
+    "profile_status_active": "Profil actif",
+    "profiles": "Profils",
+    "profiles-create": "Ajouter un profil"
   }
 }

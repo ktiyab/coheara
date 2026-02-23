@@ -81,6 +81,20 @@
     "recovery_verify_heading": "Verify your recovery phrase (optional but recommended)",
     "recovery_verify_word": "What is word #{num}?",
     "recovery_verify_error": "That doesn't match. Please check your written phrase.",
-    "recovery_verify_submit": "Verify"
+    "recovery_verify_submit": "Verify",
+    "popover_family_heading": "Family members",
+    "popover_manage": "Manage profiles",
+    "popover_add": "Add a family member",
+    "switch_to": "Switch to {name}",
+    "self_managed_label": "Self-managed",
+    "viewing_managed": "Managed by {caregiver}",
+    "profiles_heading": "Profiles",
+    "your_profile_section": "Your profile",
+    "family_section": "Family members",
+    "created_label": "Created {date}",
+    "no_family_members": "No family members yet",
+    "no_family_hint": "You can add profiles for people you care for",
+    "delete_has_dependents": "Cannot delete: manages {count} dependent(s)",
+    "profiles_create_heading": "Add a new profile"
   }
 }

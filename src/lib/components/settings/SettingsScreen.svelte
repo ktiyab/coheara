@@ -4,7 +4,6 @@
   import { t } from 'svelte-i18n';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { profile } from '$lib/stores/profile.svelte';
-  import { lockProfile } from '$lib/api/profile';
   import { getUserPreference, setUserPreference } from '$lib/api/ai';
   import { triggerExtractionBatch } from '$lib/api/extraction';
   import { extraction } from '$lib/stores/extraction.svelte';
@@ -13,7 +12,7 @@
   import { soundManager } from '$lib/utils/sound';
   import { theme, type Theme } from '$lib/stores/theme.svelte';
   import {
-    BrainIcon, PersonIcon, PhoneIcon, LockIcon,
+    BrainIcon, GroupIcon, PhoneIcon, LockIcon,
     PaletteIcon, VolumeIcon, InfoIcon, SunIcon, MoonIcon,
     GlobeIcon, ChevronRightIcon, ArrowForwardIcon,
     ClipboardIcon, PlayIcon, SettingsIcon,
@@ -118,13 +117,13 @@
           <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
 
-        <button class={rowBtn} onclick={async () => { await lockProfile(); }}>
-          <PersonIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+        <button class={rowBtn} onclick={() => navigation.navigate('profiles')}>
+          <GroupIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_switch_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_switch_description')}</p>
           </div>
-          <ArrowForwardIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
         </button>
       </div>
     </section>
