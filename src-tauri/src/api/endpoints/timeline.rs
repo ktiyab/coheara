@@ -26,7 +26,7 @@ pub struct TimelineResponse {
 /// `GET /api/timeline/recent` — timeline events for mobile.
 pub async fn recent(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Query(query): Query<TimelineQuery>,
 ) -> Result<Json<TimelineResponse>, ApiError> {
     let profile_name = {
@@ -34,7 +34,7 @@ pub async fn recent(
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let filter = timeline::TimelineFilter {
         date_from: None,

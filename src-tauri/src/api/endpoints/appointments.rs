@@ -22,14 +22,14 @@ pub struct AppointmentsResponse {
 /// `GET /api/appointments` — list appointments.
 pub async fn list(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
 ) -> Result<Json<AppointmentsResponse>, ApiError> {
     let profile_name = {
         let guard = ctx.core.read_session()?;
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let appointments = appointment::list_appointments(&conn).map_err(ApiError::from)?;
 
     ctx.core.update_activity();
@@ -46,7 +46,7 @@ pub struct PrepResponse {
 /// `GET /api/appointments/:id/prep` — get appointment prep.
 pub async fn prep(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Path(appointment_id): Path<String>,
 ) -> Result<Json<PrepResponse>, ApiError> {
     let profile_name = {
@@ -54,7 +54,7 @@ pub async fn prep(
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     // Look up the appointment to get professional_id and date
     let (professional_id, date_str): (String, String) = conn

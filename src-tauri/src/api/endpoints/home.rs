@@ -34,7 +34,7 @@ pub struct AlertSummary {
 /// `GET /api/home` — dashboard data for mobile home screen.
 pub async fn dashboard(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
 ) -> Result<Json<HomeResponse>, ApiError> {
     let profile_name = {
         let guard = ctx.core.read_session()?;
@@ -42,7 +42,7 @@ pub async fn dashboard(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let stats = home::fetch_profile_stats(&conn).map_err(ApiError::from)?;
     let recent_documents = home::fetch_recent_documents(&conn, 20, 0).map_err(ApiError::from)?;

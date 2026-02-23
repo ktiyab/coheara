@@ -16,9 +16,14 @@ use crate::journal;
 /// `POST /api/journal/record` — record a new symptom.
 pub async fn record(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Json(entry): Json<journal::SymptomEntry>,
 ) -> Result<Json<journal::RecordResult>, ApiError> {
+    // MP-01: Write guard — read-only devices cannot record symptoms
+    if !device.can_write() {
+        return Err(ApiError::Forbidden);
+    }
+
     // Validate
     if entry.severity < 1 || entry.severity > 5 {
         return Err(ApiError::BadRequest("Severity must be between 1 and 5".into()));
@@ -33,7 +38,7 @@ pub async fn record(
         return Err(ApiError::BadRequest("Invalid onset date format (expected YYYY-MM-DD)".into()));
     }
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let symptom_id = journal::record_symptom(&conn, &entry).map_err(ApiError::from)?;
     let correlations =
@@ -63,7 +68,7 @@ pub struct JournalHistoryResponse {
 /// `GET /api/journal/history` — recent symptom history.
 pub async fn history(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Query(query): Query<JournalHistoryQuery>,
 ) -> Result<Json<JournalHistoryResponse>, ApiError> {
     let profile_name = {
@@ -71,7 +76,7 @@ pub async fn history(
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let filter = if query.days.is_some() || query.category.is_some() || query.severity_min.is_some()
     {

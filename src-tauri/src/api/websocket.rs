@@ -485,6 +485,7 @@ async fn handle_chat_query(
         core.log_access(
             crate::core_state::AccessSource::MobileDevice {
                 device_id: device_id.clone(),
+                profile_id: None,
             },
             "chat_query",
             &format!("conversation:{conv_id_str}"),
@@ -592,6 +593,7 @@ fn handle_chat_feedback(
     core.log_access(
         crate::core_state::AccessSource::MobileDevice {
             device_id: device_id.to_string(),
+            profile_id: None,
         },
         if helpful {
             "chat_feedback_positive"
@@ -749,6 +751,7 @@ mod tests {
                     "ws-test-device".to_string(),
                     "Test Phone".to_string(),
                     "TestModel".to_string(),
+                    "test-owner".to_string(),
                     hash,
                 )
                 .unwrap();
@@ -905,6 +908,7 @@ mod tests {
                     "reg-test-device".to_string(),
                     "Test Phone".to_string(),
                     "Model".to_string(),
+                    "test-owner".to_string(),
                     hash,
                 )
                 .unwrap();
@@ -962,6 +966,7 @@ mod tests {
                     "reuse-test".to_string(),
                     "Phone".to_string(),
                     "Model".to_string(),
+                    "test-owner".to_string(),
                     hash,
                 )
                 .unwrap();

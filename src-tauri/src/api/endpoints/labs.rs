@@ -43,7 +43,7 @@ pub struct LabResultView {
 /// `GET /api/labs/recent` — recent lab results for mobile.
 pub async fn recent(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Query(query): Query<LabsQuery>,
 ) -> Result<Json<LabsResponse>, ApiError> {
     let profile_name = {
@@ -52,7 +52,7 @@ pub async fn recent(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let limit = query.limit.unwrap_or(20).min(100);
 
     let mut stmt = conn
@@ -97,7 +97,7 @@ pub async fn recent(
 /// Mobile uses this for the full lab results screen beyond the cached subset.
 pub async fn list(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Query(query): Query<LabsQuery>,
 ) -> Result<Json<LabsResponse>, ApiError> {
     let profile_name = {
@@ -106,7 +106,7 @@ pub async fn list(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let limit = query.limit.unwrap_or(500).min(1000);
 
     let mut stmt = conn
@@ -165,10 +165,10 @@ pub struct LabHistoryResponse {
 /// Mobile uses this for the lab trend detail view.
 pub async fn history(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Path(test_name): Path<String>,
 ) -> Result<Json<LabHistoryResponse>, ApiError> {
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let pattern = format!("%{test_name}%");
     let mut stmt = conn

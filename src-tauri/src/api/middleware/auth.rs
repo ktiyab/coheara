@@ -1,15 +1,18 @@
-//! M0-01: Bearer token authentication middleware.
+//! M0-01 + MP-01: Bearer token authentication middleware with profile-scoped access.
 //!
 //! Extracts `Authorization: Bearer <token>`, validates against
-//! DeviceRegistry, rotates the token, and injects `DeviceContext`
+//! DeviceRegistry, rotates the token, resolves profile access via
+//! the 4-rule authorization cascade, and injects `DeviceContext`
 //! into request extensions for downstream handlers.
 
 use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use uuid::Uuid;
 
 use crate::api::error::ApiError;
 use crate::api::types::{ApiContext, DeviceContext};
+use crate::authorization::{self, AccessLevel};
 
 /// Require a valid bearer token from a paired mobile device.
 ///
@@ -88,7 +91,6 @@ async fn require_auth_inner(
     }
 
     // 3. Optionally update device metadata from signature headers (CA-01)
-    //    Enriches Paired Devices view with current device name/model/OS.
     let header_name = req
         .headers()
         .get("X-Device-Name")
@@ -110,19 +112,53 @@ async fn require_auth_inner(
         }
     }
 
-    // Use latest device_name (may have been updated from header)
     let display_name = header_name.unwrap_or(device_name);
 
-    // 4. Inject device context for downstream handlers
+    // 4. MP-01: Resolve owner_profile_id
+    //    Try app.db device_registry first, fall back to active session profile.
+    let owner_profile_id = resolve_owner_profile_id(&ctx, &device_id);
+
+    // 5. MP-01: Extract target profile from X-Profile-Id header (default: owner)
+    let target_profile_id = req
+        .headers()
+        .get("X-Profile-Id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| Uuid::parse_str(v).ok())
+        .unwrap_or(owner_profile_id);
+
+    // 6. MP-01: Authorization check (4-rule cascade)
+    let access_level = if owner_profile_id == target_profile_id {
+        // Own profile — always full access (fast path, no DB lookup needed)
+        AccessLevel::Full
+    } else {
+        // Cross-profile access — run authorization cascade
+        match check_cross_profile_access(&ctx, &owner_profile_id, &target_profile_id, &device_id) {
+            Ok(decision) => {
+                if !decision.allowed {
+                    return Err(ApiError::Forbidden);
+                }
+                decision.level
+            }
+            Err(_) => {
+                // Authorization check failed — deny by default
+                return Err(ApiError::Forbidden);
+            }
+        }
+    };
+
+    // 7. Inject expanded device context for downstream handlers
     req.extensions_mut().insert(DeviceContext {
         device_id,
         device_name: display_name,
+        owner_profile_id,
+        target_profile_id,
+        access_level,
     });
 
-    // 5. Process request
+    // 8. Process request
     let mut response = next.run(req).await;
 
-    // 6. Include rotated token + cache control in response
+    // 9. Include rotated token + cache control in response
     if let Ok(val) = HeaderValue::from_str(&new_token) {
         response.headers_mut().insert("X-New-Token", val);
     }
@@ -131,4 +167,52 @@ async fn require_auth_inner(
         .insert("Cache-Control", HeaderValue::from_static("no-store"));
 
     Ok(response)
+}
+
+/// Resolve the owner profile ID for a device.
+///
+/// Tries the global device_registry (app.db) first. If the device
+/// isn't registered globally yet (pre-migration), falls back to the
+/// active desktop profile. This ensures backward compatibility during
+/// the CHUNK 5 migration.
+fn resolve_owner_profile_id(ctx: &ApiContext, device_id: &str) -> Uuid {
+    // Try app.db device_registry
+    if let Ok(app_conn) = ctx.core.open_app_db() {
+        if let Ok(Some(device)) =
+            crate::db::repository::device_registry::get_device(&app_conn, device_id)
+        {
+            if let Ok(uuid) = Uuid::parse_str(&device.owner_profile_id) {
+                return uuid;
+            }
+        }
+    }
+
+    // Fallback: active session's profile_id
+    ctx.core
+        .read_session()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|s| s.profile_id))
+        .unwrap_or_else(Uuid::nil)
+}
+
+/// Check cross-profile access using the authorization cascade.
+fn check_cross_profile_access(
+    ctx: &ApiContext,
+    owner_profile_id: &Uuid,
+    target_profile_id: &Uuid,
+    device_id: &str,
+) -> Result<authorization::AccessDecision, ApiError> {
+    let app_conn = ctx
+        .core
+        .open_app_db()
+        .map_err(|e| ApiError::Internal(format!("app db: {e}")))?;
+
+    authorization::check_profile_access(
+        &app_conn,
+        &ctx.core.profiles_dir,
+        owner_profile_id,
+        target_profile_id,
+        device_id,
+    )
+    .map_err(|e| ApiError::Internal(format!("authz: {e}")))
 }

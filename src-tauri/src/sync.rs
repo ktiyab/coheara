@@ -17,7 +17,7 @@ use crate::db::DatabaseError;
 // Sync Version Types
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Version counters for all 6 entity types.
+/// Version counters for all 7 entity types.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncVersions {
@@ -27,6 +27,8 @@ pub struct SyncVersions {
     pub alerts: i64,
     pub appointments: i64,
     pub profile: i64,
+    #[serde(default)]
+    pub conversations: i64,
 }
 
 /// Sync request from phone.
@@ -220,6 +222,7 @@ pub fn get_sync_versions(conn: &Connection) -> Result<SyncVersions, DatabaseErro
             "alerts" => versions.alerts = version,
             "appointments" => versions.appointments = version,
             "profile" => versions.profile = version,
+            "conversations" => versions.conversations = version,
             _ => {}
         }
     }
@@ -248,6 +251,9 @@ pub fn diff_versions(phone: &SyncVersions, desktop: &SyncVersions) -> Vec<String
     }
     if phone.profile < desktop.profile {
         changed.push("profile".to_string());
+    }
+    if phone.conversations < desktop.conversations {
+        changed.push("conversations".to_string());
     }
     changed
 }
@@ -931,6 +937,68 @@ mod tests {
     }
 
     #[test]
+    fn conversation_insert_increments_conversations_version() {
+        let conn = test_db();
+
+        conn.execute(
+            "INSERT INTO conversations (id, started_at, title)
+             VALUES (?1, datetime('now'), 'Health question')",
+            params![Uuid::new_v4().to_string()],
+        )
+        .unwrap();
+
+        let versions = get_sync_versions(&conn).unwrap();
+        assert_eq!(versions.conversations, 1);
+        assert_eq!(versions.medications, 0);
+    }
+
+    #[test]
+    fn message_insert_increments_conversations_version() {
+        let conn = test_db();
+        let conv_id = Uuid::new_v4().to_string();
+
+        conn.execute(
+            "INSERT INTO conversations (id, started_at, title)
+             VALUES (?1, datetime('now'), 'Test')",
+            params![conv_id],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, timestamp)
+             VALUES (?1, ?2, 'patient', 'Hello', datetime('now'))",
+            params![Uuid::new_v4().to_string(), conv_id],
+        )
+        .unwrap();
+
+        let versions = get_sync_versions(&conn).unwrap();
+        // conv insert + message insert = 2
+        assert_eq!(versions.conversations, 2);
+    }
+
+    #[test]
+    fn conversations_version_defaults_to_zero_for_old_databases() {
+        // SyncVersions with #[serde(default)] on conversations handles
+        // old databases that don't have the conversations row yet.
+        let versions = SyncVersions::default();
+        assert_eq!(versions.conversations, 0);
+    }
+
+    #[test]
+    fn diff_versions_detects_conversation_changes() {
+        let phone = SyncVersions {
+            conversations: 5,
+            ..Default::default()
+        };
+        let desktop = SyncVersions {
+            conversations: 8,
+            ..Default::default()
+        };
+        let changed = diff_versions(&phone, &desktop);
+        assert_eq!(changed, vec!["conversations"]);
+    }
+
+    #[test]
     fn profile_trust_update_increments_profile_version() {
         let conn = test_db();
 
@@ -957,6 +1025,7 @@ mod tests {
             alerts: 2,
             appointments: 1,
             profile: 4,
+            conversations: 2,
         };
         let desktop = phone.clone();
         assert!(diff_versions(&phone, &desktop).is_empty());
@@ -986,6 +1055,7 @@ mod tests {
             alerts: 0,
             appointments: 1,
             profile: 0,
+            conversations: 0,
         };
         let changed = diff_versions(&phone, &desktop);
         assert_eq!(changed.len(), 3);
@@ -1004,9 +1074,10 @@ mod tests {
             alerts: 1,
             appointments: 1,
             profile: 1,
+            conversations: 1,
         };
         let changed = diff_versions(&phone, &desktop);
-        assert_eq!(changed.len(), 6);
+        assert_eq!(changed.len(), 7);
     }
 
     // -----------------------------------------------------------------------
@@ -2066,6 +2137,7 @@ mod tests {
             alerts: 0,
             appointments: 42,
             profile: 100,
+            conversations: 50,
         };
         let desktop = SyncVersions {
             medications: 1_000_000,
@@ -2074,6 +2146,7 @@ mod tests {
             alerts: 1,
             appointments: 42,
             profile: 100,
+            conversations: 50,
         };
         let changed = diff_versions(&phone, &desktop);
         assert_eq!(changed.len(), 2);

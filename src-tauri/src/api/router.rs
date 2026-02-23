@@ -81,6 +81,10 @@ fn build_router(ctx: ApiContext) -> Router {
             get(endpoints::appointments::prep),
         )
         .route("/documents/upload", post(endpoints::documents::upload))
+        .route(
+            "/profiles/accessible",
+            get(endpoints::profiles::accessible),
+        )
         .route("/sync", post(endpoints::sync::delta))
         .route("/auth/ws-ticket", post(endpoints::auth::ws_ticket))
         .with_state(ctx.clone())
@@ -139,6 +143,7 @@ mod tests {
                     "test-device".to_string(),
                     "Test Phone".to_string(),
                     "TestModel".to_string(),
+                    "test-owner".to_string(),
                     hash,
                 )
                 .unwrap();
@@ -187,6 +192,7 @@ mod tests {
                     "test-device".to_string(),
                     "Test Phone".to_string(),
                     "TestModel".to_string(),
+                    "test-owner".to_string(),
                     hash,
                 )
                 .unwrap();

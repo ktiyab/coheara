@@ -1,9 +1,11 @@
 pub mod api; // M0-01: Mobile API Router
+pub mod authorization; // MP-01: Profile access authorization
 pub mod commands;
 pub mod config;
 pub mod core_state; // ME-01: Transport-agnostic state
 pub mod device_manager; // ME-02: Multi-Device Session Manager
 pub mod pairing; // M0-02: Device Pairing Protocol
+pub mod session_cache; // MP-01: Multi-profile session cache
 pub mod tls_cert; // M0-02: TLS Certificate Management
 pub mod models;
 pub mod db;
@@ -139,6 +141,12 @@ pub fn run() {
             commands::pairing::get_pending_approval,
             commands::pairing::approve_pairing,
             commands::pairing::deny_pairing,
+            // E6: Companion access
+            commands::companion_access::unlock_for_companion,
+            commands::companion_access::revoke_companion_access,
+            commands::companion_access::list_companion_profiles,
+            commands::companion_access::grant_profile_access,
+            commands::companion_access::revoke_profile_access,
             commands::distribution::start_distribution,
             commands::distribution::stop_distribution,
             commands::distribution::get_distribution_status,

@@ -116,6 +116,18 @@ pub struct PairResponse {
     pub cache_key_encrypted: String,
     /// Active profile name on the desktop.
     pub profile_name: String,
+    /// MP-01: Profiles this device can access (own + managed).
+    pub accessible_profiles: Vec<AccessibleProfile>,
+}
+
+/// MP-01: A profile accessible to a paired device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessibleProfile {
+    pub profile_id: String,
+    pub profile_name: String,
+    /// "own", "managed", or "granted"
+    pub relationship: String,
+    pub color_index: Option<u8>,
 }
 
 // ═══════════════════════════════════════════════════════════

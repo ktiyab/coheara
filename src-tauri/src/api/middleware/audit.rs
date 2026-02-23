@@ -22,11 +22,13 @@ pub async fn log_access(
     let ctx = req.extensions().get::<ApiContext>().cloned();
 
     // Extract device context if available (set by auth middleware)
+    // E8: Include target_profile_id for audit trail enrichment
     let source = req
         .extensions()
         .get::<DeviceContext>()
         .map(|d| AccessSource::MobileDevice {
             device_id: d.device_id.clone(),
+            profile_id: Some(d.target_profile_id.to_string()),
         })
         .unwrap_or(AccessSource::DesktopUi);
 

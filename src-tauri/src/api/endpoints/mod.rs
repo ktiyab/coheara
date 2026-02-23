@@ -13,5 +13,6 @@ pub mod home;
 pub mod journal;
 pub mod labs;
 pub mod medications;
+pub mod profiles;
 pub mod sync;
 pub mod timeline;

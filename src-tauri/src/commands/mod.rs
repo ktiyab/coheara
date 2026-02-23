@@ -2,6 +2,7 @@ pub mod ai_setup;
 pub mod appointment;
 pub mod chat;
 pub mod coherence;
+pub mod companion_access;
 pub mod devices;
 pub mod distribution;
 pub mod extraction;

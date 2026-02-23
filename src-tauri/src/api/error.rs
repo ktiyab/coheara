@@ -77,6 +77,8 @@ pub enum ApiError {
     NonceInvalid,
     #[error("Pairing request denied by desktop user")]
     PairingDenied,
+    #[error("Access denied to profile")]
+    Forbidden,
 }
 
 impl IntoResponse for ApiError {
@@ -131,6 +133,11 @@ impl IntoResponse for ApiError {
                 "PAIRING_DENIED",
                 "Desktop user denied the pairing request".to_string(),
             ),
+            ApiError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "FORBIDDEN",
+                "Access denied to target profile".to_string(),
+            ),
         };
 
         let body = ErrorBody {
@@ -154,6 +161,7 @@ impl From<CoreError> for ApiError {
             CoreError::NoActiveSession => ApiError::NoActiveProfile,
             CoreError::LockPoisoned => ApiError::Internal("lock poisoned".into()),
             CoreError::Database(e) => ApiError::Internal(e.to_string()),
+            CoreError::SessionCache(e) => ApiError::Internal(format!("session cache: {e}")),
             CoreError::DeviceLoad(e) => ApiError::Internal(format!("device load: {e}")),
         }
     }

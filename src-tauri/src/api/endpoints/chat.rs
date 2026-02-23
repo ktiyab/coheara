@@ -38,9 +38,14 @@ pub struct ChatAckResponse {
 /// For now, the message is stored and processing is deferred.
 pub async fn send(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Json(req): Json<ChatSendRequest>,
 ) -> Result<Json<ChatAckResponse>, ApiError> {
+    // MP-01: Write guard — read-only devices cannot send messages
+    if !device.can_write() {
+        return Err(ApiError::Forbidden);
+    }
+
     if req.message.trim().is_empty() {
         return Err(ApiError::BadRequest("Message cannot be empty".into()));
     }
@@ -48,7 +53,7 @@ pub async fn send(
         return Err(ApiError::BadRequest("Message too long (max 2000 chars)".into()));
     }
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     // Create or reuse conversation
     let conversation_id = match req.conversation_id {
@@ -92,14 +97,14 @@ pub struct ConversationsResponse {
 /// `GET /api/chat/conversations` — list recent conversations.
 pub async fn conversations(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
 ) -> Result<Json<ConversationsResponse>, ApiError> {
     let profile_name = {
         let guard = ctx.core.read_session()?;
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let convs = chat::list_conversation_summaries(&conn).map_err(ApiError::from)?;
     ctx.core.update_activity();
 
@@ -127,7 +132,7 @@ pub struct ConversationDetailResponse {
 /// `GET /api/chat/conversations/:id` — full conversation messages.
 pub async fn conversation(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Path(conversation_id): Path<String>,
 ) -> Result<Json<ConversationDetailResponse>, ApiError> {
     let profile_name = {
@@ -135,7 +140,7 @@ pub async fn conversation(
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let mut stmt = conn
         .prepare(
@@ -202,9 +207,9 @@ pub struct SuggestionsResponse {
 /// Mobile uses `text` as an i18n template key.
 pub async fn suggestions(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
 ) -> Result<Json<SuggestionsResponse>, ApiError> {
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let scorer = SuggestionScorer::new();
     let results = scorer.score(&conn, 6)?;
 

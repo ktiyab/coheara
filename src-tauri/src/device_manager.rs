@@ -48,6 +48,8 @@ pub struct PairedDevice {
     pub device_id: String,
     pub device_name: String,
     pub device_model: String,
+    /// MP-01: Which profile owns this device (set during pairing).
+    pub owner_profile_id: String,
     pub paired_at: chrono::DateTime<chrono::Utc>,
     pub last_seen: chrono::DateTime<chrono::Utc>,
     pub is_revoked: bool,
@@ -249,7 +251,13 @@ impl DeviceManager {
     ///
     /// Call this after profile unlock to restore device state across app restarts.
     /// Tokens and active connections are NOT restored (session-specific).
-    pub fn load_from_db(conn: &rusqlite::Connection) -> Result<Self, DeviceError> {
+    ///
+    /// MP-01: `owner_profile_id` is set to the given profile_id since these
+    /// devices were loaded from that profile's per-profile database.
+    pub fn load_from_db(
+        conn: &rusqlite::Connection,
+        owner_profile_id: &str,
+    ) -> Result<Self, DeviceError> {
         let stored = crate::pairing::db_load_paired_devices(conn)
             .map_err(|e| DeviceError::Database(e.to_string()))?;
 
@@ -268,6 +276,7 @@ impl DeviceManager {
                     device_id: device.device_id,
                     device_name: device.device_name,
                     device_model: device.device_model,
+                    owner_profile_id: owner_profile_id.to_string(),
                     paired_at,
                     last_seen,
                     is_revoked: device.is_revoked,
@@ -293,6 +302,7 @@ impl DeviceManager {
         device_id: String,
         device_name: String,
         device_model: String,
+        owner_profile_id: String,
         token_hash: [u8; 32],
     ) -> Result<(), DeviceError> {
         if !self.can_pair() {
@@ -306,6 +316,7 @@ impl DeviceManager {
                 device_id: device_id.clone(),
                 device_name,
                 device_model,
+                owner_profile_id,
                 paired_at: now,
                 last_seen: now,
                 is_revoked: false,
@@ -654,6 +665,7 @@ mod tests {
             "dev-1".into(),
             "Test Phone".into(),
             "iPhone 15".into(),
+            "owner-profile-1".into(),
             hash,
         )
         .unwrap();
@@ -716,6 +728,7 @@ mod tests {
                 format!("dev-{i}"),
                 format!("Phone {i}"),
                 "Model".into(),
+                "test-owner".into(),
                 hash,
             )
             .unwrap();
@@ -724,7 +737,7 @@ mod tests {
 
         let token = generate_token();
         let hash = hash_token(&token);
-        let result = mgr.register_device("dev-3".into(), "Phone 3".into(), "Model".into(), hash);
+        let result = mgr.register_device("dev-3".into(), "Phone 3".into(), "Model".into(), "test-owner".into(), hash);
         assert!(matches!(result, Err(DeviceError::MaxDevicesReached(3))));
     }
 
@@ -738,6 +751,7 @@ mod tests {
                 format!("dev-{i}"),
                 format!("Phone {i}"),
                 "Model".into(),
+                "test-owner".into(),
                 hash,
             )
             .unwrap();
@@ -871,6 +885,7 @@ mod tests {
                 format!("dev-{i}"),
                 format!("Phone {i}"),
                 "Model".into(),
+                "test-owner".into(),
                 hash,
             )
             .unwrap();
@@ -919,7 +934,7 @@ mod tests {
         let mut mgr = DeviceManager::new();
         let token = generate_token();
         let hash = hash_token(&token);
-        mgr.register_device("dev-old".into(), "Old Phone".into(), "Model".into(), hash)
+        mgr.register_device("dev-old".into(), "Old Phone".into(), "Model".into(), "test-owner".into(), hash)
             .unwrap();
 
         // Manually set last_seen to 35 days ago
@@ -974,6 +989,7 @@ mod tests {
                     format!("dev-{i}"),
                     format!("Phone {i}"),
                     "Model".into(),
+                    "test-owner".into(),
                     hash,
                 )
                 .unwrap();
@@ -1225,6 +1241,7 @@ mod tests {
                 format!("dev-{i}"),
                 format!("Phone {i}"),
                 "Model".into(),
+                "test-owner".into(),
                 hash,
             )
             .unwrap();
@@ -1255,6 +1272,7 @@ mod tests {
                 format!("dev-{i}"),
                 format!("Phone {i}"),
                 "Model".into(),
+                "test-owner".into(),
                 hash,
             )
             .unwrap();
@@ -1310,7 +1328,7 @@ mod tests {
         crate::pairing::db_store_paired_device(&conn, "dev-1", "Test Phone", "iPhone 15", &pk)
             .unwrap();
 
-        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let mgr = DeviceManager::load_from_db(&conn, "test-owner").unwrap();
         assert_eq!(mgr.device_count(), 1);
         assert!(mgr.is_paired("dev-1"));
 
@@ -1328,7 +1346,7 @@ mod tests {
         crate::pairing::db_store_paired_device(&conn, "dev-1", "Phone", "Model", &pk).unwrap();
         crate::pairing::db_revoke_device(&conn, "dev-1").unwrap();
 
-        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let mgr = DeviceManager::load_from_db(&conn, "test-owner").unwrap();
         assert!(mgr.is_paired("dev-1"));
 
         let device = mgr.get_device("dev-1").unwrap();
@@ -1340,7 +1358,7 @@ mod tests {
     #[test]
     fn load_from_db_empty_database() {
         let conn = crate::db::sqlite::open_memory_database().unwrap();
-        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let mgr = DeviceManager::load_from_db(&conn, "test-owner").unwrap();
         assert_eq!(mgr.device_count(), 0);
     }
 
@@ -1360,7 +1378,7 @@ mod tests {
             .unwrap();
         }
 
-        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let mgr = DeviceManager::load_from_db(&conn, "test-owner").unwrap();
         assert_eq!(mgr.device_count(), 3);
         for i in 0..3 {
             assert!(mgr.is_paired(&format!("dev-{i}")));
@@ -1374,7 +1392,7 @@ mod tests {
 
         crate::pairing::db_store_paired_device(&conn, "dev-1", "Phone", "Model", &pk).unwrap();
 
-        let mgr = DeviceManager::load_from_db(&conn).unwrap();
+        let mgr = DeviceManager::load_from_db(&conn, "test-owner").unwrap();
         let device = mgr.get_device("dev-1").unwrap();
 
         // Timestamps should be valid (not default epoch)

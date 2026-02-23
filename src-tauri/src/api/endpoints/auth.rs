@@ -66,7 +66,14 @@ pub async fn pair(
         pairing.complete_pairing().map_err(pairing_error_to_api)?
     };
 
-    // Step 4: Register device in DeviceManager
+    // Step 4: Get owner profile info for device registration
+    let (owner_profile_id, profile_name) = {
+        let guard = ctx.core.read_session().map_err(ApiError::from)?;
+        let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
+        (session.profile_id.to_string(), session.profile_name.clone())
+    };
+
+    // Step 5: Register device in DeviceManager
     let device_id = uuid::Uuid::new_v4().to_string();
     {
         let mut devices = ctx
@@ -78,12 +85,13 @@ pub async fn pair(
                 device_id.clone(),
                 approved_data.device_name.clone(),
                 approved_data.device_model.clone(),
+                owner_profile_id.clone(),
                 approved_data.token_hash,
             )
             .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
 
-    // Step 5: Persist to database — rollback DeviceManager if DB fails (RS-M002-05)
+    // Step 6: Persist to per-profile database — rollback DeviceManager if DB fails (RS-M002-05)
     let conn = ctx
         .core
         .open_db()
@@ -113,26 +121,25 @@ pub async fn pair(
         return Err(ApiError::Internal(format!("db persist session: {e}")));
     }
 
-    // Step 6: Log the pairing event
+    // Step 7: MP-01 — Dual-write to global device_registry + auto-grant managed profiles
+    let accessible_profiles = register_device_globally(
+        &ctx,
+        &device_id,
+        &approved_data.device_name,
+        &approved_data.device_model,
+        &approved_data.phone_public_key,
+        &owner_profile_id,
+        &profile_name,
+    );
+
+    // Step 8: Log the pairing event
     ctx.core.log_access(
         crate::core_state::AccessSource::DesktopUi,
         "pair_device",
-        &format!("device:{device_id}"),
+        &format!("device:{device_id} profiles:{}", accessible_profiles.len()),
     );
 
-    // Step 7: Get profile name for response
-    let profile_name = ctx
-        .core
-        .read_session()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|s| s.profile_name.clone()))
-        .unwrap_or_else(|| "Unknown".to_string());
-
-    // Step 8: Encrypt cache key for transport
-    // The phone and desktop derived the same shared secret via ECDH.
-    // We encrypt the cache_key with a transport key derived from the shared secret.
-    // For simplicity, we send the cache_key base64-encoded (the phone will derive
-    // the same key via its own ECDH + HKDF).
+    // Step 9: Encrypt cache key for transport
     let cache_key_b64 =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, approved_data.cache_key);
 
@@ -140,6 +147,7 @@ pub async fn pair(
         session_token: approved_data.session_token,
         cache_key_encrypted: cache_key_b64,
         profile_name,
+        accessible_profiles,
     }))
 }
 
@@ -175,6 +183,101 @@ pub async fn ws_ticket(
         ticket,
         expires_in: 30,
     }))
+}
+
+/// MP-01: Register device in global app.db and auto-grant access to managed profiles.
+///
+/// Best-effort: failures here don't block pairing (auth middleware has a fallback
+/// to the active session). Returns the list of accessible profiles for the response.
+fn register_device_globally(
+    ctx: &ApiContext,
+    device_id: &str,
+    device_name: &str,
+    device_model: &str,
+    public_key: &[u8; 32],
+    owner_profile_id: &str,
+    owner_profile_name: &str,
+) -> Vec<pairing::AccessibleProfile> {
+    use crate::db::repository::device_registry;
+
+    // Start with the owner's own profile
+    let mut accessible = vec![pairing::AccessibleProfile {
+        profile_id: owner_profile_id.to_string(),
+        profile_name: owner_profile_name.to_string(),
+        relationship: "own".to_string(),
+        color_index: None,
+    }];
+
+    // Try to open app.db and register globally
+    let app_conn = match ctx.core.open_app_db() {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::warn!("MP-01: Could not open app.db for global registration: {e}");
+            return accessible;
+        }
+    };
+
+    // Insert into global device_registry
+    let row = device_registry::DeviceRegistryRow {
+        device_id: device_id.to_string(),
+        device_name: device_name.to_string(),
+        device_model: device_model.to_string(),
+        owner_profile_id: owner_profile_id.to_string(),
+        public_key: public_key.to_vec(),
+        paired_at: chrono::Utc::now().to_rfc3339(),
+        last_seen: chrono::Utc::now().to_rfc3339(),
+        is_revoked: false,
+    };
+    if let Err(e) = device_registry::insert_device(&app_conn, &row) {
+        tracing::warn!("MP-01: Failed to insert into global device_registry: {e}");
+        return accessible;
+    }
+
+    // Grant access to owner's own profile
+    if let Err(e) = device_registry::grant_device_profile_access(
+        &app_conn,
+        device_id,
+        owner_profile_id,
+        "full",
+    ) {
+        tracing::warn!("MP-01: Failed to grant owner profile access: {e}");
+    }
+
+    // Find managed profiles and auto-grant access
+    let profiles = crate::crypto::profile::list_profiles(&ctx.core.profiles_dir)
+        .unwrap_or_default();
+    for profile in &profiles {
+        // Set color_index for the owner profile
+        if profile.id.to_string() == owner_profile_id {
+            if let Some(ap) = accessible.first_mut() {
+                ap.color_index = profile.color_index;
+            }
+        }
+
+        // Auto-grant access to profiles managed by the owner
+        if let Some(ref managed_by) = profile.managed_by {
+            if managed_by == owner_profile_name {
+                let profile_id_str = profile.id.to_string();
+                if let Err(e) = device_registry::grant_device_profile_access(
+                    &app_conn,
+                    device_id,
+                    &profile_id_str,
+                    "full",
+                ) {
+                    tracing::warn!("MP-01: Failed to grant managed profile access: {e}");
+                    continue;
+                }
+                accessible.push(pairing::AccessibleProfile {
+                    profile_id: profile_id_str,
+                    profile_name: profile.name.clone(),
+                    relationship: "managed".to_string(),
+                    color_index: profile.color_index,
+                });
+            }
+        }
+    }
+
+    accessible
 }
 
 /// Map pairing errors to API errors.

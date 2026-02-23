@@ -9,15 +9,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
+use uuid::Uuid;
+
 use crate::api::MobileApiServer;
 use crate::config;
 use crate::crypto::profile::ProfileSession;
 use crate::db;
 use crate::device_manager::DeviceManager;
-use crate::pairing::PairingManager;
 use crate::distribution::DistributionServer;
 use crate::ollama_service::OllamaService;
+use crate::pairing::PairingManager;
 use crate::pipeline::structuring::preferences::ActiveModelResolver;
+use crate::session_cache::{CachedSession, SessionCache, SessionCacheError};
 use crate::wifi_transfer::TransferServer;
 
 /// Default inactivity timeout: 15 minutes.
@@ -39,6 +42,9 @@ const AUDIT_BUFFER_CAPACITY: usize = 100;
 pub struct CoreState {
     /// Active profile session (unlocked profile). `None` when locked.
     session: RwLock<Option<ProfileSession>>,
+    /// MP-01: Multi-profile session cache (iOS Keychain pattern).
+    /// Holds unlocked profile keys for companion device access.
+    session_cache: RwLock<SessionCache>,
     /// Directory containing all profile folders.
     pub profiles_dir: PathBuf,
     /// Inactivity timeout threshold in seconds.
@@ -71,6 +77,7 @@ impl CoreState {
     pub fn new() -> Self {
         Self {
             session: RwLock::new(None),
+            session_cache: RwLock::new(SessionCache::new()),
             profiles_dir: config::profiles_dir(),
             inactivity_timeout_secs: DEFAULT_INACTIVITY_TIMEOUT_SECS,
             last_activity: Mutex::new(Instant::now()),
@@ -138,7 +145,21 @@ impl CoreState {
     }
 
     /// Set active session (login/unlock).
+    ///
+    /// Also dual-writes to SessionCache so companion devices can access
+    /// the active profile without additional unlock.
     pub fn set_session(&self, session: ProfileSession) -> Result<(), CoreError> {
+        // Dual-write to SessionCache: cache key bytes before moving session
+        let cached = CachedSession::new(
+            session.profile_id,
+            session.profile_name.clone(),
+            *session.key_bytes(),
+            session.db_path().to_path_buf(),
+        );
+        if let Ok(mut cache) = self.session_cache.write() {
+            cache.set_active_session(cached);
+        }
+
         let mut guard = self.session.write().map_err(|_| CoreError::LockPoisoned)?;
         *guard = Some(session);
         Ok(())
@@ -162,11 +183,15 @@ impl CoreState {
     }
 
     /// Lock the profile: drop the session (zeroes the key).
+    /// Also clears all cached sessions (security: keys zeroed via Drop).
     pub fn lock(&self) {
         if let Ok(mut session) = self.session.write() {
             *session = None;
         }
-        tracing::info!("Profile locked");
+        if let Ok(mut cache) = self.session_cache.write() {
+            cache.clear();
+        }
+        tracing::info!("Profile locked, session cache cleared");
     }
 
     /// Update the last activity timestamp.
@@ -244,9 +269,17 @@ impl CoreState {
     ///
     /// Call this after profile unlock when the DB is available.
     /// Restores which devices are paired across app restarts.
+    /// MP-01: Tags loaded devices with the active profile's ID as owner.
     pub fn hydrate_devices(&self) -> Result<(), CoreError> {
+        let owner_profile_id = {
+            let guard = self.session.read().map_err(|_| CoreError::LockPoisoned)?;
+            guard
+                .as_ref()
+                .map(|s| s.profile_id.to_string())
+                .unwrap_or_default()
+        };
         let conn = self.open_db()?;
-        let loaded = DeviceManager::load_from_db(&conn)
+        let loaded = DeviceManager::load_from_db(&conn, &owner_profile_id)
             .map_err(|e| CoreError::DeviceLoad(e.to_string()))?;
         let mut devices = self.devices.write().map_err(|_| CoreError::LockPoisoned)?;
         *devices = loaded;
@@ -265,6 +298,88 @@ impl CoreState {
         &self,
     ) -> Result<RwLockWriteGuard<'_, DeviceManager>, CoreError> {
         self.devices.write().map_err(|_| CoreError::LockPoisoned)
+    }
+
+    // ── Session cache (MP-01) ──────────────────────────────
+
+    /// Open a database connection for any cached profile.
+    ///
+    /// Unlike `open_db()` which only accesses the active session,
+    /// this method can open any unlocked profile's database —
+    /// used by companion device access via REST API.
+    pub fn open_db_for_profile(
+        &self,
+        profile_id: &Uuid,
+    ) -> Result<rusqlite::Connection, CoreError> {
+        let cache = self
+            .session_cache
+            .read()
+            .map_err(|_| CoreError::LockPoisoned)?;
+        cache
+            .open_db(profile_id)
+            .map_err(CoreError::SessionCache)
+    }
+
+    /// Cache a profile session for companion access without switching
+    /// the desktop UI. Caregiver unlocks managed profiles at startup.
+    pub fn cache_profile_session(&self, session: CachedSession) -> Result<(), CoreError> {
+        let mut cache = self
+            .session_cache
+            .write()
+            .map_err(|_| CoreError::LockPoisoned)?;
+        cache.cache_session(session);
+        Ok(())
+    }
+
+    /// Evict a cached session (revoke companion access to a profile).
+    /// Key is zeroed via CachedKey's Drop implementation.
+    pub fn evict_cached_session(&self, profile_id: &Uuid) -> Result<(), CoreError> {
+        let mut cache = self
+            .session_cache
+            .write()
+            .map_err(|_| CoreError::LockPoisoned)?;
+        cache.evict(profile_id);
+        Ok(())
+    }
+
+    /// List all cached profile IDs (for companion access status).
+    pub fn cached_profile_ids(&self) -> Result<Vec<Uuid>, CoreError> {
+        let cache = self
+            .session_cache
+            .read()
+            .map_err(|_| CoreError::LockPoisoned)?;
+        Ok(cache.cached_profile_ids())
+    }
+
+    /// Check if a profile is unlocked in the session cache.
+    pub fn is_profile_cached(&self, profile_id: &Uuid) -> bool {
+        self.session_cache
+            .read()
+            .map(|cache| cache.is_unlocked(profile_id))
+            .unwrap_or(false)
+    }
+
+    /// Get profile names for all cached sessions — used by companion access listing.
+    pub fn cached_profile_names(&self) -> Result<Vec<(Uuid, String)>, CoreError> {
+        let cache = self
+            .session_cache
+            .read()
+            .map_err(|_| CoreError::LockPoisoned)?;
+        Ok(cache
+            .cached_profile_ids()
+            .into_iter()
+            .filter_map(|id| {
+                cache
+                    .get_session(&id)
+                    .map(|s| (id, s.profile_name().to_string()))
+            })
+            .collect())
+    }
+
+    /// Open the app-level database (global device registry).
+    pub fn open_app_db(&self) -> Result<rusqlite::Connection, CoreError> {
+        db::app_db::open_app_database(&self.profiles_dir)
+            .map_err(CoreError::Database)
     }
 
     // ── Pairing manager (M0-02) ─────────────────────────
@@ -333,6 +448,8 @@ pub enum CoreError {
     LockPoisoned,
     #[error("Database error: {0}")]
     Database(#[from] db::DatabaseError),
+    #[error("Session cache error: {0}")]
+    SessionCache(#[from] SessionCacheError),
     #[error("Device load error: {0}")]
     DeviceLoad(String),
 }
@@ -347,14 +464,28 @@ pub enum AccessSource {
     /// Access from the desktop Tauri UI.
     DesktopUi,
     /// Access from a paired mobile device.
-    MobileDevice { device_id: String },
+    /// E8: `profile_id` tracks which profile's data was accessed.
+    MobileDevice {
+        device_id: String,
+        profile_id: Option<String>,
+    },
 }
 
 impl std::fmt::Display for AccessSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DesktopUi => write!(f, "desktop"),
-            Self::MobileDevice { device_id } => write!(f, "mobile:{device_id}"),
+            Self::MobileDevice { device_id, .. } => write!(f, "mobile:{device_id}"),
+        }
+    }
+}
+
+impl AccessSource {
+    /// E8: Extract the profile_id if this is a mobile device access.
+    pub fn profile_id(&self) -> Option<&str> {
+        match self {
+            Self::DesktopUi => None,
+            Self::MobileDevice { profile_id, .. } => profile_id.as_deref(),
         }
     }
 }
@@ -376,6 +507,8 @@ pub struct AuditEntry {
     pub source: AccessSource,
     pub action: String,
     pub entity: String,
+    /// E8: Which profile's data was accessed (for medical compliance audit).
+    pub profile_id: Option<String>,
 }
 
 impl AuditLogger {
@@ -389,11 +522,13 @@ impl AuditLogger {
     /// Returns `true` if the buffer has reached flush threshold.
     pub fn log(&self, source: AccessSource, action: &str, entity: &str) -> bool {
         if let Ok(mut buf) = self.buffer.lock() {
+            let profile_id = source.profile_id().map(|s| s.to_string());
             buf.push(AuditEntry {
                 timestamp: chrono::Utc::now(),
                 source,
                 action: action.to_string(),
                 entity: entity.to_string(),
+                profile_id,
             });
             buf.len() >= AUDIT_BUFFER_CAPACITY
         } else {
@@ -429,7 +564,7 @@ impl AuditLogger {
             return Ok(0);
         }
 
-        let tuples: Vec<(String, String, String, String)> = entries
+        let tuples: Vec<(String, String, String, String, Option<String>)> = entries
             .iter()
             .map(|e| {
                 (
@@ -437,6 +572,7 @@ impl AuditLogger {
                     e.source.to_string(),
                     e.action.clone(),
                     e.entity.clone(),
+                    e.profile_id.clone(),
                 )
             })
             .collect();
@@ -487,6 +623,7 @@ mod tests {
     fn check_timeout_with_zero_threshold() {
         let state = CoreState {
             session: RwLock::new(None),
+            session_cache: RwLock::new(SessionCache::new()),
             profiles_dir: PathBuf::from("/tmp"),
             inactivity_timeout_secs: 0,
             last_activity: Mutex::new(Instant::now() - std::time::Duration::from_secs(1)),
@@ -533,7 +670,17 @@ mod tests {
         assert_eq!(AccessSource::DesktopUi.to_string(), "desktop");
         assert_eq!(
             AccessSource::MobileDevice {
-                device_id: "abc123".to_string()
+                device_id: "abc123".to_string(),
+                profile_id: None,
+            }
+            .to_string(),
+            "mobile:abc123"
+        );
+        // E8: Display ignores profile_id (used only for DB storage)
+        assert_eq!(
+            AccessSource::MobileDevice {
+                device_id: "abc123".to_string(),
+                profile_id: Some("prof-1".to_string()),
             }
             .to_string(),
             "mobile:abc123"
@@ -580,6 +727,7 @@ mod tests {
         state.log_access(
             AccessSource::MobileDevice {
                 device_id: "phone-1".to_string(),
+                profile_id: Some("prof-1".to_string()),
             },
             "read_home",
             "home_data",
@@ -587,6 +735,7 @@ mod tests {
         let entries = state.audit_entries();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].source.to_string(), "mobile:phone-1");
+        assert_eq!(entries[0].profile_id.as_deref(), Some("prof-1"));
     }
 
     #[test]
@@ -651,6 +800,7 @@ mod tests {
         logger.log(
             AccessSource::MobileDevice {
                 device_id: "phone-1".into(),
+                profile_id: Some("prof-1".into()),
             },
             "read_home",
             "home_data",
@@ -665,6 +815,26 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 2);
+
+        // E8: Verify profile_id is persisted
+        let profile_id: Option<String> = conn
+            .query_row(
+                "SELECT profile_id FROM audit_log WHERE source = 'mobile:phone-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(profile_id.as_deref(), Some("prof-1"));
+
+        // Desktop entries have NULL profile_id
+        let desktop_profile: Option<String> = conn
+            .query_row(
+                "SELECT profile_id FROM audit_log WHERE source = 'desktop'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(desktop_profile.is_none());
     }
 
     #[test]
@@ -723,5 +893,92 @@ mod tests {
         assert!(state.is_ai_verified());
         state.set_ai_verified(false);
         assert!(!state.is_ai_verified());
+    }
+
+    // --- E8: Audit profile_id enrichment ---
+
+    #[test]
+    fn access_source_profile_id_extraction() {
+        let desktop = AccessSource::DesktopUi;
+        assert!(desktop.profile_id().is_none());
+
+        let mobile_no_profile = AccessSource::MobileDevice {
+            device_id: "dev-1".into(),
+            profile_id: None,
+        };
+        assert!(mobile_no_profile.profile_id().is_none());
+
+        let mobile_with_profile = AccessSource::MobileDevice {
+            device_id: "dev-1".into(),
+            profile_id: Some("prof-abc".into()),
+        };
+        assert_eq!(mobile_with_profile.profile_id(), Some("prof-abc"));
+    }
+
+    #[test]
+    fn audit_entry_captures_profile_id_from_source() {
+        let logger = AuditLogger::new();
+        logger.log(
+            AccessSource::MobileDevice {
+                device_id: "dev-1".into(),
+                profile_id: Some("prof-xyz".into()),
+            },
+            "read_meds",
+            "medications",
+        );
+        let entries = logger.entries();
+        assert_eq!(entries[0].profile_id.as_deref(), Some("prof-xyz"));
+    }
+
+    #[test]
+    fn audit_entry_none_profile_for_desktop() {
+        let logger = AuditLogger::new();
+        logger.log(AccessSource::DesktopUi, "read_meds", "medications");
+        let entries = logger.entries();
+        assert!(entries[0].profile_id.is_none());
+    }
+
+    #[test]
+    fn query_audit_by_profile_filters_correctly() {
+        use crate::db::sqlite::open_memory_database;
+        use crate::db::repository::query_audit_by_profile;
+
+        let conn = open_memory_database().unwrap();
+        let logger = AuditLogger::new();
+
+        // Log entries for two different profiles
+        logger.log(
+            AccessSource::MobileDevice {
+                device_id: "dev-1".into(),
+                profile_id: Some("prof-A".into()),
+            },
+            "read_meds",
+            "medications",
+        );
+        logger.log(
+            AccessSource::MobileDevice {
+                device_id: "dev-1".into(),
+                profile_id: Some("prof-B".into()),
+            },
+            "read_home",
+            "home_data",
+        );
+        logger.log(AccessSource::DesktopUi, "read_timeline", "timeline");
+
+        logger.flush_to_db(&conn).unwrap();
+
+        // Query for prof-A
+        let results = query_audit_by_profile(&conn, "prof-A", 7).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].2, "read_meds"); // action
+
+        // Query for prof-B
+        let results = query_audit_by_profile(&conn, "prof-B", 7).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].2, "read_home");
+
+        // Query for nonexistent profile
+        let results = query_audit_by_profile(&conn, "prof-C", 7).unwrap();
+        assert!(results.is_empty());
     }
 }

@@ -36,7 +36,7 @@ pub struct MedicationsResponse {
 /// `GET /api/medications` — medication list for mobile.
 pub async fn list(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Query(query): Query<MedListQuery>,
 ) -> Result<Json<MedicationsResponse>, ApiError> {
     let profile_name = {
@@ -45,7 +45,7 @@ pub async fn list(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let filter = medications::MedicationListFilter {
         status: query.status,
@@ -83,7 +83,7 @@ pub struct MedicationDetailResponse {
 /// `GET /api/medications/:id` — full medication detail.
 pub async fn detail(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
     Path(medication_id): Path<String>,
 ) -> Result<Json<MedicationDetailResponse>, ApiError> {
     let profile_name = {
@@ -92,7 +92,7 @@ pub async fn detail(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
     let med_uuid = Uuid::parse_str(&medication_id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid medication ID: {e}")))?;
 

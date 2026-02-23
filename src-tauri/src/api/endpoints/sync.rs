@@ -31,12 +31,13 @@ pub async fn delta(
         session.profile_name.clone()
     };
 
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     // Log sync access
     ctx.core.log_access(
         crate::core_state::AccessSource::MobileDevice {
             device_id: device.device_id.clone(),
+            profile_id: Some(device.target_profile_id.to_string()),
         },
         "sync_request",
         &format!(
@@ -83,6 +84,7 @@ pub async fn delta(
             ctx.core.log_access(
                 crate::core_state::AccessSource::MobileDevice {
                     device_id: device.device_id,
+                    profile_id: Some(device.target_profile_id.to_string()),
                 },
                 "sync_respond",
                 &format!("entities_sent:[{}]", sent_types.join(",")),

@@ -4,6 +4,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use uuid::Uuid;
+
+use crate::authorization::AccessLevel;
 use crate::core_state::CoreState;
 
 /// Grace period for old tokens after rotation (30 seconds).
@@ -38,6 +41,30 @@ impl ApiContext {
             pairing_limiter: Arc::new(Mutex::new(PairingRateLimiter::new())),
         }
     }
+
+    /// MP-01: Open the correct database for a device's target profile.
+    ///
+    /// If the target is the active desktop profile, uses the fast path
+    /// via `open_db()`. Otherwise, uses the SessionCache to open any
+    /// unlocked profile's database.
+    pub fn resolve_db(
+        &self,
+        device: &DeviceContext,
+    ) -> Result<rusqlite::Connection, crate::core_state::CoreError> {
+        // Check if target is the active session (fast path)
+        let is_active = self
+            .core
+            .read_session()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|s| s.profile_id == device.target_profile_id))
+            .unwrap_or(false);
+
+        if is_active {
+            self.core.open_db()
+        } else {
+            self.core.open_db_for_profile(&device.target_profile_id)
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -46,10 +73,26 @@ impl ApiContext {
 
 /// Authenticated device context, injected into request extensions
 /// by the auth middleware after successful token validation.
+///
+/// MP-01: Expanded with profile-scoped access for companion multi-profile.
 #[derive(Debug, Clone)]
 pub struct DeviceContext {
     pub device_id: String,
     pub device_name: String,
+    /// MP-01: Which profile owns this device.
+    pub owner_profile_id: Uuid,
+    /// MP-01: Which profile this request targets (from X-Profile-Id header).
+    /// Defaults to owner's profile if header absent.
+    pub target_profile_id: Uuid,
+    /// MP-01: Access level for the target profile.
+    pub access_level: AccessLevel,
+}
+
+impl DeviceContext {
+    /// Whether this device has write access to the target profile.
+    pub fn can_write(&self) -> bool {
+        self.access_level == AccessLevel::Full
+    }
 }
 
 // ═══════════════════════════════════════════════════════════

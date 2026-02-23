@@ -61,6 +61,11 @@ pub async fn upload(
     Extension(device): Extension<DeviceContext>,
     Json(payload): Json<UploadRequest>,
 ) -> Result<Json<UploadResponse>, ApiError> {
+    // MP-01: Write guard — read-only devices cannot upload documents
+    if !device.can_write() {
+        return Err(ApiError::Forbidden);
+    }
+
     // Validate page count
     if payload.pages.is_empty() {
         return Err(ApiError::BadRequest("No pages in upload".into()));
@@ -172,6 +177,7 @@ pub async fn upload(
     ctx.core.log_access(
         crate::core_state::AccessSource::MobileDevice {
             device_id: device.device_id.clone(),
+            profile_id: Some(device.target_profile_id.to_string()),
         },
         "upload_document",
         &format!(

@@ -20,14 +20,14 @@ pub struct AlertsResponse {
 /// `GET /api/alerts/critical` — critical alerts requiring patient awareness.
 pub async fn critical(
     State(ctx): State<ApiContext>,
-    Extension(_device): Extension<DeviceContext>,
+    Extension(device): Extension<DeviceContext>,
 ) -> Result<Json<AlertsResponse>, ApiError> {
     let profile_name = {
         let guard = ctx.core.read_session()?;
         let session = guard.as_ref().ok_or(ApiError::NoActiveProfile)?;
         session.profile_name.clone()
     };
-    let conn = ctx.core.open_db()?;
+    let conn = ctx.resolve_db(&device)?;
 
     let alerts = trust::fetch_critical_alerts(&conn)
         .map_err(|e| ApiError::Internal(e.to_string()))?;

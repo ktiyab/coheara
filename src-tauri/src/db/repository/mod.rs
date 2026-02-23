@@ -9,6 +9,7 @@ mod audit;
 mod cached_explanation;
 mod consistency;
 mod conversation;
+pub mod device_registry;
 mod diagnosis;
 mod document;
 mod document_search;
