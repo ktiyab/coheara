@@ -353,7 +353,7 @@ function Invoke-Test {
         Write-Host ""
         $nextest = Get-Command cargo-nextest -ErrorAction SilentlyContinue
         if ($nextest) {
-            Log-Info "Running Rust tests (cargo nextest — parallel)..."
+            Log-Info "Running Rust tests (cargo nextest - parallel)..."
             & $CargoPath nextest run --manifest-path (Join-Path $TauriDir "Cargo.toml")
             if ($LASTEXITCODE -eq 0) {
                 Log-Ok "Rust tests: all passed"
