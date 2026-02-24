@@ -33,7 +33,7 @@
   let shortModelName = $derived.by(() => {
     if (!ai.activeModel?.name) return '';
     const name = ai.activeModel.name;
-    // Strip org prefix: "MedAIBase/MedGemma1.5:4b" → "MedGemma1.5 4b"
+    // Strip org prefix: "dcarrascosa/medgemma-1.5-4b-it" → "medgemma-1.5-4b-it"
     const afterSlash = name.includes('/') ? name.split('/').pop()! : name;
     // Strip tag: "medgemma:latest" → "MedGemma"
     return afterSlash.replace(':', ' ').replace('latest', '').trim();

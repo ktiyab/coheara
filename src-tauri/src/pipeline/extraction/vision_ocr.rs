@@ -732,7 +732,7 @@ mod tests {
 
         let ocr = OllamaVisionOcr::new(
             Arc::new(ChatOnlyVisionClient),
-            "MedAIBase/MedGemma1.5:4b".to_string(),
+            "dcarrascosa/medgemma-1.5-4b-it".to_string(),
         );
         let result = ocr.extract_text_from_image(b"fake-pdf-page").unwrap();
         assert_eq!(result.content_type, ImageContentType::Document);

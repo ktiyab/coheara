@@ -135,7 +135,7 @@ const ALLOWED_PREFERENCE_KEYS: &[&str] = &[
 /// DOM-L6-13: Classification is informational only — does NOT gate features.
 ///
 /// R-MOD-02 F1: Uses `extract_model_component()` to strip namespace prefix
-/// before matching. `MedAIBase/MedGemma1.5:4b` → extracts `medgemma1.5` →
+/// before matching. `dcarrascosa/medgemma-1.5-4b-it` → extracts `medgemma-1.5-4b-it` →
 /// matches `medgemma` prefix → `Medical`.
 pub fn classify_model(model_name: &str) -> ModelQuality {
     let component = super::ollama_types::extract_model_component(model_name);
@@ -173,8 +173,8 @@ pub enum PreferenceError {
     #[error("Ollama is not reachable: {0}")]
     OllamaUnavailable(String),
 
-    /// R3: No vision-capable model available for OCR operations.
-    #[error("No vision-capable model is available. Install DeepSeek-OCR or MedGemma for document extraction.")]
+    /// No vision-capable model available for OCR operations.
+    #[error("No vision-capable model is available. Install a vision model (e.g., MedGemma) for document extraction.")]
     NoVisionModelAvailable,
 
     #[error("Database error: {0}")]
@@ -266,9 +266,12 @@ impl ActiveModelResolver {
 
     /// Resolve the active model for a specific pipeline role.
     ///
-    /// R3: Role-based resolution — different models for different tasks.
-    /// - `LlmGeneration` → existing resolve() chain (text generation, structuring)
-    /// - `VisionOcr` → OCR-specific chain (specialist → vision fallback)
+    /// Role-based resolution enables different models for different tasks:
+    /// - `LlmGeneration` → standard resolve() chain (text generation, structuring)
+    /// - `VisionOcr` → vision-specific chain (OCR preference → vision-capable fallback)
+    ///
+    /// Currently MedGemma serves both roles, but this architecture supports
+    /// adding specialized models (e.g., a dedicated OCR model) without changing callers.
     pub fn resolve_for_role(
         &self,
         role: ModelRole,
@@ -283,11 +286,10 @@ impl ActiveModelResolver {
 
     /// Vision OCR resolution chain.
     ///
-    /// R3: Order optimizes for specialist models first, then vision-capable fallback.
+    /// Resolution order (modular — supports future specialist models):
     /// 1. User-set OCR model preference (`active_ocr_model`) if installed
-    /// 2. DeepSeek-OCR if installed (specialist for document extraction)
-    /// 3. Any vision-capable installed model (MedGemma as fallback)
-    /// 4. Error: no vision model available
+    /// 2. Any vision-capable installed model (MedGemma, LLaVA, etc.)
+    /// 3. Error: no vision model available
     fn resolve_vision_ocr(
         &self,
         conn: &rusqlite::Connection,
@@ -295,7 +297,7 @@ impl ActiveModelResolver {
     ) -> Result<ResolvedModel, PreferenceError> {
         let installed = self.get_installed_models(client)?;
 
-        // Step 1: Explicit OCR model preference
+        // Step 1: Explicit OCR model preference (user choice takes priority)
         let ocr_pref = crate::db::repository::get_ocr_model_preference(conn)?;
         if let Some(ref model_name) = ocr_pref {
             let is_installed = installed.iter().any(|m| {
@@ -314,19 +316,7 @@ impl ActiveModelResolver {
             );
         }
 
-        // Step 2: DeepSeek-OCR specialist if installed
-        for model in &installed {
-            let component = super::ollama_types::extract_model_component(model);
-            if component.starts_with("deepseek-ocr") {
-                return Ok(ResolvedModel {
-                    name: model.clone(),
-                    quality: classify_model(model),
-                    source: PreferenceSource::Fallback,
-                });
-            }
-        }
-
-        // Step 3: Any vision-capable model (MedGemma, LLaVA, etc.)
+        // Step 2: Any vision-capable model
         for model in &installed {
             if super::ollama_types::is_vision_model(model) {
                 return Ok(ResolvedModel {
@@ -337,7 +327,7 @@ impl ActiveModelResolver {
             }
         }
 
-        // Step 4: No vision model available
+        // Step 3: No vision model available
         Err(PreferenceError::NoVisionModelAvailable)
     }
 
@@ -501,12 +491,12 @@ mod tests {
 
         #[test]
         fn namespaced_medgemma_is_medical() {
-            assert_eq!(classify_model("MedAIBase/MedGemma1.5:4b"), ModelQuality::Medical);
+            assert_eq!(classify_model("dcarrascosa/medgemma-1.5-4b-it"), ModelQuality::Medical);
         }
 
         #[test]
         fn namespaced_medgemma_alt_is_medical() {
-            assert_eq!(classify_model("alibayram/medgemma:4b"), ModelQuality::Medical);
+            assert_eq!(classify_model("amsaravi/medgemma-4b-it"), ModelQuality::Medical);
         }
 
         #[test]
@@ -759,17 +749,17 @@ mod tests {
             let conn = setup_db_with_preference(None, "unknown", "user");
             let client = MockLlmForResolver::with_models(vec![
                 "llama3:8b",
-                "MedAIBase/MedGemma1.5:4b",
+                "dcarrascosa/medgemma-1.5-4b-it",
             ]);
             let resolver = ActiveModelResolver::new();
 
             let result = resolver.resolve(&conn, &client).unwrap();
-            assert_eq!(result.name, "MedAIBase/MedGemma1.5:4b");
+            assert_eq!(result.name, "dcarrascosa/medgemma-1.5-4b-it");
             assert_eq!(result.quality, ModelQuality::Medical);
             assert_eq!(result.source, PreferenceSource::Fallback);
         }
 
-        // ── R3: Role-based resolution tests ──────────────
+        // ── Role-based resolution tests ──────────────
 
         #[test]
         fn llm_role_uses_standard_resolution() {
@@ -786,52 +776,34 @@ mod tests {
         #[test]
         fn vision_role_prefers_explicit_ocr_preference() {
             let conn = setup_db_with_preference(None, "unknown", "user");
-            // Set OCR model preference
-            crate::db::repository::set_ocr_model_preference(&conn, "deepseek-ocr:latest")
+            crate::db::repository::set_ocr_model_preference(&conn, "medgemma:4b")
                 .unwrap();
             let client = MockLlmForResolver::with_models(vec![
+                "llama3:8b",
                 "medgemma:4b",
-                "deepseek-ocr:latest",
             ]);
             let resolver = ActiveModelResolver::new();
 
             let result = resolver
                 .resolve_for_role(ModelRole::VisionOcr, &conn, &client)
                 .unwrap();
-            assert_eq!(result.name, "deepseek-ocr:latest");
+            assert_eq!(result.name, "medgemma:4b");
             assert_eq!(result.source, PreferenceSource::User);
         }
 
         #[test]
-        fn vision_role_falls_back_to_deepseek_ocr() {
+        fn vision_role_falls_back_to_vision_model() {
             let conn = setup_db_with_preference(None, "unknown", "user");
             let client = MockLlmForResolver::with_models(vec![
                 "llama3:8b",
-                "deepseek-ocr",
-                "medgemma:4b",
+                "dcarrascosa/medgemma-1.5-4b-it",
             ]);
             let resolver = ActiveModelResolver::new();
 
             let result = resolver
                 .resolve_for_role(ModelRole::VisionOcr, &conn, &client)
                 .unwrap();
-            assert_eq!(result.name, "deepseek-ocr");
-            assert_eq!(result.source, PreferenceSource::Fallback);
-        }
-
-        #[test]
-        fn vision_role_falls_back_to_medgemma_when_no_deepseek() {
-            let conn = setup_db_with_preference(None, "unknown", "user");
-            let client = MockLlmForResolver::with_models(vec![
-                "llama3:8b",
-                "MedAIBase/MedGemma1.5:4b",
-            ]);
-            let resolver = ActiveModelResolver::new();
-
-            let result = resolver
-                .resolve_for_role(ModelRole::VisionOcr, &conn, &client)
-                .unwrap();
-            assert_eq!(result.name, "MedAIBase/MedGemma1.5:4b");
+            assert_eq!(result.name, "dcarrascosa/medgemma-1.5-4b-it");
             assert_eq!(result.source, PreferenceSource::Fallback);
         }
 
@@ -849,7 +821,7 @@ mod tests {
         fn vision_role_stale_pref_falls_back() {
             let conn = setup_db_with_preference(None, "unknown", "user");
             // Set OCR preference to a model that's NOT installed
-            crate::db::repository::set_ocr_model_preference(&conn, "deepseek-ocr:latest")
+            crate::db::repository::set_ocr_model_preference(&conn, "some-ocr-model:latest")
                 .unwrap();
             let client = MockLlmForResolver::with_models(vec!["medgemma:4b"]);
             let resolver = ActiveModelResolver::new();
@@ -975,16 +947,16 @@ mod tests {
         #[test]
         fn set_and_get_ocr_roundtrip() {
             let conn = open_memory_database().unwrap();
-            repository::set_ocr_model_preference(&conn, "deepseek-ocr:latest").unwrap();
+            repository::set_ocr_model_preference(&conn, "medgemma:4b").unwrap();
 
             let pref = repository::get_ocr_model_preference(&conn).unwrap();
-            assert_eq!(pref.as_deref(), Some("deepseek-ocr:latest"));
+            assert_eq!(pref.as_deref(), Some("medgemma:4b"));
         }
 
         #[test]
         fn clear_ocr_resets_to_none() {
             let conn = open_memory_database().unwrap();
-            repository::set_ocr_model_preference(&conn, "deepseek-ocr").unwrap();
+            repository::set_ocr_model_preference(&conn, "medgemma:4b").unwrap();
             repository::clear_ocr_model_preference(&conn).unwrap();
 
             let pref = repository::get_ocr_model_preference(&conn).unwrap();
@@ -996,18 +968,18 @@ mod tests {
             let conn = open_memory_database().unwrap();
             repository::set_model_preference(
                 &conn,
-                "medgemma:4b",
+                "dcarrascosa/medgemma-1.5-4b-it",
                 &ModelQuality::Medical,
                 &PreferenceSource::User,
             )
             .unwrap();
-            repository::set_ocr_model_preference(&conn, "deepseek-ocr").unwrap();
+            repository::set_ocr_model_preference(&conn, "amsaravi/medgemma-4b-it").unwrap();
 
             // Both preferences exist independently
             let llm_pref = repository::get_model_preference(&conn).unwrap();
             let ocr_pref = repository::get_ocr_model_preference(&conn).unwrap();
-            assert_eq!(llm_pref.active_model.as_deref(), Some("medgemma:4b"));
-            assert_eq!(ocr_pref.as_deref(), Some("deepseek-ocr"));
+            assert_eq!(llm_pref.active_model.as_deref(), Some("dcarrascosa/medgemma-1.5-4b-it"));
+            assert_eq!(ocr_pref.as_deref(), Some("amsaravi/medgemma-4b-it"));
         }
     }
 

@@ -49,7 +49,7 @@ pub struct ModelDetails {
 pub enum ModelCapability {
     /// Text-only model (e.g., llama3, mistral).
     TextOnly,
-    /// Vision-capable model (e.g., deepseek-ocr, medgemma multimodal).
+    /// Vision-capable model (e.g., MedGemma multimodal).
     Vision,
 }
 
@@ -60,7 +60,7 @@ pub enum ModelCapability {
 pub enum ModelRole {
     /// Text generation: chat, structuring, reasoning (MedGemma).
     LlmGeneration,
-    /// Vision OCR: document image → structured Markdown (DeepSeek-OCR preferred).
+    /// Vision OCR: document image → structured Markdown (MedGemma).
     VisionOcr,
 }
 
@@ -88,7 +88,7 @@ pub struct VisionGenerateRequest {
 pub struct VisionGenerationOptions {
     /// 0.0 for deterministic document extraction.
     pub temperature: f32,
-    /// Maximum tokens — 8192 for DeepSeek-OCR context window.
+    /// Maximum tokens for vision extraction.
     pub num_predict: i32,
     /// Context window size (hardware-tiered). None = model default.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,7 +125,6 @@ pub struct VisionChatMessage {
 ///
 /// Used by `detect_capability()` as a fast heuristic before `/api/show`.
 pub const VISION_MODEL_PREFIXES: &[&str] = &[
-    "deepseek-ocr",
     "llava",
     "moondream",
     "cogvlm",
@@ -278,44 +277,41 @@ impl Default for ModelCapability {
     }
 }
 
+/// Default model fallback when the resolver fails entirely.
+///
+/// Single source of truth — used by extraction and batch_extraction fallbacks.
+/// Points to the primary recommended model (MedGemma 1.5 built from safetensors).
+pub const DEFAULT_MODEL_FALLBACK: &str = "dcarrascosa/medgemma-1.5-4b-it";
+
 /// Return the curated list of recommended medical models.
 ///
 /// Maintained in code (not fetched from registry).
 /// DOM-L6-01: includes minimum RAM requirements.
 ///
-/// R-MOD-01 F4: Updated with real community model names that exist on Ollama.
-/// Previous names (`medgemma:4b`, `medgemma:27b`) do not exist in Ollama registry.
-/// MedGemma is only available as community uploads with namespace prefixes.
+/// R-MOD-01 F4: Updated with working community models built from safetensors.
+/// Previous models (`MedAIBase/MedGemma1.5:4b`, `alibayram/medgemma:4b`) were
+/// built from quantized GGUFs with separate mmproj files — Ollama's engine for
+/// Gemma-family models can't combine them, so vision fails at inference time.
+/// See: https://github.com/ollama/ollama/issues/9967
 pub fn recommended_models() -> Vec<RecommendedModel> {
     vec![
         RecommendedModel {
-            name: "MedAIBase/MedGemma1.5:4b".to_string(),
-            description: "MedGemma 1.5, 4B parameters, F16 precision, recommended for most systems"
+            name: "dcarrascosa/medgemma-1.5-4b-it".to_string(),
+            description: "MedGemma 1.5, 4B parameters, built from safetensors, vision working"
                 .to_string(),
-            min_ram_gb: 16,
+            min_ram_gb: 8,
             medical: true,
             required: true,
             capability: ModelCapability::Vision, // MedGemma 1.5 is multimodal
         },
         RecommendedModel {
-            name: "alibayram/medgemma:4b".to_string(),
-            description: "MedGemma 1.0, 4B parameters, Q4 quantized, lower RAM requirement"
+            name: "amsaravi/medgemma-4b-it".to_string(),
+            description: "MedGemma 1.0, 4B parameters, Q6/Q8 quantized, vision confirmed"
                 .to_string(),
             min_ram_gb: 8,
             medical: true,
-            required: true,
-            capability: ModelCapability::Vision, // MedGemma is multimodal
-        },
-        // R3: Optional specialist vision model for document extraction.
-        // Without DeepSeek-OCR, MedGemma serves as fallback OCR.
-        RecommendedModel {
-            name: "deepseek-ocr".to_string(),
-            description: "DeepSeek-OCR 3B, specialist document extraction with structured Markdown output"
-                .to_string(),
-            min_ram_gb: 8,
-            medical: false,
             required: false,
-            capability: ModelCapability::Vision,
+            capability: ModelCapability::Vision, // MedGemma 1.0 is multimodal
         },
     ]
 }
@@ -362,7 +358,7 @@ pub enum OllamaError {
     Network(String),
 
     /// R3: Model does not support image/vision inputs.
-    #[error("Model '{0}' does not support image inputs — use a vision-capable model like DeepSeek-OCR")]
+    #[error("Model '{0}' does not support image inputs — use a vision-capable model like MedGemma")]
     ModelNotVisionCapable(String),
 
     /// R3: Image exceeds maximum allowed size (20MB base64).
@@ -476,10 +472,10 @@ pub fn validate_model_name(name: &str) -> Result<(), OllamaError> {
 /// just the model identity in lowercase. Used by `classify_model()` to match
 /// medical prefixes regardless of namespace.
 ///
-/// R-MOD-01 F2: Enables classification of community models like `MedAIBase/MedGemma1.5:4b`.
+/// R-MOD-01 F2: Enables classification of community models like `dcarrascosa/medgemma-1.5-4b-it`.
 ///
 /// # Examples
-/// - `"MedAIBase/MedGemma1.5:4b"` → `"medgemma1.5"`
+/// - `"dcarrascosa/medgemma-1.5-4b-it"` → `"medgemma-1.5-4b-it"`
 /// - `"medgemma:4b"` → `"medgemma"`
 /// - `"llama3.1:8b"` → `"llama3.1"`
 /// - `"llama3"` → `"llama3"`
@@ -491,14 +487,12 @@ pub fn extract_model_component(full_name: &str) -> String {
 
 /// Build a list of recommended model names for preference resolution.
 ///
-/// R-MOD-01 F5: Updated with real model names from Ollama community registry.
+/// R-MOD-01 F5: Updated with working models built from safetensors.
 /// Used by `ActiveModelResolver` to prefer recommended models during fallback.
 pub fn recommended_model_names() -> Vec<String> {
     vec![
-        "MedAIBase/MedGemma1.5:4b".to_string(),
-        "MedAIBase/MedGemma1.5".to_string(),
-        "alibayram/medgemma:4b".to_string(),
-        "alibayram/medgemma".to_string(),
+        "dcarrascosa/medgemma-1.5-4b-it".to_string(),
+        "amsaravi/medgemma-4b-it".to_string(),
     ]
 }
 
@@ -760,6 +754,12 @@ mod tests {
     }
 
     #[test]
+    fn extract_component_from_new_recommended_models() {
+        assert_eq!(extract_model_component("dcarrascosa/medgemma-1.5-4b-it"), "medgemma-1.5-4b-it");
+        assert_eq!(extract_model_component("amsaravi/medgemma-4b-it"), "medgemma-4b-it");
+    }
+
+    #[test]
     fn extract_component_empty_string() {
         assert_eq!(extract_model_component(""), "");
     }
@@ -767,14 +767,11 @@ mod tests {
     // ── Vision Model Detection (R3) ──
 
     #[test]
-    fn is_vision_model_detects_deepseek_ocr() {
-        assert!(is_vision_model("deepseek-ocr"));
-        assert!(is_vision_model("deepseek-ocr:latest"));
-    }
-
-    #[test]
     fn is_vision_model_detects_medgemma() {
         assert!(is_vision_model("medgemma:4b"));
+        assert!(is_vision_model("dcarrascosa/medgemma-1.5-4b-it"));
+        assert!(is_vision_model("amsaravi/medgemma-4b-it"));
+        // Legacy names (broken but still detected as vision-capable)
         assert!(is_vision_model("MedAIBase/MedGemma1.5:4b"));
         assert!(is_vision_model("alibayram/medgemma:4b"));
     }
@@ -942,37 +939,31 @@ mod tests {
     #[test]
     fn recommended_model_names_not_empty() {
         let names = recommended_model_names();
-        assert!(names.len() >= 3);
-        // R-MOD-01: Real model names, not fake medgemma:4b
-        assert!(names.contains(&"MedAIBase/MedGemma1.5:4b".to_string()));
-        assert!(names.contains(&"alibayram/medgemma:4b".to_string()));
+        assert!(names.len() >= 2);
+        // Working models built from safetensors (vision projector baked in)
+        assert!(names.contains(&"dcarrascosa/medgemma-1.5-4b-it".to_string()));
+        assert!(names.contains(&"amsaravi/medgemma-4b-it".to_string()));
     }
 
     #[test]
     fn recommended_models_have_valid_entries() {
         let models = recommended_models();
-        assert!(models.len() >= 3, "Should have at least 3 recommended models");
+        assert!(models.len() >= 2, "Should have at least 2 recommended models");
 
-        // R3: Required models must be medical with namespace; optional may differ.
-        let required: Vec<_> = models.iter().filter(|m| m.required).collect();
-        let optional: Vec<_> = models.iter().filter(|m| !m.required).collect();
-
-        assert!(!required.is_empty(), "Must have at least one required model");
-
-        for model in &required {
+        // All recommended models are medical MedGemma variants with namespace.
+        // At least the primary model must be required.
+        assert!(models[0].required, "Primary model must be required");
+        for model in &models {
             assert!(
                 model.name.contains('/'),
-                "Required model '{}' should be a real community model with namespace",
+                "Model '{}' should be a real community model with namespace",
                 model.name
             );
-            assert!(model.medical, "Required model '{}' should be medical", model.name);
-        }
-
-        // Optional models (e.g., deepseek-ocr) don't need to be medical
-        for model in &optional {
-            assert!(
-                model.capability == ModelCapability::Vision,
-                "Optional model '{}' should be vision-capable",
+            assert!(model.medical, "Model '{}' should be medical", model.name);
+            assert_eq!(
+                model.capability,
+                ModelCapability::Vision,
+                "Model '{}' should be vision-capable",
                 model.name
             );
         }

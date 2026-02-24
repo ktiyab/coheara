@@ -20,7 +20,7 @@ use super::types::{LlmClient, VisionClient};
 ///
 /// - `connect_timeout(10s)`: Fast detection of "Ollama not running"
 /// - `tcp_keepalive(15s)`: Prevents WSL2/network bridge from dropping idle connections
-///   during long CPU inference (DeepSeek-OCR can take minutes per page)
+///   during long CPU inference (MedGemma can take minutes per page on CPU)
 /// - Health/list/show: 5s per-request timeout (management operations)
 /// - Delete: 30s per-request timeout (filesystem operation)
 /// - Pull: no timeout (downloads are arbitrarily long)
@@ -942,7 +942,7 @@ fn collect_chat_stream(
 impl VisionClient for OllamaClient {
     /// Generate text from a prompt with base64-encoded images via Ollama `/api/generate`.
     ///
-    /// R3: Used for document OCR (DeepSeek-OCR, MedGemma) and medical image interpretation.
+    /// R4: Used for document OCR (MedGemma default) and medical image interpretation.
     ///
     /// Key behaviors:
     /// - Image size guard: rejects images > 20 MB base64
@@ -1632,7 +1632,7 @@ mod tests {
         let client = MockVisionClient::new("# Extracted Markdown\n\nPatient: John Doe");
         let images = vec!["base64data".to_string()];
         let result = client
-            .generate_with_images("deepseek-ocr", "Extract text", &images, None)
+            .generate_with_images("medgemma:4b", "Extract text", &images, None)
             .unwrap();
         assert!(result.contains("Extracted Markdown"));
     }
@@ -1678,7 +1678,7 @@ mod tests {
         let huge_image = "x".repeat(MAX_IMAGE_SIZE_BYTES + 1);
         let images = vec![huge_image];
         let result =
-            client.generate_with_images("deepseek-ocr", "prompt", &images, None);
+            client.generate_with_images("medgemma:4b", "prompt", &images, None);
         assert!(matches!(result, Err(OllamaError::ImageTooLarge(_))));
     }
 
@@ -1687,22 +1687,14 @@ mod tests {
         let client = OllamaClient::new("http://localhost:99999");
         let images = vec!["base64data".to_string()];
         let result =
-            client.generate_with_images("deepseek-ocr", "prompt", &images, None);
+            client.generate_with_images("medgemma:4b", "prompt", &images, None);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn detect_capability_recognizes_deepseek_ocr() {
-        // Uses name prefix heuristic — no network call needed
-        let client = OllamaClient::new("http://localhost:99999");
-        let cap = client.detect_capability("deepseek-ocr").unwrap();
-        assert_eq!(cap, ModelCapability::Vision);
     }
 
     #[test]
     fn detect_capability_recognizes_medgemma() {
         let client = OllamaClient::new("http://localhost:99999");
-        let cap = client.detect_capability("MedAIBase/MedGemma1.5:4b").unwrap();
+        let cap = client.detect_capability("dcarrascosa/medgemma-1.5-4b-it").unwrap();
         assert_eq!(cap, ModelCapability::Vision);
     }
 

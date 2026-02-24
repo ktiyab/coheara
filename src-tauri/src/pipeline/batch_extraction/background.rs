@@ -186,7 +186,7 @@ fn resolve_model(app: &AppHandle) -> Result<String, String> {
         .resolve(&conn, &client)
         .ok()
         .map(|m| m.name)
-        .unwrap_or_else(|| "medgemma:4b".to_string());
+        .unwrap_or_else(|| crate::pipeline::structuring::ollama_types::DEFAULT_MODEL_FALLBACK.to_string());
 
     Ok(model)
 }
