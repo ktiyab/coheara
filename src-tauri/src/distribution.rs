@@ -762,7 +762,7 @@ fn compute_file_sha256(path: &std::path::Path) -> Result<String, std::io::Error>
 /// Render the install landing page with platform detection and CA trust setup.
 fn render_install_page(version: &str, has_apk: bool, has_pwa: bool) -> String {
     format!(
-        r#"<!DOCTYPE html>
+        r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -774,11 +774,11 @@ body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sa
 .card{{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:400px;width:100%;padding:32px;text-align:center}}
 h1{{font-size:1.5rem;margin:0 0 8px}}
 .version{{color:#78716c;font-size:.875rem;margin-bottom:24px}}
-.icon{{width:72px;height:72px;background:#4A6FA5;border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center}}
-.icon svg{{width:40px;height:40px;fill:#fff}}
+.logo{{width:72px;height:72px;margin:0 auto 16px}}
+.logo svg{{width:72px;height:72px}}
 .btn{{display:block;width:100%;padding:16px;border:none;border-radius:12px;font-size:1rem;font-weight:600;cursor:pointer;margin-bottom:12px;text-decoration:none;transition:transform .1s}}
 .btn:active{{transform:scale(.97)}}
-.btn-primary{{background:#4A6FA5;color:#fff}}
+.btn-primary{{background:#2DD4BF;color:#fff}}
 .btn-secondary{{background:#e7e5e4;color:#1c1917}}
 .note{{font-size:.8rem;color:#a8a29e;margin-top:16px;line-height:1.4}}
 .hidden{{display:none}}
@@ -786,7 +786,7 @@ h1{{font-size:1.5rem;margin:0 0 8px}}
 </head>
 <body>
 <div class="card">
-  <div class="icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6zm3-6c0 1.7-1.3 3-3 3s-3-1.3-3-3 1.3-3 3-3 3 1.3 3 3z"/></svg></div>
+  <div class="logo"><svg viewBox="100 50 600 540" xmlns="http://www.w3.org/2000/svg"><path fill="#2DD4BF" d="M360.299,108.262C372.488,92.666 384.457,77.35 396.787,61.572C450.433,125.491 495.638,193.107 521.381,273.057C545.27,257.954 570.244,245.938 596.208,235.928C622.192,225.909 648.714,217.926 677.328,213.391C679.174,226.842 681.527,239.769 682.638,252.802C687.233,306.745 682.455,359.724 663.881,410.871C645.703,460.929 616.755,503.391 572.727,534.389C544.752,554.085 513.563,566.346 479.632,570.831C464.483,572.834 449.082,574.379 433.864,573.912C422.947,573.577 412.152,569.512 401.279,567.224C399.1,566.765 396.483,566.001 394.626,566.754C369.839,576.814 344.372,574.987 318.744,571.645C284.979,567.244 253.743,555.961 225.351,537.18C204.614,523.464 186.961,506.369 171.601,486.813C135.101,440.339 117.587,386.68 111.709,328.677C107.924,291.331 109.013,254.133 116.679,217.264C116.909,216.157 117.244,215.072 117.698,213.338C173.14,223.309 224.282,243.671 272.643,273.026C291.834,212.567 322.952,158.945 360.299,108.262zM517.355,446.911C533.074,406.201 538.386,365.037 531.851,322.516C531.016,317.084 530.465,311.58 529.175,306.257C528.246,302.423 529.063,300.256 532.418,298.07C561.089,279.386 591.982,265.489 624.45,254.956C633.142,252.136 641.933,249.621 650.695,247.021C651.441,246.8 652.309,246.992 653.696,246.992C653.987,249.811 654.343,252.559 654.543,255.319C658.855,314.944 652.491,372.848 626.111,427.359C608.481,463.791 583.743,494.279 549.329,516.226C525.037,531.717 498.297,540.53 469.767,543.897C460.352,545.008 450.857,545.456 441.395,546.153C440.176,546.242 438.934,546.006 437.397,545.418C474.008,520.484 500.791,487.824 517.355,446.911zM194.672,264.776C177.165,257.573 159.258,251.615 140.47,246.798C140.199,249.09 139.968,250.711 139.819,252.34C137.599,276.626 137.498,300.919 139.976,325.185C145.266,376.986 159.948,425.362 192.223,467.249C209.494,489.663 229.773,508.631 254.824,522.222C280.149,535.963 307.366,542.913 335.907,545.205C342.755,545.755 349.63,545.988 356.492,546.366C355.637,544.346 354.567,543.406 353.4,542.609C315.722,516.863 289.368,482.315 273.937,439.506C258.49,396.65 255.546,352.753 264.595,308.136C265.6,303.179 264.41,300.781 260.249,298.188C239.557,285.292 217.964,274.224 194.672,264.776zM362.157,515.366C372.377,521.6 382.492,528.016 392.906,533.906C394.913,535.041 398.501,535.002 400.661,533.999C425.883,522.282 447.035,505.274 464.272,483.508C489.134,452.117 501.772,415.913 505.618,376.387C507.427,357.791 506.093,339.295 503.449,319.517C452.216,363.609 424.422,417.788 423.228,484.96C405.54,484.96 388.459,484.96 370.833,484.96C369.312,418.31 341.576,364.608 290.866,321.164C290.497,323.09 290.274,324.029 290.142,324.98C287.182,346.212 286.725,367.435 290,388.697C297.881,439.86 320.225,482.783 362.157,515.366zM426.516,146.988C416.948,133.685 407.38,120.381 397.614,106.804C396.32,107.98 395.622,108.446 395.14,109.077C375.506,134.781 356.894,161.183 340.776,189.269C324.073,218.374 309.702,248.536 299.976,280.75C297.074,290.358 297.262,290.359 304.976,296.606C348.792,332.089 379.25,376.244 392.35,431.597C393.859,437.977 394.852,444.478 396.084,450.923C396.591,450.978 397.098,451.033 397.605,451.088C398.218,448.026 398.863,444.969 399.441,441.9C405.948,407.297 419.643,375.811 440.339,347.34C455.344,326.696 473.221,308.865 493.36,293.279C495.993,291.242 496.892,289.428 495.733,286.189C493.324,279.458 491.424,272.544 489.029,265.807C473.965,223.443 452.267,184.552 426.516,146.988zM382.74,191.738C386.752,188.205 390.575,184.988 394.223,181.584C396.142,179.794 397.557,179.584 399.719,181.405C427.412,204.742 448.11,232.471 456.356,268.559C459.202,281.016 458.354,290.3 447.837,300.17C426.505,320.19 412.812,346.046 399.973,372.13C399.179,373.744 398.054,375.195 396.589,377.498C392.8,370.086 389.622,363.726 386.318,357.431C373.557,333.114 358.598,310.382 338.289,291.58C335.985,289.446 335.338,287.307 335.554,284.146C338.12,246.731 356.695,217.534 382.74,191.738z"/><path fill="#2DD4BF" d="M376.834,292.681C383.616,302.263 390.397,311.845 397.343,321.659C397.764,321.12 398.067,320.753 398.347,320.37C408.145,306.972 418.023,293.632 427.627,280.096C428.756,278.505 429.001,275.713 428.588,273.696C426.095,261.524 421.453,250.11 414.59,239.786C409.417,232.005 403.478,224.734 397.514,216.744C382.951,232.312 372.381,248.638 366.644,267.976C364.714,274.481 364.29,280.097 370.344,284.85C372.766,286.753 374.382,289.682 376.834,292.681z"/></svg></div>
   <h1>Coheara Companion</h1>
   <p class="version">v{version}</p>
 
@@ -830,7 +830,7 @@ h1{{font-size:1.5rem;margin:0 0 8px}}
 }})();
 </script>
 </body>
-</html>"#,
+</html>"##,
         version = version,
         apk_section = if has_apk {
             r#"<a href="/install/android" class="btn btn-primary">Install Android App</a>"#
@@ -866,7 +866,7 @@ fn render_android_page(version: &str, apk_info: Option<&(u64, String)>) -> Strin
     };
 
     format!(
-        r#"<!DOCTYPE html>
+        r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -878,14 +878,14 @@ body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sa
 .card{{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:440px;width:100%;padding:32px}}
 h1{{font-size:1.25rem;margin:0 0 8px;text-align:center}}
 .version{{color:#78716c;font-size:.875rem;text-align:center;margin-bottom:20px}}
-.btn{{display:block;width:100%;padding:16px;border:none;border-radius:12px;font-size:1rem;font-weight:600;cursor:pointer;text-decoration:none;text-align:center;background:#4A6FA5;color:#fff;margin-bottom:16px;transition:transform .1s}}
+.btn{{display:block;width:100%;padding:16px;border:none;border-radius:12px;font-size:1rem;font-weight:600;cursor:pointer;text-decoration:none;text-align:center;background:#2DD4BF;color:#fff;margin-bottom:16px;transition:transform .1s}}
 .btn:active{{transform:scale(.97)}}
 .info{{display:flex;justify-content:space-between;font-size:.85rem;color:#78716c;margin-bottom:20px;padding:12px;background:#f5f5f4;border-radius:8px}}
 .steps{{list-style:none;padding:0;margin:0}}
 .steps li{{padding:12px 0;border-bottom:1px solid #e7e5e4;font-size:.9rem;display:flex;gap:12px}}
 .steps li:last-child{{border:none}}
-.step-num{{background:#4A6FA5;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex-shrink:0}}
-.back{{display:block;text-align:center;margin-top:16px;color:#4A6FA5;font-size:.9rem;text-decoration:none}}
+.step-num{{background:#2DD4BF;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex-shrink:0}}
+.back{{display:block;text-align:center;margin-top:16px;color:#2DD4BF;font-size:.9rem;text-decoration:none}}
 </style>
 </head>
 <body>
@@ -911,7 +911,7 @@ h1{{font-size:1.25rem;margin:0 0 8px;text-align:center}}
   <a href="/install" class="back">&larr; Back</a>
 </div>
 </body>
-</html>"#,
+</html>"##,
         version = version,
         size = size_display,
         hash = hash_display,
