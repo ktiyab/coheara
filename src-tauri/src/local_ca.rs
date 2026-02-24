@@ -242,6 +242,8 @@ pub fn build_mobileconfig(ca_cert_der: &[u8]) -> String {
             <string>Adds the Coheara local CA for secure connections to your desktop app</string>
             <key>PayloadDisplayName</key>
             <string>Coheara Local CA</string>
+            <key>PayloadOrganization</key>
+            <string>Coheara</string>
             <key>PayloadIdentifier</key>
             <string>com.coheara.local-ca</string>
             <key>PayloadType</key>
@@ -254,6 +256,8 @@ pub fn build_mobileconfig(ca_cert_der: &[u8]) -> String {
     </array>
     <key>PayloadDisplayName</key>
     <string>Coheara Companion Setup</string>
+    <key>PayloadOrganization</key>
+    <string>Coheara</string>
     <key>PayloadIdentifier</key>
     <string>com.coheara.companion-profile</string>
     <key>PayloadRemovalDisallowed</key>
@@ -559,6 +563,7 @@ mod tests {
         assert!(config.contains("com.apple.security.root"));
         assert!(config.contains("Coheara Local CA"));
         assert!(config.contains("Coheara Companion Setup"));
+        assert!(config.contains("PayloadOrganization"));
         assert!(config.contains("<data>"));
         assert!(config.contains("</plist>"));
     }
