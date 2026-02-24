@@ -18,6 +18,7 @@ use uuid::Uuid;
 use crate::crypto::ProfileSession;
 use crate::db::repository;
 use crate::models::enums::{DocumentType, PipelineStatus};
+use crate::pipeline::diagnostic;
 use crate::pipeline::extraction::orchestrator::DocumentExtractor;
 use crate::pipeline::extraction::types::TextExtractor;
 use crate::pipeline::extraction::ExtractionError;
@@ -570,6 +571,9 @@ impl DocumentProcessor {
             );
         }
 
+        // Diagnostic dump directory (reuse same dir as extraction)
+        let dump_dir = diagnostic::dump_dir_for(&import.document_id);
+
         // R4: Per-page structuring loop (D2 — page is the atomic unit)
         let total_pages = extraction.pages.len();
         let mut page_results: Vec<StructuringResult> = Vec::with_capacity(total_pages);
@@ -594,14 +598,29 @@ impl DocumentProcessor {
                 page.page_number, total_pages
             );
 
+            if let Some(ref dir) = dump_dir {
+                diagnostic::dump_text(dir, &format!("05-structuring-input-page-{idx}.txt"), &page.text);
+            }
+
             match self.structurer.structure_document(
                 &import.document_id,
                 &page.text,
                 page.confidence,
                 session,
             ) {
-                Ok(result) => page_results.push(result),
+                Ok(result) => {
+                    if let Some(ref dir) = dump_dir {
+                        diagnostic::dump_json(dir, &format!("05-structuring-result-page-{idx}.json"), &result);
+                    }
+                    page_results.push(result);
+                }
                 Err(e) => {
+                    if let Some(ref dir) = dump_dir {
+                        diagnostic::dump_json(dir, &format!("05-structuring-error-page-{idx}.json"), &serde_json::json!({
+                            "error": e.to_string(),
+                            "page": page.page_number,
+                        }));
+                    }
                     tracing::warn!(
                         document_id = %import.document_id,
                         page = page.page_number,
@@ -627,6 +646,10 @@ impl DocumentProcessor {
         // R4: Merge per-page results (D3)
         let pages_processed = page_results.len();
         let merged = merge_page_results(&import.document_id, page_results);
+
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_json(dir, "06-final-result.json", &merged);
+        }
 
         let structuring_summary = StructuringSummary {
             document_type: merged.document_type.as_str().to_string(),
@@ -1011,7 +1034,8 @@ pub fn build_processor(
         Box::new(PreprocessingPipeline::medgemma_gpu());
     let extractor = Box::new(
         DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr, preprocessor)
-            .with_interpreter(interpreter),
+            .with_interpreter(interpreter)
+            .with_language(language),
     );
 
     // LLM structuring (separate client instance with hardware-tuned context window)

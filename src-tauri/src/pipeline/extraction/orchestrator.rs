@@ -19,8 +19,10 @@ use super::types::{
     ExtractionMethod, ExtractionResult, ImageContentType, MedicalImageInterpreter,
     PageExtraction, PdfPageRenderer, TextExtractor, VisionOcrEngine,
 };
+use super::vision_ocr::{build_system_prompt, build_user_prompt};
 use super::ExtractionError;
 use crate::crypto::ProfileSession;
+use crate::pipeline::diagnostic;
 use crate::pipeline::import::format::FileCategory;
 use crate::pipeline::import::staging::read_staged_file;
 use crate::pipeline::import::FormatDetection;
@@ -60,6 +62,8 @@ pub struct DocumentExtractor {
     vision_ocr: Box<dyn VisionOcrEngine>,
     preprocessor: Box<dyn ImagePreprocessor>,
     interpreter: Option<Box<dyn MedicalImageInterpreter>>,
+    /// Language code for diagnostic prompt dumps (e.g., "en", "fr", "de").
+    language: String,
 }
 
 impl DocumentExtractor {
@@ -73,6 +77,7 @@ impl DocumentExtractor {
             vision_ocr,
             preprocessor,
             interpreter: None,
+            language: "en".to_string(),
         }
     }
 
@@ -85,6 +90,12 @@ impl DocumentExtractor {
         self
     }
 
+    /// Set the language for diagnostic prompt dumps.
+    pub fn with_language(mut self, language: &str) -> Self {
+        self.language = language.to_string();
+        self
+    }
+
     /// Extract text from a PDF: render each page, preprocess, then vision OCR.
     ///
     /// `dpi` is selected by `select_render_dpi()` based on document format.
@@ -92,6 +103,7 @@ impl DocumentExtractor {
         &self,
         pdf_bytes: &[u8],
         dpi: u32,
+        dump_dir: &Option<std::path::PathBuf>,
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
         let num_pages = self.pdf_renderer.page_count(pdf_bytes)?;
 
@@ -106,8 +118,49 @@ impl DocumentExtractor {
                 .pdf_renderer
                 .render_page(pdf_bytes, page_idx, dpi)?;
 
+            if let Some(ref dir) = dump_dir {
+                diagnostic::dump_binary(dir, &format!("01-rendered-page-{page_idx}.png"), &page_image);
+            }
+
             let prepared = self.preprocessor.preprocess(&page_image)?;
-            let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes)?;
+
+            if let Some(ref dir) = dump_dir {
+                diagnostic::dump_binary(dir, &format!("02-preprocessed-page-{page_idx}.png"), &prepared.png_bytes);
+                diagnostic::dump_json(dir, &format!("02-preprocessed-page-{page_idx}.json"), &serde_json::json!({
+                    "original_width": prepared.original_width,
+                    "original_height": prepared.original_height,
+                    "content_width": prepared.content_width,
+                    "content_height": prepared.content_height,
+                    "warnings": prepared.warnings,
+                    "png_size": prepared.png_bytes.len(),
+                }));
+            }
+
+            if let Some(ref dir) = dump_dir {
+                diagnostic::dump_text(dir, &format!("03-vision-ocr-prompt-page-{page_idx}.txt"), &format!(
+                    "=== SYSTEM PROMPT ===\n{}\n\n=== USER PROMPT ===\n{}",
+                    build_system_prompt(&self.language),
+                    build_user_prompt(&self.language),
+                ));
+            }
+
+            let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes);
+
+            if let Some(ref dir) = dump_dir {
+                match &ocr_result {
+                    Ok(result) => diagnostic::dump_json(dir, &format!("03-vision-ocr-result-page-{page_idx}.json"), &serde_json::json!({
+                        "text": result.text,
+                        "model_used": result.model_used,
+                        "confidence": result.confidence,
+                        "content_type": format!("{:?}", result.content_type),
+                    })),
+                    Err(e) => diagnostic::dump_json(dir, &format!("03-vision-ocr-result-page-{page_idx}.json"), &serde_json::json!({
+                        "error": e.to_string(),
+                    })),
+                }
+            }
+
+            let ocr_result = ocr_result?;
 
             // Route medical images to interpreter if available
             let (text, confidence, content_type) =
@@ -130,9 +183,51 @@ impl DocumentExtractor {
     fn extract_image(
         &self,
         image_bytes: &[u8],
+        dump_dir: &Option<std::path::PathBuf>,
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_binary(dir, "01-raw-image-0.bin", image_bytes);
+        }
+
         let prepared = self.preprocessor.preprocess(image_bytes)?;
-        let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes)?;
+
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_binary(dir, "02-preprocessed-page-0.png", &prepared.png_bytes);
+            diagnostic::dump_json(dir, "02-preprocessed-page-0.json", &serde_json::json!({
+                "original_width": prepared.original_width,
+                "original_height": prepared.original_height,
+                "content_width": prepared.content_width,
+                "content_height": prepared.content_height,
+                "warnings": prepared.warnings,
+                "png_size": prepared.png_bytes.len(),
+            }));
+        }
+
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_text(dir, "03-vision-ocr-prompt-page-0.txt", &format!(
+                "=== SYSTEM PROMPT ===\n{}\n\n=== USER PROMPT ===\n{}",
+                build_system_prompt(&self.language),
+                build_user_prompt(&self.language),
+            ));
+        }
+
+        let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes);
+
+        if let Some(ref dir) = dump_dir {
+            match &ocr_result {
+                Ok(result) => diagnostic::dump_json(dir, "03-vision-ocr-result-page-0.json", &serde_json::json!({
+                    "text": result.text,
+                    "model_used": result.model_used,
+                    "confidence": result.confidence,
+                    "content_type": format!("{:?}", result.content_type),
+                })),
+                Err(e) => diagnostic::dump_json(dir, "03-vision-ocr-result-page-0.json", &serde_json::json!({
+                    "error": e.to_string(),
+                })),
+            }
+        }
+
+        let ocr_result = ocr_result?;
 
         // Route medical images to interpreter if available
         let (text, confidence, content_type) =
@@ -207,18 +302,33 @@ impl TextExtractor for DocumentExtractor {
             "Starting text extraction"
         );
 
+        // Diagnostic dump directory (auto in dev, COHEARA_DUMP_DIR in prod)
+        let dump_dir = diagnostic::dump_dir_for(document_id);
+
         // Step 1: Decrypt the staged file
         let decrypted_bytes = read_staged_file(staged_path, session)?;
 
         // Step 2: Extract based on format category
         let dpi = select_render_dpi(format);
+
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_json(dir, "00-source-info.json", &serde_json::json!({
+                "document_id": document_id.to_string(),
+                "mime_type": format.mime_type,
+                "category": format.category.as_str(),
+                "is_digital_pdf": format.is_digital_pdf,
+                "file_size_bytes": format.file_size_bytes,
+                "dpi_selected": dpi,
+            }));
+        }
+
         let (method, mut pages) = match &format.category {
             // All PDFs → pdfium render → vision OCR (adaptive DPI per format)
             FileCategory::DigitalPdf | FileCategory::ScannedPdf => {
-                self.extract_pdf(&decrypted_bytes, dpi)?
+                self.extract_pdf(&decrypted_bytes, dpi, &dump_dir)?
             }
             // Images → vision OCR directly
-            FileCategory::Image => self.extract_image(&decrypted_bytes)?,
+            FileCategory::Image => self.extract_image(&decrypted_bytes, &dump_dir)?,
             // Plain text → UTF-8 read (no model needed)
             FileCategory::PlainText => {
                 let text = String::from_utf8(decrypted_bytes)
@@ -264,7 +374,7 @@ impl TextExtractor for DocumentExtractor {
             "Text extraction complete"
         );
 
-        Ok(ExtractionResult {
+        let result = ExtractionResult {
             document_id: *document_id,
             method,
             pages,
@@ -272,7 +382,13 @@ impl TextExtractor for DocumentExtractor {
             overall_confidence,
             language_detected: None, // R3: vision models handle multilingual natively
             page_count,
-        })
+        };
+
+        if let Some(ref dir) = dump_dir {
+            diagnostic::dump_json(dir, "04-extraction-result.json", &result);
+        }
+
+        Ok(result)
     }
 }
 
