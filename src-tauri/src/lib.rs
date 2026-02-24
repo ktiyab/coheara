@@ -7,6 +7,7 @@ pub mod device_manager; // ME-02: Multi-Device Session Manager
 pub mod pairing; // M0-02: Device Pairing Protocol
 pub mod session_cache; // MP-01: Multi-profile session cache
 pub mod tls_cert; // M0-02: TLS Certificate Management
+pub mod local_ca; // SEC-HTTPS-01: Local CA for HTTPS on local networks
 pub mod models;
 pub mod db;
 pub mod crypto;

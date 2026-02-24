@@ -79,6 +79,9 @@ pub struct DistributionConfig {
     pub apk_path: Option<PathBuf>,
     /// Core state for accessing pairing data (enables /pairing-info endpoint).
     pub core_state: Option<Arc<CoreState>>,
+    /// SEC-HTTPS-01: DER-encoded CA certificate for trust onboarding.
+    /// When set, enables `/install/ca.mobileconfig` (iOS) and `/install/ca.pem` (Android).
+    pub ca_cert_der: Option<Vec<u8>>,
 }
 
 impl Default for DistributionConfig {
@@ -89,6 +92,7 @@ impl Default for DistributionConfig {
             pwa_dir: None,
             apk_path: None,
             core_state: None,
+            ca_cert_der: None,
         }
     }
 }
@@ -140,6 +144,8 @@ pub(crate) struct ServerState {
     apk_path: Option<PathBuf>,
     /// Core state for accessing pairing data (PWA pairing bridge).
     core: Option<Arc<CoreState>>,
+    /// SEC-HTTPS-01: DER-encoded CA certificate (public, for trust onboarding).
+    ca_cert_der: Option<Vec<u8>>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -220,6 +226,7 @@ pub async fn start_distribution_server(
         pwa_dir: config.pwa_dir,
         apk_path: config.apk_path,
         core: config.core_state,
+        ca_cert_der: config.ca_cert_der,
     });
 
     // 8. Build router
@@ -268,6 +275,9 @@ pub(crate) fn build_distribution_router(state: Arc<ServerState>) -> Router {
         .route("/install", get(handle_install_landing))
         .route("/install/android", get(handle_android_page))
         .route("/install/android/download", get(handle_apk_download))
+        // SEC-HTTPS-01: CA trust onboarding endpoints
+        .route("/install/ca.mobileconfig", get(handle_ca_mobileconfig))
+        .route("/install/ca.pem", get(handle_ca_pem))
         .route("/pairing-info", get(handle_pairing_info))
         .route("/update", get(handle_version_check))
         .route("/health", get(handle_health));
@@ -421,6 +431,85 @@ async fn handle_apk_download(
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read APK").into_response()
         }
     }
+}
+
+/// GET /install/ca.mobileconfig — iOS Configuration Profile for CA trust.
+///
+/// SEC-HTTPS-01: Serves a `.mobileconfig` profile that installs the local CA
+/// into iOS trust store. One-tap install via Settings → Profile Downloaded.
+/// Apple-compliant format (see `local_ca::build_mobileconfig()`).
+async fn handle_ca_mobileconfig(
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+    AxumState(state): AxumState<Arc<ServerState>>,
+) -> Response {
+    if !is_local_network(&client_addr.ip()) {
+        return (StatusCode::FORBIDDEN, "Local network access only").into_response();
+    }
+    if !check_rate_limit(&state, client_addr.ip()).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+    }
+    increment_request_count(&state).await;
+
+    let ca_der = match &state.ca_cert_der {
+        Some(der) => der,
+        None => {
+            return (StatusCode::NOT_FOUND, "CA certificate not available").into_response();
+        }
+    };
+
+    let mobileconfig = crate::local_ca::build_mobileconfig(ca_der);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-apple-aspen-config")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"Coheara-CA.mobileconfig\"",
+        )
+        .header(header::CACHE_CONTROL, "no-cache, no-store")
+        .body(axum::body::Body::from(mobileconfig))
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response()
+        })
+}
+
+/// GET /install/ca.pem — PEM-encoded CA certificate for Android/generic.
+///
+/// SEC-HTTPS-01: Serves the CA certificate as PEM. Android users install via:
+/// Settings → Security → Encryption & credentials → Install from storage.
+async fn handle_ca_pem(
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+    AxumState(state): AxumState<Arc<ServerState>>,
+) -> Response {
+    if !is_local_network(&client_addr.ip()) {
+        return (StatusCode::FORBIDDEN, "Local network access only").into_response();
+    }
+    if !check_rate_limit(&state, client_addr.ip()).await {
+        return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+    }
+    increment_request_count(&state).await;
+
+    let ca_der = match &state.ca_cert_der {
+        Some(der) => der,
+        None => {
+            return (StatusCode::NOT_FOUND, "CA certificate not available").into_response();
+        }
+    };
+
+    let pem = crate::local_ca::export_ca_pem(ca_der);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-pem-file")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"Coheara-CA.pem\"",
+        )
+        .header(header::CACHE_CONTROL, "no-cache, no-store")
+        .body(axum::body::Body::from(pem))
+        .unwrap_or_else(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response()
+        })
 }
 
 /// GET /app — Serve PWA index.html
@@ -670,7 +759,7 @@ fn compute_file_sha256(path: &std::path::Path) -> Result<String, std::io::Error>
 // HTML rendering — self-contained pages (no external deps)
 // ═══════════════════════════════════════════════════════════
 
-/// Render the install landing page with platform detection.
+/// Render the install landing page with platform detection and CA trust setup.
 fn render_install_page(version: &str, has_apk: bool, has_pwa: bool) -> String {
     format!(
         r#"<!DOCTYPE html>
@@ -702,11 +791,25 @@ h1{{font-size:1.5rem;margin:0 0 8px}}
   <p class="version">v{version}</p>
 
   <div id="android" class="hidden">
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin-bottom:16px;text-align:left">
+      <p style="font-weight:600;margin:0 0 8px;font-size:.9rem">Step 1: Secure Connection</p>
+      <p style="margin:0 0 12px;font-size:.85rem;color:#374151">Install the security certificate so your phone can securely connect to your desktop.</p>
+      <a href="/install/ca.pem" class="btn btn-secondary" style="margin-bottom:0;font-size:.9rem;padding:12px">Download Security Certificate</a>
+      <p style="margin:8px 0 0;font-size:.75rem;color:#6b7280">After downloading: Settings &rarr; Security &rarr; Install from storage</p>
+    </div>
+    <p style="font-weight:600;font-size:.9rem;margin:0 0 8px">Step 2: Install App</p>
     {apk_section}
     {pwa_android_section}
   </div>
 
   <div id="ios" class="hidden">
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin-bottom:16px;text-align:left">
+      <p style="font-weight:600;margin:0 0 8px;font-size:.9rem">Step 1: Secure Connection</p>
+      <p style="margin:0 0 12px;font-size:.85rem;color:#374151">Install the security profile so your iPhone can securely connect to your desktop.</p>
+      <a href="/install/ca.mobileconfig" class="btn btn-secondary" style="margin-bottom:0;font-size:.9rem;padding:12px">Install Security Profile</a>
+      <p style="margin:8px 0 0;font-size:.75rem;color:#6b7280">After downloading: Settings &rarr; Profile Downloaded &rarr; Install &rarr; then enable in Settings &rarr; General &rarr; About &rarr; Certificate Trust Settings</p>
+    </div>
+    <p style="font-weight:600;font-size:.9rem;margin:0 0 8px">Step 2: Install App</p>
     {pwa_ios_section}
   </div>
 
@@ -714,7 +817,7 @@ h1{{font-size:1.5rem;margin:0 0 8px}}
     <p>Open this page on your phone to install the Coheara companion app.</p>
   </div>
 
-  <p class="note">Your health data stays on your devices. This app connects to your Coheara desktop over local WiFi only.</p>
+  <p class="note">Your health data stays on your devices. The security certificate creates an encrypted connection between your phone and desktop over local WiFi.</p>
 </div>
 <script>
 (function(){{
@@ -840,6 +943,7 @@ mod tests {
             pwa_dir,
             apk_path,
             core: None,
+            ca_cert_der: None,
         })
     }
 
@@ -1051,6 +1155,7 @@ mod tests {
             pwa_dir: None,
             apk_path: None,
             core: None,
+            ca_cert_der: None,
         });
 
         let ip: IpAddr = "192.168.1.100".parse().unwrap();
@@ -1072,6 +1177,7 @@ mod tests {
             pwa_dir: None,
             apk_path: None,
             core: None,
+            ca_cert_der: None,
         });
 
         let ip1: IpAddr = "192.168.1.100".parse().unwrap();
@@ -1231,6 +1337,102 @@ mod tests {
         assert_eq!(json["error"], "no_active_pairing");
     }
 
+    // -- CA trust onboarding endpoints ----------------------------------------
+
+    #[tokio::test]
+    async fn ca_mobileconfig_returns_404_when_no_ca() {
+        let state = test_state(None, None); // No CA cert
+        let app = build_distribution_router(state);
+        let req = make_request("/install/ca.mobileconfig", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn ca_pem_returns_404_when_no_ca() {
+        let state = test_state(None, None);
+        let app = build_distribution_router(state);
+        let req = make_request("/install/ca.pem", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn ca_mobileconfig_serves_profile_when_ca_available() {
+        let ca = crate::local_ca::generate_ca().expect("CA should generate");
+        let state_inner = ServerState {
+            desktop_version: "0.1.0".to_string(),
+            request_count: Arc::new(TokioMutex::new(0)),
+            rate_limit_per_min: 60,
+            rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
+            pwa_dir: None,
+            apk_path: None,
+            core: None,
+            ca_cert_der: Some(ca.cert_der.clone()),
+        };
+        let state = Arc::new(state_inner);
+        let app = build_distribution_router(state);
+        let req = make_request("/install/ca.mobileconfig", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/x-apple-aspen-config"
+        );
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let xml = String::from_utf8_lossy(&body);
+        assert!(xml.contains("<!DOCTYPE plist"));
+        assert!(xml.contains("Coheara Local CA"));
+    }
+
+    #[tokio::test]
+    async fn ca_pem_serves_certificate_when_ca_available() {
+        let ca = crate::local_ca::generate_ca().expect("CA should generate");
+        let state = Arc::new(ServerState {
+            desktop_version: "0.1.0".to_string(),
+            request_count: Arc::new(TokioMutex::new(0)),
+            rate_limit_per_min: 60,
+            rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
+            pwa_dir: None,
+            apk_path: None,
+            core: None,
+            ca_cert_der: Some(ca.cert_der.clone()),
+        });
+        let app = build_distribution_router(state);
+        let req = make_request("/install/ca.pem", "192.168.1.100");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/x-pem-file"
+        );
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let pem = String::from_utf8_lossy(&body);
+        assert!(pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(pem.contains("-----END CERTIFICATE-----"));
+    }
+
+    #[tokio::test]
+    async fn ca_endpoints_reject_public_ip() {
+        let ca = crate::local_ca::generate_ca().expect("CA should generate");
+        let state = Arc::new(ServerState {
+            desktop_version: "0.1.0".to_string(),
+            request_count: Arc::new(TokioMutex::new(0)),
+            rate_limit_per_min: 60,
+            rate_tracker: Arc::new(TokioMutex::new(HashMap::new())),
+            pwa_dir: None,
+            apk_path: None,
+            core: None,
+            ca_cert_der: Some(ca.cert_der),
+        });
+        let app = build_distribution_router(state);
+        let req = make_request("/install/ca.mobileconfig", "8.8.8.8");
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
     #[tokio::test]
     async fn pairing_info_returns_404_when_no_active_pairing() {
         // Use a real CoreState with no active pairing session
@@ -1243,6 +1445,7 @@ mod tests {
             pwa_dir: None,
             apk_path: None,
             core: Some(core),
+            ca_cert_der: None,
         });
         let app = build_distribution_router(state);
         let req = make_request("/pairing-info", "192.168.1.100");

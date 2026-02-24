@@ -75,6 +75,26 @@ pub async fn start_distribution(
         }
     }
 
+    // SEC-HTTPS-01: Load CA certificate (public part only) for trust onboarding.
+    // The distribution server serves this over HTTP so phones can install it
+    // before connecting to the HTTPS mobile API server.
+    let ca_cert_der = {
+        let conn = state.open_db().map_err(|e| e.to_string())?;
+        let guard = state.read_session().map_err(|e| e.to_string())?;
+        let session = guard.as_ref().ok_or("No active session")?;
+        match crate::local_ca::load_ca(&conn, session.key_bytes()) {
+            Ok(ca) => Some(ca.cert_der),
+            Err(crate::local_ca::LocalCaError::NotFound) => {
+                tracing::info!("No CA cert yet — CA trust endpoints will be disabled");
+                None
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load CA cert: {e} — CA trust endpoints disabled");
+                None
+            }
+        }
+    };
+
     // Resolve asset paths: bundled resources first, then user data fallback
     let config = DistributionConfig {
         port: 0, // Ephemeral port
@@ -82,6 +102,7 @@ pub async fn start_distribution(
         pwa_dir: resolve_pwa_dir(&app),
         apk_path: resolve_apk_path(&app),
         core_state: Some(state.inner().clone()),
+        ca_cert_der,
     };
 
     let server = distribution::start_distribution_server(config)

@@ -66,6 +66,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
         (13, include_str!("../../resources/migrations/013_conversation_sync.sql")),
         (14, include_str!("../../resources/migrations/014_audit_profile.sql")),
         (15, include_str!("../../resources/migrations/015_extraction_source_quote.sql")),
+        (16, include_str!("../../resources/migrations/016_local_ca.sql")),
     ];
 
     for (version, sql) in migrations {
@@ -119,7 +120,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 16);
     }
 
     #[test]

@@ -1,7 +1,7 @@
-//! M0-02: Desktop IPC commands for device pairing.
+//! M0-02 + SEC-HTTPS-01: Desktop IPC commands for device pairing.
 //!
 //! Commands for the desktop UI to manage the pairing flow:
-//! - start_pairing: Generate QR code for phone to scan
+//! - start_pairing: Generate QR code for phone to scan (reads cert from running API server)
 //! - cancel_pairing: Cancel an active pairing session
 //! - get_pending_approval: Check if a phone is waiting for approval
 //! - approve_pairing: Allow the pending device
@@ -13,16 +13,16 @@ use tauri::State;
 
 use crate::core_state::CoreState;
 use crate::pairing::{PairingStartResponse, PendingApproval};
-use crate::tls_cert;
 
 /// Start a new pairing session. Generates QR code for the phone to scan.
 ///
-/// This will:
-/// 1. Generate/load a TLS certificate (for cert pinning)
-/// 2. Create an X25519 keypair and pairing token
-/// 3. Return QR code SVG + metadata
+/// SEC-HTTPS-01: Reads the TLS certificate fingerprint and port from the
+/// running mobile API server (rather than generating a separate cert).
+/// This ensures the fingerprint in the QR code matches the actual server cert.
+///
+/// Async because it reads from the tokio Mutex holding the API server state.
 #[tauri::command]
-pub fn start_pairing(
+pub async fn start_pairing(
     state: State<'_, Arc<CoreState>>,
 ) -> Result<PairingStartResponse, String> {
     // Check if profile is unlocked
@@ -38,21 +38,24 @@ pub fn start_pairing(
         }
     }
 
-    // Get TLS cert fingerprint (generate if needed)
-    let cert_fingerprint = {
-        let conn = state.open_db().map_err(|e| e.to_string())?;
-        let guard = state.read_session().map_err(|e| e.to_string())?;
-        let session = guard.as_ref().ok_or("No active session")?;
-        let cert = tls_cert::load_or_generate(&conn, session.key_bytes())
-            .map_err(|e| e.to_string())?;
-        cert.fingerprint
-    };
+    // SEC-HTTPS-01: Read cert fingerprint and port from running mobile API server.
+    // The QR code must contain the fingerprint of the actual server cert for cert pinning.
+    let (cert_fingerprint, api_port) = {
+        let guard = state.api_server.lock().await;
+        let server = guard.as_ref().ok_or(
+            "Mobile API server must be running before pairing. Start it first.",
+        )?;
+        let fingerprint = server.cert_fingerprint.clone().ok_or(
+            "No TLS certificate available. Restart the mobile API server.",
+        )?;
+        (fingerprint, server.session.port)
+    }; // tokio Mutex guard dropped before acquiring sync locks
 
-    // Get the local IP for the server URL
+    // Build server URL with actual HTTPS port
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());
-    let server_url = format!("https://{local_ip}:8443");
+    let server_url = format!("https://{local_ip}:{api_port}");
 
     // Start pairing session
     let mut pairing = state.lock_pairing().map_err(|e| e.to_string())?;
@@ -85,10 +88,6 @@ pub fn get_pending_approval(
 /// Signals approval to the phone's waiting HTTP handler. The actual
 /// ECDH key exchange and device registration happens in the HTTP
 /// endpoint (`POST /api/auth/pair`) after the phone receives this signal.
-///
-/// This split avoids a race condition where both the desktop IPC and
-/// HTTP endpoint would call `approve()`, consuming the pairing state
-/// and causing the second call to fail (RS-M002-01).
 #[tauri::command]
 pub fn approve_pairing(state: State<'_, Arc<CoreState>>) -> Result<(), String> {
     let mut pairing = state.lock_pairing().map_err(|e| e.to_string())?;
