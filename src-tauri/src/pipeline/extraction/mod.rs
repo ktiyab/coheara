@@ -2,6 +2,7 @@ pub mod types;
 pub mod confidence;
 pub mod sanitize;
 pub mod pdfium;
+pub mod preprocess;
 pub mod orchestrator;
 pub mod vision_ocr;
 
@@ -48,7 +49,7 @@ pub enum ExtractionError {
     PdfEncrypted,
 
     /// No vision-capable model is installed for OCR extraction.
-    #[error("No vision model available for document extraction — install DeepSeek-OCR or MedGemma")]
+    #[error("No vision model available for document extraction — install MedGemma")]
     NoVisionModel,
 
     /// Vision OCR extraction failed for a specific reason.

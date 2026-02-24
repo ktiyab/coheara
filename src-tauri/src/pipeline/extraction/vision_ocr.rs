@@ -1,23 +1,20 @@
-//! R3: Vision OCR engine — extracts text from document images via Ollama.
+//! R4: Vision OCR engine — extracts text from document images via Ollama.
 //!
 //! Bridges the `VisionClient` (structuring layer) to the `VisionOcrEngine` trait
-//! (extraction layer). Handles model-specific prompt engineering and confidence
-//! heuristics.
+//! (extraction layer). Uses MedGemma with a system prompt + extraction instruction.
 //!
-//! Two prompt strategies:
-//! - **DeepSeek-OCR**: `<|grounding|>` token → structured Markdown, no system prompt
-//! - **MedGemma/generic**: System prompt + extraction instruction
-//!
-//! Both append a classification tag (`[DOCUMENT]` or `[MEDICAL_IMAGE]`) that the
+//! Appends a classification tag (`[DOCUMENT]` or `[MEDICAL_IMAGE]`) that the
 //! orchestrator uses to route medical images to MedGemma interpretation.
 
 use std::sync::Arc;
 
 use base64::Engine as _;
 
-use super::types::{ImageContentType, VisionOcrEngine, VisionOcrResult};
+use super::types::{
+    ImageContentType, MedicalImageInterpreter, MedicalImageResult, VisionOcrEngine,
+    VisionOcrResult,
+};
 use super::ExtractionError;
-use crate::pipeline::structuring::ollama_types::extract_model_component;
 use crate::pipeline::structuring::types::VisionClient;
 
 // ──────────────────────────────────────────────
@@ -28,22 +25,50 @@ use crate::pipeline::structuring::types::VisionClient;
 const DOCUMENT_TAG: &str = "[DOCUMENT]";
 const MEDICAL_IMAGE_TAG: &str = "[MEDICAL_IMAGE]";
 
-/// DeepSeek-OCR uses a special grounding token for structured Markdown.
-/// No system prompt — the model is prompt-sensitive.
-const DEEPSEEK_OCR_PROMPT: &str = "\
-<|grounding|>Convert the document to markdown.\n\
-At the very end, on a new line, write exactly [DOCUMENT] if this is a text document, \
-or [MEDICAL_IMAGE] if this is a medical image (X-ray, CT, MRI, radiograph, dermatology photo).";
+// ──────────────────────────────────────────────
+// Language-aware prompt constants
+// ──────────────────────────────────────────────
 
-/// MedGemma / generic vision models use a system prompt for context.
-const GENERIC_SYSTEM_PROMPT: &str = "\
+/// English system prompt — default.
+const SYSTEM_PROMPT_EN: &str = "\
 You are a medical document text extractor. Your task is to extract ALL visible text \
 from the provided document image, preserving structure as Markdown. \
 Output headers, tables, lists, and paragraphs. Be thorough and accurate.";
 
-const GENERIC_USER_PROMPT: &str = "\
+/// French system prompt — preserves accented characters and French medical terminology.
+const SYSTEM_PROMPT_FR: &str = "\
+You are a medical document text extractor. The document is likely in French. \
+Extract ALL visible text, preserving structure as Markdown. \
+Preserve French medical terminology, accented characters (é, è, ê, ë, à, ç, ù, ô, î), \
+and units exactly as written. Output headers, tables, lists, and paragraphs.";
+
+/// German system prompt — preserves umlauts and German medical terminology.
+const SYSTEM_PROMPT_DE: &str = "\
+You are a medical document text extractor. The document is likely in German. \
+Extract ALL visible text, preserving structure as Markdown. \
+Preserve German medical terminology, umlauts (ä, ö, ü, ß), \
+and units exactly as written. Output headers, tables, lists, and paragraphs.";
+
+/// English user prompt — default.
+const USER_PROMPT_EN: &str = "\
 Extract all visible text from this document image as structured Markdown. \
 Preserve tables using Markdown table syntax. Preserve headers using # syntax. \
+At the very end, on a new line, write exactly [DOCUMENT] if this is a text document, \
+or [MEDICAL_IMAGE] if this is a medical image (X-ray, CT, MRI, radiograph, dermatology photo).";
+
+/// French user prompt — targets French medical documents.
+const USER_PROMPT_FR: &str = "\
+Extract all visible text from this French medical document as structured Markdown. \
+Preserve tables using Markdown table syntax. Preserve headers using # syntax. \
+Preserve all French accented characters and medical terms exactly as written. \
+At the very end, on a new line, write exactly [DOCUMENT] if this is a text document, \
+or [MEDICAL_IMAGE] if this is a medical image (X-ray, CT, MRI, radiograph, dermatology photo).";
+
+/// German user prompt — targets German medical documents.
+const USER_PROMPT_DE: &str = "\
+Extract all visible text from this German medical document as structured Markdown. \
+Preserve tables using Markdown table syntax. Preserve headers using # syntax. \
+Preserve all German umlauts and medical terms exactly as written. \
 At the very end, on a new line, write exactly [DOCUMENT] if this is a text document, \
 or [MEDICAL_IMAGE] if this is a medical image (X-ray, CT, MRI, radiograph, dermatology photo).";
 
@@ -51,13 +76,47 @@ or [MEDICAL_IMAGE] if this is a medical image (X-ray, CT, MRI, radiograph, derma
 // OllamaVisionOcr
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// Public prompt builders (reusable by any model)
+// ──────────────────────────────────────────────
+
+/// Select the system prompt for the given language code.
+///
+/// Supports "en", "fr", "de". Falls back to English for unknown codes.
+/// Public so other modules (e.g., chat extraction) can reuse prompt routing.
+pub fn build_system_prompt(lang: &str) -> &'static str {
+    match lang {
+        "fr" => SYSTEM_PROMPT_FR,
+        "de" => SYSTEM_PROMPT_DE,
+        _ => SYSTEM_PROMPT_EN,
+    }
+}
+
+/// Select the user prompt for the given language code.
+///
+/// Supports "en", "fr", "de". Falls back to English for unknown codes.
+/// Public so other modules can reuse prompt routing.
+pub fn build_user_prompt(lang: &str) -> &'static str {
+    match lang {
+        "fr" => USER_PROMPT_FR,
+        "de" => USER_PROMPT_DE,
+        _ => USER_PROMPT_EN,
+    }
+}
+
+// ──────────────────────────────────────────────
+// OllamaVisionOcr
+// ──────────────────────────────────────────────
+
 /// Production vision OCR engine backed by Ollama.
 ///
-/// R3: Accepts any `VisionClient` implementation (OllamaClient or mock).
+/// R4: Accepts any `VisionClient` implementation (OllamaClient or mock).
 /// Model name is pre-resolved by the caller (via `ActiveModelResolver`).
+/// Language configures prompt selection (EN/FR/DE).
 pub struct OllamaVisionOcr {
     vision_client: Arc<dyn VisionClient>,
     model_name: String,
+    language: String,
 }
 
 impl OllamaVisionOcr {
@@ -65,13 +124,14 @@ impl OllamaVisionOcr {
         Self {
             vision_client,
             model_name,
+            language: "en".to_string(),
         }
     }
 
-    /// Check if the model is DeepSeek-OCR (uses special prompt).
-    fn is_deepseek_ocr(&self) -> bool {
-        let component = extract_model_component(&self.model_name);
-        component.starts_with("deepseek-ocr")
+    /// Set the language for prompt selection (e.g., "fr", "de", "en").
+    pub fn with_language(mut self, language: &str) -> Self {
+        self.language = language.to_string();
+        self
     }
 }
 
@@ -92,18 +152,18 @@ impl VisionOcrEngine for OllamaVisionOcr {
         let base64_image = base64::engine::general_purpose::STANDARD.encode(image_bytes);
         let images = vec![base64_image];
 
-        // Select prompt based on model — both use /api/chat (Ollama standard for vision)
-        let (prompt, system) = if self.is_deepseek_ocr() {
-            // DeepSeek-OCR: <|grounding|> token in user message, no system prompt
-            (DEEPSEEK_OCR_PROMPT, None)
-        } else {
-            // MedGemma / generic: system prompt + extraction instruction
-            (GENERIC_USER_PROMPT, Some(GENERIC_SYSTEM_PROMPT))
-        };
+        // R4+: Language-aware prompt selection
+        let system_prompt = build_system_prompt(&self.language);
+        let user_prompt = build_user_prompt(&self.language);
 
         let raw_response = self
             .vision_client
-            .chat_with_images(&self.model_name, prompt, &images, system)
+            .chat_with_images(
+                &self.model_name,
+                user_prompt,
+                &images,
+                Some(system_prompt),
+            )
             .map_err(|e| ExtractionError::OcrProcessing(format!("Vision OCR failed: {e}")))?;
 
         // Parse classification tag from response
@@ -212,6 +272,121 @@ fn compute_heuristic_confidence(text: &str) -> f32 {
         + if has_lists { 0.03 } else { 0.0 };
 
     (base + bonus).min(0.95)
+}
+
+// ──────────────────────────────────────────────
+// Medical image interpretation
+// ──────────────────────────────────────────────
+
+/// System prompt for medical image interpretation (MedGemma clinical mode).
+const INTERPRET_SYSTEM_PROMPT: &str = "\
+You are a medical image specialist. Analyze the provided medical image \
+(X-ray, CT, MRI, dermatology photo, pathology slide) and describe your findings. \
+Be thorough but factual. Do NOT provide diagnoses or treatment recommendations — \
+describe anatomical structures and observations only.";
+
+/// User prompt for medical image interpretation.
+const INTERPRET_USER_PROMPT: &str = "\
+Describe what you observe in this medical image. Include:\n\
+- Image modality (X-ray, CT, MRI, dermatology, pathology, etc.)\n\
+- Anatomical region\n\
+- Key observations and findings\n\
+- Any notable abnormalities or normal variants\n\
+Output as structured Markdown.";
+
+/// Production medical image interpreter backed by Ollama.
+///
+/// Uses MedGemma's clinical interpretation capability to describe
+/// medical imagery (X-rays, CT, MRI, dermatology, histopathology).
+pub struct OllamaMedicalImageInterpreter {
+    vision_client: Arc<dyn VisionClient>,
+    model_name: String,
+}
+
+impl OllamaMedicalImageInterpreter {
+    pub fn new(vision_client: Arc<dyn VisionClient>, model_name: String) -> Self {
+        Self {
+            vision_client,
+            model_name,
+        }
+    }
+}
+
+impl MedicalImageInterpreter for OllamaMedicalImageInterpreter {
+    fn interpret_medical_image(
+        &self,
+        image_bytes: &[u8],
+    ) -> Result<MedicalImageResult, ExtractionError> {
+        let _span = tracing::info_span!(
+            "medical_image_interpret",
+            model = %self.model_name,
+            image_size = image_bytes.len(),
+        )
+        .entered();
+        let start = std::time::Instant::now();
+
+        let base64_image = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+        let images = vec![base64_image];
+
+        let raw_response = self
+            .vision_client
+            .chat_with_images(
+                &self.model_name,
+                INTERPRET_USER_PROMPT,
+                &images,
+                Some(INTERPRET_SYSTEM_PROMPT),
+            )
+            .map_err(|e| {
+                ExtractionError::OcrProcessing(format!("Medical image interpretation failed: {e}"))
+            })?;
+
+        let findings = raw_response.trim().to_string();
+        let confidence = compute_heuristic_confidence(&findings);
+
+        tracing::info!(
+            model = %self.model_name,
+            elapsed_ms = %start.elapsed().as_millis(),
+            findings_len = findings.len(),
+            confidence,
+            "Medical image interpretation complete"
+        );
+
+        Ok(MedicalImageResult {
+            findings,
+            model_used: self.model_name.clone(),
+            confidence,
+        })
+    }
+}
+
+/// Mock medical image interpreter for testing.
+pub struct MockMedicalImageInterpreter {
+    findings: String,
+    model_name: String,
+    confidence: f32,
+}
+
+impl MockMedicalImageInterpreter {
+    pub fn new(findings: &str, model_name: &str, confidence: f32) -> Self {
+        Self {
+            findings: findings.to_string(),
+            model_name: model_name.to_string(),
+            confidence,
+        }
+    }
+}
+
+impl MedicalImageInterpreter for MockMedicalImageInterpreter {
+    fn interpret_medical_image(
+        &self,
+        _image_bytes: &[u8],
+    ) -> Result<MedicalImageResult, ExtractionError> {
+        Ok(MedicalImageResult {
+            findings: self.findings.clone(),
+            model_used: self.model_name.clone(),
+            confidence: self.confidence,
+        })
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -366,34 +541,23 @@ mod tests {
     // ── OllamaVisionOcr ──
 
     #[test]
-    fn deepseek_ocr_detection() {
-        let mock = Arc::new(MockVisionClient::new("ok"));
-        let ocr = OllamaVisionOcr::new(mock, "deepseek-ocr:latest".to_string());
-        assert!(ocr.is_deepseek_ocr());
-
-        let mock2 = Arc::new(MockVisionClient::new("ok"));
-        let ocr2 = OllamaVisionOcr::new(mock2, "MedAIBase/MedGemma1.5:4b".to_string());
-        assert!(!ocr2.is_deepseek_ocr());
-    }
-
-    #[test]
     fn extract_with_document_tag() {
         let response = "# Blood Test Results\n\n| Test | Value |\n|------|-------|\n| WBC | 7.2 |\n\n[DOCUMENT]";
         let mock = Arc::new(MockVisionClient::new(response));
-        let ocr = OllamaVisionOcr::new(mock, "deepseek-ocr".to_string());
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
 
         let result = ocr.extract_text_from_image(b"fake-png-data").unwrap();
         assert_eq!(result.content_type, ImageContentType::Document);
         assert!(result.text.contains("Blood Test Results"));
         assert!(!result.text.contains("[DOCUMENT]"));
-        assert_eq!(result.model_used, "deepseek-ocr");
+        assert_eq!(result.model_used, "medgemma:4b");
     }
 
     #[test]
     fn extract_with_medical_image_tag() {
         let response = "Chest X-ray shows bilateral infiltrates\n[MEDICAL_IMAGE]";
         let mock = Arc::new(MockVisionClient::new(response));
-        let ocr = OllamaVisionOcr::new(mock, "deepseek-ocr".to_string());
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
 
         let result = ocr.extract_text_from_image(b"fake-xray-data").unwrap();
         assert_eq!(result.content_type, ImageContentType::MedicalImage);
@@ -403,7 +567,7 @@ mod tests {
     #[test]
     fn extract_empty_response_zero_confidence() {
         let mock = Arc::new(MockVisionClient::new(""));
-        let ocr = OllamaVisionOcr::new(mock, "deepseek-ocr".to_string());
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
 
         let result = ocr.extract_text_from_image(b"blank-page").unwrap();
         assert_eq!(result.confidence, 0.0);
@@ -428,21 +592,76 @@ mod tests {
         assert_eq!(result.content_type, ImageContentType::MedicalImage);
     }
 
-    // ── Prompt selection ──
+    // ── Prompt builders ──
 
     #[test]
-    fn deepseek_prompt_contains_grounding_token() {
-        assert!(DEEPSEEK_OCR_PROMPT.contains("<|grounding|>"));
-        assert!(DEEPSEEK_OCR_PROMPT.contains("[DOCUMENT]"));
-        assert!(DEEPSEEK_OCR_PROMPT.contains("[MEDICAL_IMAGE]"));
+    fn prompt_en_is_default() {
+        assert_eq!(build_system_prompt("en"), SYSTEM_PROMPT_EN);
+        assert_eq!(build_user_prompt("en"), USER_PROMPT_EN);
     }
 
     #[test]
-    fn generic_prompt_has_system_and_user() {
-        assert!(!GENERIC_SYSTEM_PROMPT.is_empty());
-        assert!(!GENERIC_USER_PROMPT.is_empty());
-        assert!(GENERIC_USER_PROMPT.contains("[DOCUMENT]"));
-        assert!(GENERIC_USER_PROMPT.contains("[MEDICAL_IMAGE]"));
+    fn prompt_fr_selected() {
+        assert_eq!(build_system_prompt("fr"), SYSTEM_PROMPT_FR);
+        assert_eq!(build_user_prompt("fr"), USER_PROMPT_FR);
+        assert!(SYSTEM_PROMPT_FR.contains("French"));
+        assert!(USER_PROMPT_FR.contains("French"));
+    }
+
+    #[test]
+    fn prompt_de_selected() {
+        assert_eq!(build_system_prompt("de"), SYSTEM_PROMPT_DE);
+        assert_eq!(build_user_prompt("de"), USER_PROMPT_DE);
+        assert!(SYSTEM_PROMPT_DE.contains("German"));
+        assert!(USER_PROMPT_DE.contains("German"));
+    }
+
+    #[test]
+    fn prompt_unknown_falls_back_to_en() {
+        assert_eq!(build_system_prompt("ja"), SYSTEM_PROMPT_EN);
+        assert_eq!(build_user_prompt("ja"), USER_PROMPT_EN);
+        assert_eq!(build_system_prompt(""), SYSTEM_PROMPT_EN);
+    }
+
+    #[test]
+    fn all_user_prompts_contain_classification_tags() {
+        for lang in &["en", "fr", "de"] {
+            let prompt = build_user_prompt(lang);
+            assert!(prompt.contains("[DOCUMENT]"), "Missing [DOCUMENT] in {lang}");
+            assert!(
+                prompt.contains("[MEDICAL_IMAGE]"),
+                "Missing [MEDICAL_IMAGE] in {lang}"
+            );
+        }
+    }
+
+    #[test]
+    fn fr_system_prompt_mentions_accented_chars() {
+        assert!(SYSTEM_PROMPT_FR.contains("é"));
+        assert!(SYSTEM_PROMPT_FR.contains("ç"));
+    }
+
+    #[test]
+    fn de_system_prompt_mentions_umlauts() {
+        assert!(SYSTEM_PROMPT_DE.contains("ä"));
+        assert!(SYSTEM_PROMPT_DE.contains("ß"));
+    }
+
+    #[test]
+    fn with_language_builder_works() {
+        let mock = Arc::new(MockVisionClient::new("Text\n[DOCUMENT]"));
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string()).with_language("fr");
+        assert_eq!(ocr.language, "fr");
+        // Extraction should succeed (language just affects prompt selection)
+        let result = ocr.extract_text_from_image(b"fake-png").unwrap();
+        assert!(result.text.contains("Text"));
+    }
+
+    #[test]
+    fn default_language_is_en() {
+        let mock = Arc::new(MockVisionClient::new("ok\n[DOCUMENT]"));
+        let ocr = OllamaVisionOcr::new(mock, "test".to_string());
+        assert_eq!(ocr.language, "en");
     }
 
     // ── Error propagation ──
@@ -474,7 +693,7 @@ mod tests {
 
         let ocr = OllamaVisionOcr::new(
             Arc::new(FailingVisionClient),
-            "deepseek-ocr".to_string(),
+            "medgemma:4b".to_string(),
         );
         let result = ocr.extract_text_from_image(b"data");
         assert!(result.is_err());
@@ -520,12 +739,23 @@ mod tests {
         assert!(result.text.contains("Metformin 500mg"));
     }
 
+    // ── OllamaMedicalImageInterpreter ──
+
     #[test]
-    fn deepseek_uses_chat_endpoint() {
-        // DeepSeek-OCR also uses /api/chat (Ollama standard for vision models).
-        // We verify by using a client that fails on generate but succeeds on chat.
-        struct ChatOnlyVisionClient;
-        impl VisionClient for ChatOnlyVisionClient {
+    fn interpreter_returns_findings() {
+        let response = "## Chest X-ray\n\n- Bilateral infiltrates\n- No pneumothorax";
+        let mock = Arc::new(MockVisionClient::new(response));
+        let interp = OllamaMedicalImageInterpreter::new(mock, "medgemma:4b".to_string());
+
+        let result = interp.interpret_medical_image(b"fake-xray").unwrap();
+        assert!(result.findings.contains("Bilateral infiltrates"));
+        assert_eq!(result.model_used, "medgemma:4b");
+    }
+
+    #[test]
+    fn interpreter_error_propagates() {
+        struct FailClient;
+        impl VisionClient for FailClient {
             fn generate_with_images(
                 &self,
                 _model: &str,
@@ -533,10 +763,7 @@ mod tests {
                 _images: &[String],
                 _system: Option<&str>,
             ) -> Result<String, OllamaError> {
-                Err(OllamaError::ApiError {
-                    status: 500,
-                    message: "generate should not be called".into(),
-                })
+                Err(OllamaError::NotReachable)
             }
             fn chat_with_images(
                 &self,
@@ -545,16 +772,33 @@ mod tests {
                 _images: &[String],
                 _system: Option<&str>,
             ) -> Result<String, OllamaError> {
-                Ok("# Lab Results\nWBC 7.2\n[DOCUMENT]".into())
+                Err(OllamaError::NotReachable)
             }
         }
 
-        let ocr = OllamaVisionOcr::new(
-            Arc::new(ChatOnlyVisionClient),
-            "deepseek-ocr:latest".to_string(),
+        let interp =
+            OllamaMedicalImageInterpreter::new(Arc::new(FailClient), "medgemma:4b".to_string());
+        let err = interp.interpret_medical_image(b"data").unwrap_err();
+        assert!(
+            err.to_string().contains("Medical image interpretation failed"),
+            "Error: {err}"
         );
-        let result = ocr.extract_text_from_image(b"fake-scan").unwrap();
-        assert_eq!(result.content_type, ImageContentType::Document);
-        assert!(result.text.contains("WBC 7.2"));
+    }
+
+    #[test]
+    fn interpret_prompt_mentions_modality() {
+        assert!(INTERPRET_USER_PROMPT.contains("modality"));
+        assert!(INTERPRET_SYSTEM_PROMPT.contains("medical image"));
+    }
+
+    // ── MockMedicalImageInterpreter ──
+
+    #[test]
+    fn mock_interpreter_returns_configured() {
+        let mock = MockMedicalImageInterpreter::new("Findings here", "test-model", 0.75);
+        let result = mock.interpret_medical_image(b"image").unwrap();
+        assert_eq!(result.findings, "Findings here");
+        assert_eq!(result.model_used, "test-model");
+        assert!((result.confidence - 0.75).abs() < f32::EPSILON);
     }
 }

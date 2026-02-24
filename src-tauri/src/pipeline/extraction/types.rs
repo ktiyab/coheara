@@ -38,6 +38,11 @@ pub struct PageExtraction {
     pub confidence: f32,
     pub regions: Vec<RegionConfidence>,
     pub warnings: Vec<ExtractionWarning>,
+    /// Content classification from vision model.
+    /// `None` for plain text (no vision model involved).
+    /// `Some(Document)` for text documents, `Some(MedicalImage)` for medical imagery.
+    #[serde(default)]
+    pub content_type: Option<ImageContentType>,
 }
 
 /// Confidence for a specific region of a page
@@ -96,7 +101,7 @@ pub trait PdfPageRenderer: Send + Sync {
 
 /// Classification signal from the vision model's extraction pass.
 ///
-/// DeepSeek-OCR (and MedGemma) are prompted to append a classification tag.
+/// MedGemma is prompted to append a classification tag.
 /// The orchestrator uses this to route medical images to MedGemma interpretation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageContentType {
@@ -111,7 +116,7 @@ pub enum ImageContentType {
 pub struct VisionOcrResult {
     /// Extracted text as structured Markdown.
     pub text: String,
-    /// Which model performed the extraction (e.g., "deepseek-ocr", "medgemma:4b").
+    /// Which model performed the extraction (e.g., "medgemma:4b").
     pub model_used: String,
     /// Heuristic confidence based on text length and structure quality.
     pub confidence: f32,
@@ -134,10 +139,9 @@ pub struct MedicalImageResult {
     pub confidence: f32,
 }
 
-/// R3: Vision OCR engine — extracts TEXT from document images.
+/// R4: Vision OCR engine — extracts TEXT from document images.
 ///
-/// Specialist: DeepSeek-OCR (structured Markdown output).
-/// Fallback: MedGemma (adequate text extraction).
+/// MedGemma vision extraction with structured Markdown output.
 ///
 /// Implementations: `OllamaVisionOcr` (production), `MockVisionOcr` (testing).
 pub trait VisionOcrEngine: Send + Sync {
@@ -152,7 +156,7 @@ pub trait VisionOcrEngine: Send + Sync {
 /// R3: Medical image interpreter — UNDERSTANDS medical imagery.
 ///
 /// MedGemma 1.5 is fine-tuned on X-rays, CT, MRI, dermatology, histopathology.
-/// Used when DeepSeek-OCR yields low text confidence (suggesting the image
+/// Used when vision OCR yields low text confidence (suggesting the image
 /// is a medical image, not a text document).
 ///
 /// The orchestrator routes: if OCR confidence < threshold → MedGemma interpretation.

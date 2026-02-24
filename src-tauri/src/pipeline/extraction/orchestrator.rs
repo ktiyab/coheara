@@ -1,8 +1,8 @@
-//! R3: Simplified document extraction orchestrator.
+//! R4: Document extraction orchestrator.
 //!
-//! Replaces the old Tesseract/pdf-extract pipeline with:
+//! Pipeline:
 //! - pdfium-render for PDF → image conversion
-//! - Vision model (DeepSeek-OCR / MedGemma) for image → structured Markdown
+//! - MedGemma vision model for image → structured Markdown
 //!
 //! All PDFs go through the same path: render pages → vision OCR.
 //! Images go directly to vision OCR.
@@ -13,11 +13,11 @@ use std::path::Path;
 use uuid::Uuid;
 
 use super::confidence::compute_overall_confidence;
-use super::pdfium::DEFAULT_RENDER_DPI;
+use super::preprocess::ImagePreprocessor;
 use super::sanitize::sanitize_extracted_text;
 use super::types::{
-    ExtractionMethod, ExtractionResult, PageExtraction, PdfPageRenderer, TextExtractor,
-    VisionOcrEngine,
+    ExtractionMethod, ExtractionResult, ImageContentType, MedicalImageInterpreter,
+    PageExtraction, PdfPageRenderer, TextExtractor, VisionOcrEngine,
 };
 use super::ExtractionError;
 use crate::crypto::ProfileSession;
@@ -25,31 +25,73 @@ use crate::pipeline::import::format::FileCategory;
 use crate::pipeline::import::staging::read_staged_file;
 use crate::pipeline::import::FormatDetection;
 
-/// R3: Vision-based document extraction orchestrator.
+// ──────────────────────────────────────────────
+// Adaptive DPI selection
+// ──────────────────────────────────────────────
+
+/// DPI for scanned PDFs — higher resolution for dense text, tables, handwriting.
+const SCANNED_PDF_DPI: u32 = 300;
+
+/// DPI for digital PDFs and images — standard resolution, faster inference.
+const STANDARD_DPI: u32 = 200;
+
+/// Select rendering DPI based on document format.
 ///
-/// Two required dependencies (trait objects for DI):
+/// Scanned PDFs get 300 DPI (dense text, tables, small fonts lose detail at 200).
+/// Digital PDFs and images get 200 DPI (already sharp, lower res = faster inference).
+///
+/// Public so other modules can reuse the selection logic.
+pub fn select_render_dpi(format: &FormatDetection) -> u32 {
+    match format.category {
+        FileCategory::ScannedPdf => SCANNED_PDF_DPI,
+        _ => STANDARD_DPI,
+    }
+}
+
+/// R4+: Vision-based document extraction orchestrator.
+///
+/// Three required + one optional dependency (trait objects for DI):
 /// - `pdf_renderer`: Renders PDF pages to PNG images (PdfiumRenderer in prod)
 /// - `vision_ocr`: Extracts text from images via vision model (OllamaVisionOcr in prod)
+/// - `preprocessor`: Prepares images for optimal vision model input (PreprocessingPipeline in prod)
+/// - `interpreter` (optional): Interprets medical images (OllamaMedicalImageInterpreter in prod)
 pub struct DocumentExtractor {
     pdf_renderer: Box<dyn PdfPageRenderer>,
     vision_ocr: Box<dyn VisionOcrEngine>,
+    preprocessor: Box<dyn ImagePreprocessor>,
+    interpreter: Option<Box<dyn MedicalImageInterpreter>>,
 }
 
 impl DocumentExtractor {
     pub fn new(
         pdf_renderer: Box<dyn PdfPageRenderer>,
         vision_ocr: Box<dyn VisionOcrEngine>,
+        preprocessor: Box<dyn ImagePreprocessor>,
     ) -> Self {
         Self {
             pdf_renderer,
             vision_ocr,
+            preprocessor,
+            interpreter: None,
         }
     }
 
-    /// Extract text from a PDF: render each page to image, then vision OCR.
+    /// Set the medical image interpreter for content-type routing.
+    ///
+    /// When set, pages classified as `MedicalImage` by the vision OCR model
+    /// are routed to the interpreter for clinical findings instead of OCR text.
+    pub fn with_interpreter(mut self, interpreter: Box<dyn MedicalImageInterpreter>) -> Self {
+        self.interpreter = Some(interpreter);
+        self
+    }
+
+    /// Extract text from a PDF: render each page, preprocess, then vision OCR.
+    ///
+    /// `dpi` is selected by `select_render_dpi()` based on document format.
     fn extract_pdf(
         &self,
         pdf_bytes: &[u8],
+        dpi: u32,
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
         let num_pages = self.pdf_renderer.page_count(pdf_bytes)?;
 
@@ -62,38 +104,92 @@ impl DocumentExtractor {
         for page_idx in 0..num_pages {
             let page_image = self
                 .pdf_renderer
-                .render_page(pdf_bytes, page_idx, DEFAULT_RENDER_DPI)?;
+                .render_page(pdf_bytes, page_idx, dpi)?;
 
-            let ocr_result = self.vision_ocr.extract_text_from_image(&page_image)?;
+            let prepared = self.preprocessor.preprocess(&page_image)?;
+            let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes)?;
+
+            // Route medical images to interpreter if available
+            let (text, confidence, content_type) =
+                self.route_by_content_type(&prepared.png_bytes, &ocr_result);
 
             pages.push(PageExtraction {
                 page_number: page_idx + 1, // 1-indexed for display
-                text: ocr_result.text,
-                confidence: ocr_result.confidence,
+                text,
+                confidence,
                 regions: vec![],
-                warnings: vec![],
+                warnings: prepared.warnings,
+                content_type: Some(content_type),
             });
         }
 
         Ok((ExtractionMethod::VisionOcr, pages))
     }
 
-    /// Extract text from an image: pass directly to vision OCR.
+    /// Extract text from an image: preprocess, then vision OCR.
     fn extract_image(
         &self,
         image_bytes: &[u8],
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
-        let ocr_result = self.vision_ocr.extract_text_from_image(image_bytes)?;
+        let prepared = self.preprocessor.preprocess(image_bytes)?;
+        let ocr_result = self.vision_ocr.extract_text_from_image(&prepared.png_bytes)?;
+
+        // Route medical images to interpreter if available
+        let (text, confidence, content_type) =
+            self.route_by_content_type(&prepared.png_bytes, &ocr_result);
 
         let page = PageExtraction {
             page_number: 1,
-            text: ocr_result.text,
-            confidence: ocr_result.confidence,
+            text,
+            confidence,
             regions: vec![],
-            warnings: vec![],
+            warnings: prepared.warnings,
+            content_type: Some(content_type),
         };
 
         Ok((ExtractionMethod::VisionOcr, vec![page]))
+    }
+
+    /// Route page based on content type classification.
+    ///
+    /// - Document → return OCR text as-is
+    /// - MedicalImage + interpreter → interpret original image → clinical findings
+    /// - MedicalImage + no interpreter → fallback to OCR text
+    fn route_by_content_type(
+        &self,
+        image_bytes: &[u8],
+        ocr_result: &super::types::VisionOcrResult,
+    ) -> (String, f32, ImageContentType) {
+        if ocr_result.content_type == ImageContentType::MedicalImage {
+            if let Some(ref interpreter) = self.interpreter {
+                match interpreter.interpret_medical_image(image_bytes) {
+                    Ok(findings) => {
+                        tracing::info!(
+                            model = %findings.model_used,
+                            findings_len = findings.findings.len(),
+                            "Medical image interpreted — replacing OCR text with findings"
+                        );
+                        return (
+                            findings.findings,
+                            findings.confidence,
+                            ImageContentType::MedicalImage,
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Medical image interpretation failed — falling back to OCR text"
+                        );
+                        // Fall through to return OCR text
+                    }
+                }
+            }
+        }
+        (
+            ocr_result.text.clone(),
+            ocr_result.confidence,
+            ocr_result.content_type,
+        )
     }
 }
 
@@ -115,10 +211,11 @@ impl TextExtractor for DocumentExtractor {
         let decrypted_bytes = read_staged_file(staged_path, session)?;
 
         // Step 2: Extract based on format category
+        let dpi = select_render_dpi(format);
         let (method, mut pages) = match &format.category {
-            // All PDFs → pdfium render → vision OCR (no Digital/Scanned distinction)
+            // All PDFs → pdfium render → vision OCR (adaptive DPI per format)
             FileCategory::DigitalPdf | FileCategory::ScannedPdf => {
-                self.extract_pdf(&decrypted_bytes)?
+                self.extract_pdf(&decrypted_bytes, dpi)?
             }
             // Images → vision OCR directly
             FileCategory::Image => self.extract_image(&decrypted_bytes)?,
@@ -132,6 +229,7 @@ impl TextExtractor for DocumentExtractor {
                     confidence: 0.99,
                     regions: vec![],
                     warnings: vec![],
+                    content_type: None,
                 };
                 (ExtractionMethod::PlainTextRead, vec![page])
             }
@@ -183,7 +281,11 @@ mod tests {
     use super::*;
     use crate::crypto::profile;
     use crate::pipeline::extraction::pdfium::MockPdfPageRenderer;
-    use crate::pipeline::extraction::vision_ocr::MockVisionOcr;
+    use crate::pipeline::extraction::preprocess::MockImagePreprocessor;
+    use crate::pipeline::extraction::types::ImageContentType;
+    use crate::pipeline::extraction::vision_ocr::{
+        MockMedicalImageInterpreter, MockVisionOcr,
+    };
     use crate::pipeline::import::staging::stage_file;
 
     fn setup() -> (tempfile::TempDir, ProfileSession) {
@@ -230,6 +332,7 @@ mod tests {
             Box::new(
                 MockVisionOcr::new(ocr_text, "mock-vision").with_confidence(confidence),
             ),
+            Box::new(MockImagePreprocessor::new()),
         )
     }
 
@@ -544,5 +647,231 @@ mod tests {
             result.language_detected.is_none(),
             "R3: language_detected should be None (vision models are multilingual)"
         );
+    }
+
+    // ── Adaptive DPI selection ──
+
+    #[test]
+    fn dpi_scanned_pdf_is_300() {
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::ScannedPdf,
+            is_digital_pdf: Some(false),
+            file_size_bytes: 50000,
+        };
+        assert_eq!(select_render_dpi(&format), 300);
+    }
+
+    #[test]
+    fn dpi_digital_pdf_is_200() {
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::DigitalPdf,
+            is_digital_pdf: Some(true),
+            file_size_bytes: 5000,
+        };
+        assert_eq!(select_render_dpi(&format), 200);
+    }
+
+    #[test]
+    fn dpi_image_is_200() {
+        let format = FormatDetection {
+            mime_type: "image/jpeg".into(),
+            category: FileCategory::Image,
+            is_digital_pdf: None,
+            file_size_bytes: 1000,
+        };
+        assert_eq!(select_render_dpi(&format), 200);
+    }
+
+    #[test]
+    fn dpi_plain_text_is_200() {
+        let format = FormatDetection {
+            mime_type: "text/plain".into(),
+            category: FileCategory::PlainText,
+            is_digital_pdf: None,
+            file_size_bytes: 100,
+        };
+        assert_eq!(select_render_dpi(&format), 200);
+    }
+
+    // ── Content-type routing ──
+
+    #[test]
+    fn document_content_type_propagated() {
+        let (_dir, session) = setup();
+
+        let img = image::RgbImage::from_pixel(32, 32, image::Rgb([100u8, 150, 200]));
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("doc.jpg");
+        img.save(&path).unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        // MockVisionOcr defaults to Document content type
+        let extractor = make_extractor(0, "# Lab Report\nContent", 0.85);
+
+        let format = FormatDetection {
+            mime_type: "image/jpeg".into(),
+            category: FileCategory::Image,
+            is_digital_pdf: None,
+            file_size_bytes: 1000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        assert_eq!(
+            result.pages[0].content_type,
+            Some(ImageContentType::Document)
+        );
+    }
+
+    #[test]
+    fn medical_image_with_interpreter_uses_findings() {
+        let (_dir, session) = setup();
+
+        let img = image::RgbImage::from_pixel(32, 32, image::Rgb([50u8, 50, 50]));
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("xray.jpg");
+        img.save(&path).unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        let extractor = DocumentExtractor::new(
+            Box::new(MockPdfPageRenderer::new(0)),
+            Box::new(
+                MockVisionOcr::new("Some OCR text", "mock-vision")
+                    .with_content_type(ImageContentType::MedicalImage)
+                    .with_confidence(0.3),
+            ),
+            Box::new(MockImagePreprocessor::new()),
+        )
+        .with_interpreter(Box::new(MockMedicalImageInterpreter::new(
+            "## Chest X-ray\n\nBilateral infiltrates observed",
+            "medgemma:4b",
+            0.80,
+        )));
+
+        let format = FormatDetection {
+            mime_type: "image/jpeg".into(),
+            category: FileCategory::Image,
+            is_digital_pdf: None,
+            file_size_bytes: 1000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        // Interpreter findings replace OCR text
+        assert!(
+            result.full_text.contains("Bilateral infiltrates"),
+            "Expected findings, got: {}",
+            result.full_text
+        );
+        assert!(
+            !result.full_text.contains("Some OCR text"),
+            "OCR text should be replaced"
+        );
+        assert_eq!(
+            result.pages[0].content_type,
+            Some(ImageContentType::MedicalImage)
+        );
+        // Confidence from interpreter, not OCR
+        assert!((result.pages[0].confidence - 0.80).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn medical_image_without_interpreter_falls_back_to_ocr() {
+        let (_dir, session) = setup();
+
+        let img = image::RgbImage::from_pixel(32, 32, image::Rgb([50u8, 50, 50]));
+        let source_dir = tempfile::tempdir().unwrap();
+        let path = source_dir.path().join("xray.jpg");
+        img.save(&path).unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let staged_path = stage_file(&path, &doc_id, &session).unwrap();
+
+        // No interpreter set — should fall back to OCR text
+        let extractor = DocumentExtractor::new(
+            Box::new(MockPdfPageRenderer::new(0)),
+            Box::new(
+                MockVisionOcr::new("OCR fallback text for X-ray", "mock-vision")
+                    .with_content_type(ImageContentType::MedicalImage)
+                    .with_confidence(0.35),
+            ),
+            Box::new(MockImagePreprocessor::new()),
+        );
+
+        let format = FormatDetection {
+            mime_type: "image/jpeg".into(),
+            category: FileCategory::Image,
+            is_digital_pdf: None,
+            file_size_bytes: 1000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        // Falls back to OCR text
+        assert!(
+            result.full_text.contains("OCR fallback text"),
+            "Expected OCR fallback, got: {}",
+            result.full_text
+        );
+        assert_eq!(
+            result.pages[0].content_type,
+            Some(ImageContentType::MedicalImage)
+        );
+    }
+
+    #[test]
+    fn plain_text_has_no_content_type() {
+        let (_dir, session) = setup();
+        let (doc_id, staged_path) = stage_text_file(&session, "Some medical text");
+
+        let extractor = make_extractor(0, "unused", 0.0);
+
+        let format = FormatDetection {
+            mime_type: "text/plain".into(),
+            category: FileCategory::PlainText,
+            is_digital_pdf: None,
+            file_size_bytes: 100,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        assert_eq!(result.pages[0].content_type, None);
+    }
+
+    #[test]
+    fn pdf_pages_get_content_type() {
+        let (_dir, session) = setup();
+        let (doc_id, staged_path) = stage_bytes_file(&session, "report.pdf", b"fake pdf");
+
+        let extractor = make_extractor(2, "Page text", 0.85);
+
+        let format = FormatDetection {
+            mime_type: "application/pdf".into(),
+            category: FileCategory::DigitalPdf,
+            is_digital_pdf: Some(true),
+            file_size_bytes: 5000,
+        };
+
+        let result = extractor
+            .extract(&doc_id, &staged_path, &format, &session)
+            .unwrap();
+
+        for page in &result.pages {
+            assert_eq!(page.content_type, Some(ImageContentType::Document));
+        }
     }
 }

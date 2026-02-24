@@ -390,12 +390,16 @@ pub async fn process_document(
         let pipeline_config = detect_pipeline_config(&ollama);
 
         // Build the document processor with resolved models + hardware-tiered config
+        let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+        // CPU swap strategy: unload vision model, warm LLM between stages.
+        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
+            && vision_model.name != llm_model.name
+        {
             let swap_vision = vision_model.name.clone();
             let swap_llm = llm_model.name.clone();
             processor.set_between_stages_hook(Box::new(move || {
@@ -573,12 +577,16 @@ pub async fn process_documents_batch(
         let pipeline_config = detect_pipeline_config(&ollama);
 
         // Build processor once for the batch with hardware-tiered config
+        let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+        // CPU swap strategy: unload vision model, warm LLM between stages.
+        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
+            && vision_model.name != llm_model.name
+        {
             let swap_vision = vision_model.name.clone();
             let swap_llm = llm_model.name.clone();
             processor.set_between_stages_hook(Box::new(move || {
@@ -844,12 +852,16 @@ pub async fn reprocess_document(
         // Detect hardware → derive pipeline config (context windows, warm strategy)
         let pipeline_config = detect_pipeline_config(&ollama);
 
+        let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config)
+            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages {
+        // CPU swap strategy: unload vision model, warm LLM between stages.
+        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
+        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
+            && vision_model.name != llm_model.name
+        {
             let swap_vision = vision_model.name.clone();
             let swap_llm = llm_model.name.clone();
             processor.set_between_stages_hook(Box::new(move || {

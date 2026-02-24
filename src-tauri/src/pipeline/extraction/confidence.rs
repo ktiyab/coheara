@@ -130,6 +130,7 @@ mod tests {
             confidence,
             regions: vec![],
             warnings: vec![],
+            content_type: None,
         }
     }
 
@@ -203,6 +204,7 @@ mod tests {
                 confidence: 0.85,
                 regions: vec![],
                 warnings: vec![],
+                content_type: None,
             },
             PageExtraction {
                 page_number: 2,
@@ -210,6 +212,7 @@ mod tests {
                 confidence: 0.30,
                 regions: vec![],
                 warnings: vec![],
+                content_type: None,
             },
         ];
         let conf = compute_overall_confidence(&pages, &ExtractionMethod::TesseractOcr);
@@ -294,6 +297,7 @@ mod tests {
                 },
             ],
             warnings: vec![],
+            content_type: None,
         };
         let flagged = flag_low_confidence_regions(&page, thresholds::MODERATE);
         assert_eq!(flagged.len(), 2); // 0.40 and 0.65 are below 0.70

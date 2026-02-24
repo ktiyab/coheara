@@ -38,6 +38,8 @@ img_hash = "3"
 tauri-plugin-dialog = "2"
 # Explicit image v0.23 dep to enable format decoders for img_hash's re-export
 image = { version = "0.23", default-features = false, features = ["jpeg", "png", "tiff"] }
+# R4+: EXIF orientation reading for phone photos (pure Rust, no system deps)
+kamadak-exif = "0.5"
 # R3: PDF page rendering via Google PDFium — renders any PDF page to PNG for vision OCR.
 # default-features=false avoids image_latest (0.25) conflicting with our image 0.23 pin.
 # pdfium_latest provides pre-generated FFI bindings (no libclang needed).
