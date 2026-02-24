@@ -81,3 +81,12 @@ strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# ── Dev build optimization ──────────────────────────────────────────────────
+# Reduces compile + link time by skipping full debug info for dependencies.
+# Backtraces still work (line-tables-only preserves file:line info).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

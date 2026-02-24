@@ -11,6 +11,15 @@ TAURI_DIR="$PROJECT_ROOT/src-tauri"
 ANDROID_DIR="$MOBILE_DIR/android"
 
 CARGO="${CARGO:-/root/.cargo/bin/cargo}"
+if [[ ! -x "$CARGO" ]]; then
+    if command -v cargo >/dev/null 2>&1; then
+        CARGO="cargo"
+    elif [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+        CARGO="$HOME/.cargo/bin/cargo"
+    else
+        CARGO=""
+    fi
+fi
 
 # Ensure cargo's directory is in PATH (needed by tools like npx tauri build)
 CARGO_DIR="$(dirname "$CARGO")"

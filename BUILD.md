@@ -63,15 +63,11 @@ sudo apt-get install -y \
     patchelf \
     libsoup-3.0-dev \
     libjavascriptcoregtk-4.1-dev \
-    tesseract-ocr \
-    libtesseract-dev \
-    libleptonica-dev \
-    libclang-dev \
     libssl-dev \
     unzip
 ```
 
-> `perl` and `libssl-dev` are needed by the `openssl-sys` Rust crate to configure and compile OpenSSL. `unzip` is needed by the Android SDK manager. All three may already be installed on your system.
+> `perl` and `libssl-dev` are needed by the `openssl-sys` Rust crate (used by SQLCipher via `bundled-sqlcipher-vendored-openssl`). `unzip` is needed by the Android SDK manager. All three may already be installed on your system. PDFium (for PDF rendering) is downloaded automatically by `dev.sh` and `build.sh` — no system package needed.
 
 ### 3. Android SDK (for APK builds)
 
@@ -129,7 +125,7 @@ Verify: `java -version` should show version 21+.
 
 ```bash
 xcode-select --install
-brew install tesseract leptonica pkg-config
+brew install pkg-config
 ```
 
 You also need the **Android SDK** and **JDK 21** (see sections 3 and 4 above). The desktop build bundles an APK, so macOS builders need the same Android toolchain as Linux. Use [Android Studio](https://developer.android.com/studio) for the SDK, and:
@@ -148,10 +144,6 @@ For Windows installers, build natively on Windows (not WSL2):
 4. **Perl** (`winget install StrawberryPerl.StrawberryPerl`) — required by `openssl-sys` to configure OpenSSL during Rust compilation
 5. **JDK 21** (`winget install EclipseAdoptium.Temurin.21.JDK`)
 6. **Android SDK** via [Android Studio](https://developer.android.com/studio) — install Platform 36, Build-Tools 36.0.0, Platform-Tools
-7. **Tesseract** via vcpkg:
-   ```powershell
-   vcpkg install tesseract:x64-windows-static-md
-   ```
 
 Then build:
 
@@ -161,7 +153,7 @@ Then build:
 
 > WSL2 produces Linux packages (`.deb`, `.AppImage`), not Windows ones. Use `build.ps1` on native Windows for `.msi` and `.exe` installers.
 >
-> **Lighter setup**: Items 5-6 (JDK, Android SDK) are only needed if you build mobile from scratch. If you first run `./build.sh desktop` on WSL2, the pre-staged mobile artifacts are auto-detected and items 5-6 can be skipped. Item 7 (Tesseract) is still required — the desktop Rust build links against it for OCR. See [Skipping the mobile build](#skipping-the-mobile-build---skip-mobile).
+> **Lighter setup**: Items 5-6 (JDK, Android SDK) are only needed if you build mobile from scratch. If you first run `./build.sh desktop` on WSL2, the pre-staged mobile artifacts are auto-detected and items 5-6 can be skipped. PDFium (for PDF rendering) is downloaded automatically by the build scripts — no vcpkg or system package needed. See [Skipping the mobile build](#skipping-the-mobile-build---skip-mobile).
 
 ---
 
@@ -178,7 +170,7 @@ For day-to-day development, use the dev scripts instead of the build pipeline. N
 | `./dev.sh` | Full stack: Svelte HMR + Rust backend | Frontend <1s, Rust ~10-30s |
 | `./dev.sh frontend` | Frontend only (no Rust compilation) | <1s (HMR) |
 | `./dev.sh check` | Type-check Svelte + Rust (parallel) | ~25s |
-| `./dev.sh test` | Run all tests (Vitest + cargo test) | ~3 min |
+| `./dev.sh test` | Run all tests (Vitest + cargo nextest) | ~2-3 min |
 | `./dev.sh test:watch` | Watch mode for frontend tests | Instant re-run on save |
 
 **Windows:**
@@ -188,7 +180,7 @@ For day-to-day development, use the dev scripts instead of the build pipeline. N
 | `.\dev.ps1` | Full stack: Svelte HMR + Rust backend | Frontend <1s, Rust ~10-30s |
 | `.\dev.ps1 frontend` | Frontend only (no Rust compilation) | <1s (HMR) |
 | `.\dev.ps1 check` | Type-check Svelte + Rust | ~25s |
-| `.\dev.ps1 test` | Run all tests (Vitest + cargo test) | ~3 min |
+| `.\dev.ps1 test` | Run all tests (Vitest + cargo test) | ~2-3 min |
 | `.\dev.ps1 test:watch` | Watch mode for frontend tests | Instant re-run on save |
 
 ### Choosing the right mode
@@ -199,7 +191,7 @@ For day-to-day development, use the dev scripts instead of the build pipeline. N
 | Frontend + Rust IPC commands | `./dev.sh` (full) | Need the backend for `invoke()` calls |
 | Rust logic only | `cargo check` + `cargo test` | Skip frontend entirely |
 | Quick sanity check before commit | `./dev.sh check` | Catches type errors in both layers |
-| Pre-push validation | `./dev.sh test` | Runs all 1,597 tests |
+| Pre-push validation | `./dev.sh test` | Runs all ~1,750 tests (auto-uses nextest if installed) |
 
 ### First-time dev setup
 
@@ -210,6 +202,260 @@ cd coheara
 ```
 
 The dev scripts auto-detect missing `node_modules` and i18n generated files and bootstrap them before starting.
+
+### WSL2 build performance (recommended)
+
+If your source code lives on the Windows filesystem (`/mnt/c/...`) and you build from WSL2, cargo builds are slow. This section explains why, what to do about it, and the security implications.
+
+#### The problem
+
+WSL2 runs a real Linux kernel inside a lightweight VM. When it accesses files on the Windows filesystem (`/mnt/c/`), it uses the **9P protocol bridge** — a translation layer between the Linux VM and the Windows host. This bridge adds significant overhead to every file I/O operation:
+
+- **Small file I/O is 10-50x slower** than native Linux ext4 ([Microsoft WSL docs](https://learn.microsoft.com/en-us/windows/wsl/filesystems))
+- **Cargo builds generate thousands of small files** in `target/` (`.rlib`, `.rmeta`, `.d`, `.fingerprint` files for each crate)
+- **Windows Defender scans every file access** on `/mnt/c/` from the Windows side, adding 40-70% overhead ([Cargo #5028](https://github.com/rust-lang/cargo/issues/5028))
+- **The default GNU linker is single-threaded**, wasting available CPU cores during the link step
+
+The result: a full Rust build that takes ~3 minutes on native Linux can take 10+ minutes through 9P. Incremental builds suffer proportionally.
+
+Microsoft's official guidance is explicit:
+
+> *"We recommend against working across operating systems with your files, unless you have a specific reason for doing so. For the fastest performance speed, store your files in the WSL file system if you are working in a Linux command line."*
+> — [Working across file systems | Microsoft Learn](https://learn.microsoft.com/en-us/windows/wsl/filesystems)
+
+#### Quick setup (automated)
+
+```bash
+./setup-wsl-build.sh          # Idempotent — safe to re-run on fresh or existing installs
+./setup-wsl-build.sh --check  # Dry run — show current state only, change nothing
+```
+
+The script detects what's already configured and skips those steps. It never performs destructive actions (won't delete your existing `target/` directory — only advises you to do so manually).
+
+After running, reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+#### What the setup script configures
+
+The script applies five optimizations, in order of impact:
+
+**1. `CARGO_TARGET_DIR` on native Linux filesystem (highest impact)**
+
+Moves all Cargo build artifacts from the slow Windows filesystem to native Linux ext4:
+
+```
+Before: /mnt/c/.../src-tauri/target/  → every file I/O goes through 9P bridge
+After:  ~/cargo-targets/              → native ext4, no bridge overhead
+```
+
+What it does:
+- Adds `export CARGO_TARGET_DIR="$HOME/cargo-targets"` to `~/.bashrc`
+- Creates the `~/cargo-targets/` directory
+- Source code stays on `/mnt/c/` (still accessible from Windows editors like VS Code, Cursor, etc.)
+
+This is the single biggest improvement. Cargo's own error messages recommend this exact approach ([Cargo #12650](https://github.com/rust-lang/cargo/issues/12650)):
+
+> *"The entire build directory can be changed to a different filesystem by setting the environment variable CARGO_TARGET_DIR to a different path"*
+
+**2. `mold` linker + `clang` (medium impact)**
+
+Replaces the single-threaded GNU `ld` linker with `mold`, a modern multi-threaded linker:
+
+```
+Before: GNU ld — single-threaded, link step takes seconds
+After:  mold — multi-threaded, link step drops to sub-second
+```
+
+What it does:
+- Installs `mold` and `clang` via `sudo apt install` (if not already present)
+- Configures `~/.cargo/config.toml` with:
+  ```toml
+  [target.x86_64-unknown-linux-gnu]
+  linker = "clang"
+  rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+  ```
+
+`mold` is [listed in the official Cargo Book](https://doc.rust-lang.org/stable/cargo/guide/build-performance.html) as a recommended alternative linker. It has 16k+ GitHub stars, 63+ releases, and produces standard ELF binaries — it's a drop-in replacement that only affects the link step, not compilation output.
+
+`clang` is used as the linker driver because GCC versions before 12.1.0 don't recognize `-fuse-ld=mold` directly. This configuration is global (`~/.cargo/config.toml`) and applies to all Rust projects.
+
+**3. `cargo-nextest` — parallel test runner (medium impact)**
+
+Replaces `cargo test` (which runs tests serially within each binary) with `cargo-nextest` (which runs each test in a separate process, in parallel):
+
+```
+Before: cargo test — tests run serially within each binary
+After:  cargo nextest run — each test runs in its own process, across all CPU cores
+```
+
+What it does:
+- Installs `cargo-nextest` via `cargo install` (if not already present)
+- `dev.sh test` auto-detects nextest and uses it when available (falls back to `cargo test` if not)
+
+With ~1,750 tests and 16 CPU threads, this provides significant speedup. [nextest](https://nexte.st/) is widely adopted in the Rust ecosystem.
+
+**Limitation**: nextest does not support doctests. `dev.sh test` runs doctests separately via `cargo test --doc` after the main test suite.
+
+**4. Dev profile debug info reduction (low-medium impact)**
+
+Reduces debug information compiled for dependencies:
+
+```toml
+# Added to src-tauri/Cargo.toml
+[profile.dev]
+debug = "line-tables-only"        # Your crate: minimal debug info (backtraces still work)
+
+[profile.dev.package."*"]
+debug = false                      # Dependencies: no debug info at all
+```
+
+This is [recommended by the Cargo Book](https://doc.rust-lang.org/stable/cargo/guide/build-performance.html) for projects with many dependencies. Backtraces still show file names and line numbers — you only lose variable inspection in a debugger for dependency code.
+
+**5. Windows Defender exclusion (high impact, manual step)**
+
+The script cannot configure Defender from WSL — it prints the exact PowerShell command to run manually in an **elevated PowerShell** on Windows:
+
+```powershell
+Add-MpPreference -ExclusionPath "\\wsl.localhost\Ubuntu-24.04\root\cargo-targets"
+```
+
+The script auto-detects your WSL distro name to generate the correct path.
+
+See [Security considerations](#wsl2-performance-security-considerations) below for why this is safe.
+
+#### Expected performance improvement
+
+| Metric | Before (9P) | After (ext4 + mold) |
+|--------|-------------|---------------------|
+| Full build (cold) | ~10 min | ~3 min |
+| Incremental check (no changes) | ~30-60s | ~11s |
+| Incremental check (1 file changed) | ~60-90s | ~15-20s |
+| Full test suite (~1,750 tests) | ~5 min | ~2 min (nextest) |
+
+The first build after setup is a full rebuild (new target directory has no cache). Subsequent builds use incremental compilation.
+
+#### Manual setup (alternative to the script)
+
+If you prefer to configure each step manually instead of running the script:
+
+**Step 1: CARGO_TARGET_DIR**
+
+```bash
+# Add to ~/.bashrc
+echo 'export CARGO_TARGET_DIR="$HOME/cargo-targets"' >> ~/.bashrc
+mkdir -p ~/cargo-targets
+source ~/.bashrc
+```
+
+**Step 2: mold + clang**
+
+```bash
+sudo apt install mold clang
+```
+
+Create or edit `~/.cargo/config.toml`:
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+**Step 3: cargo-nextest**
+
+```bash
+cargo install cargo-nextest
+```
+
+Then use `cargo nextest run` instead of `cargo test` (or let `dev.sh test` auto-detect it).
+
+**Step 4: Dev profile** — add to `src-tauri/Cargo.toml`:
+
+```toml
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+```
+
+**Step 5: Defender exclusion** — in elevated PowerShell:
+
+```powershell
+Add-MpPreference -ExclusionPath "\\wsl.localhost\<YOUR-DISTRO>\root\cargo-targets"
+```
+
+Replace `<YOUR-DISTRO>` with your WSL distro name (find it with `wsl -l` in PowerShell).
+
+#### Why not `sccache`?
+
+We evaluated [`sccache`](https://github.com/mozilla/sccache) (Mozilla's compilation cache) and decided against it for local development. From [sccache's own documentation](https://github.com/mozilla/sccache/blob/main/docs/Rust.md):
+
+> *"Incrementally compiled crates cannot be cached."*
+
+sccache requires `CARGO_INCREMENTAL=0` (full recompilation every time). For iterative development (edit one file, rebuild), **incremental compilation is faster** than cache lookups + full recompilation. sccache is better suited for CI pipelines or frequent branch switching — not the edit-compile-test loop.
+
+#### Profiling your build
+
+After setup, you can profile where build time is spent:
+
+```bash
+cargo build --manifest-path src-tauri/Cargo.toml --timings
+```
+
+This generates an HTML report (`cargo-timing-*.html`) showing:
+- Which crates are slowest to compile
+- Where parallelism is bottlenecked
+- Which crates block others in the dependency graph
+
+Useful for identifying heavy proc-macro dependencies you might be able to feature-gate.
+
+#### WSL2 performance security considerations
+
+The only security-relevant step is the Windows Defender exclusion. Here's the analysis:
+
+| Approach | What's excluded | Risk | Verdict |
+|----------|----------------|------|---------|
+| `ExclusionPath "$env:USERPROFILE"` | Your entire Windows home folder | Downloads, browser cache, email attachments go unscanned | **Reject — too broad** |
+| `ExclusionProcess "vmmem.exe"` | All WSL2 VM file operations | Low real-world risk (WSL2 files already on virtual disk) | Acceptable but broad |
+| `ExclusionPath "\\wsl$"` | All WSL2 filesystem access | Excludes everything in all distros | Acceptable but broad |
+| `ExclusionPath "...\\root\\cargo-targets"` | Only Cargo build artifacts | Deterministic compiler output only | **Recommended — narrowest scope** |
+
+**Why the targeted exclusion is safe:**
+
+1. **Build artifacts are deterministic** — they're compiler output regenerated from source on every build. Even if a malicious file appeared in the directory, it would be overwritten on the next compile.
+2. **Source code remains scanned** — your `.rs` files on `/mnt/c/` are still covered by Defender's real-time protection.
+3. **No user data is excluded** — the exclusion covers only `~/cargo-targets/`, not your home directory, downloads, or any personal files.
+4. **Cargo registry remains scanned** — downloaded crate source code in `~/.cargo/registry/` is not excluded.
+
+**What we do NOT exclude:**
+- Your home directory (`~` or `$env:USERPROFILE`)
+- Source code directories (`/mnt/c/.../Coheara/`)
+- The Cargo registry (`~/.cargo/registry/`)
+- The WSL2 root filesystem
+
+**Verification**: You can check current Defender exclusions in PowerShell:
+
+```powershell
+Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
+```
+
+To remove the exclusion later:
+
+```powershell
+Remove-MpPreference -ExclusionPath "\\wsl.localhost\Ubuntu-24.04\root\cargo-targets"
+```
+
+**Sources:**
+- [Microsoft: Working across file systems](https://learn.microsoft.com/en-us/windows/wsl/filesystems) — official WSL2 performance guidance
+- [Microsoft: Configure Defender exclusions](https://learn.microsoft.com/en-us/defender-endpoint/configure-exclusions-microsoft-defender-antivirus) — exclusion best practices
+- [Cargo Book: Build Performance](https://doc.rust-lang.org/stable/cargo/guide/build-performance.html) — official mold and debug info recommendations
+- [Cargo #12650](https://github.com/rust-lang/cargo/issues/12650) — `CARGO_TARGET_DIR` for WSL2 mounted folders
+- [Cargo #5028](https://github.com/rust-lang/cargo/issues/5028) — 40-70% Defender overhead measurements
+- [WSL #8995](https://github.com/microsoft/WSL/issues/8995) — Defender WSL2 performance impact reports
 
 ---
 
@@ -509,6 +755,7 @@ coheara/
 ├── audit.sh                      # Security audit — Linux/macOS (committed)
 ├── audit.ps1                     # Security audit — Windows (committed)
 ├── setup-keys.sh                 # Key generator (committed)
+├── setup-wsl-build.sh            # WSL2 build perf setup (committed)
 ├── BUILD.md                      # This file (committed)
 ├── AUDIT.txt                     # Vulnerability report (git-ignored, generated)
 ├── package/                      # Build output (git-ignored)
@@ -633,8 +880,7 @@ If you see errors about missing packages during the Rust build:
 sudo apt-get install -y build-essential pkg-config perl \
     libgtk-3-dev libwebkit2gtk-4.1-dev \
     libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev \
-    libjavascriptcoregtk-4.1-dev tesseract-ocr libtesseract-dev \
-    libleptonica-dev libclang-dev libssl-dev unzip
+    libjavascriptcoregtk-4.1-dev libssl-dev unzip
 ```
 
 ### Build seems stuck
@@ -660,14 +906,18 @@ If a build gets into a bad state:
 
 `build.sh clean` does **NOT** remove:
 - `node_modules/` — npm dependency caches (saves ~8 min on reinstall)
-- `src-tauri/target/` — Rust compilation cache (saves ~7 min on recompile)
+- `src-tauri/target/` or `~/cargo-targets/` — Rust compilation cache (saves ~7 min on recompile)
 
 For a full clean slate:
 
 ```bash
 ./build.sh clean
-rm -rf node_modules mobile/node_modules src-tauri/target
+rm -rf node_modules mobile/node_modules
+# Remove Rust cache (location depends on setup):
+rm -rf "${CARGO_TARGET_DIR:-src-tauri/target}"
 ./build.sh desktop --no-sign
 ```
 
 This forces everything to rebuild from scratch (~30 minutes).
+
+> **WSL2 note**: If you ran `setup-wsl-build.sh`, the Rust target directory is at `~/cargo-targets`, not `src-tauri/target/`. You can safely delete the old `src-tauri/target/` to reclaim disk space on the Windows filesystem.

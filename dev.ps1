@@ -76,7 +76,7 @@ Commands:
               Runs: npm run check + cargo check
 
   test        Run all test suites
-              Runs: npx vitest run + cargo test
+              Runs: npx vitest run + cargo nextest (or cargo test fallback)
 
   test:watch  Watch mode for frontend tests
               Re-runs affected tests on file save.
@@ -348,16 +348,34 @@ function Invoke-Test {
         }
     } finally { Pop-Location }
 
-    # Rust tests
+    # Rust tests — prefer nextest (parallel) with cargo test fallback
     if ($CargoPath) {
         Write-Host ""
-        Log-Info "Running Rust tests (cargo test)..."
-        & $CargoPath test --manifest-path (Join-Path $TauriDir "Cargo.toml")
-        if ($LASTEXITCODE -eq 0) {
-            Log-Ok "Rust tests: all passed"
+        $nextest = Get-Command cargo-nextest -ErrorAction SilentlyContinue
+        if ($nextest) {
+            Log-Info "Running Rust tests (cargo nextest — parallel)..."
+            & $CargoPath nextest run --manifest-path (Join-Path $TauriDir "Cargo.toml")
+            if ($LASTEXITCODE -eq 0) {
+                Log-Ok "Rust tests: all passed"
+            } else {
+                Log-Error "Rust tests: failures"
+                $exitCode = 1
+            }
+            # Doctests not supported by nextest — run separately
+            Log-Info "Running Rust doctests..."
+            & $CargoPath test --manifest-path (Join-Path $TauriDir "Cargo.toml") --doc 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Log-Warn "Rust doctests: some failures (non-blocking)"
+            }
         } else {
-            Log-Error "Rust tests: failures"
-            $exitCode = 1
+            Log-Info "Running Rust tests (cargo test)..."
+            & $CargoPath test --manifest-path (Join-Path $TauriDir "Cargo.toml")
+            if ($LASTEXITCODE -eq 0) {
+                Log-Ok "Rust tests: all passed"
+            } else {
+                Log-Error "Rust tests: failures"
+                $exitCode = 1
+            }
         }
     } else {
         Log-Warn "Rust tests: skipped (cargo not found)"

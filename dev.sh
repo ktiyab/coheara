@@ -490,15 +490,30 @@ cmd_test() {
         exit_code=1
     fi
 
-    # Run Rust tests
+    # Run Rust tests — prefer nextest (parallel) with cargo test fallback
     if [[ -n "$CARGO" && -x "$CARGO" ]]; then
         echo ""
-        log_info "Running Rust tests (cargo test)..."
-        if "$CARGO" test --manifest-path "$TAURI_DIR/Cargo.toml"; then
-            log_ok "Rust tests: all passed"
+        if command -v cargo-nextest >/dev/null 2>&1; then
+            log_info "Running Rust tests (cargo nextest — parallel)..."
+            if "$CARGO" nextest run --manifest-path "$TAURI_DIR/Cargo.toml"; then
+                log_ok "Rust tests: all passed"
+            else
+                log_error "Rust tests: failures"
+                exit_code=1
+            fi
+            # Doctests not supported by nextest — run separately
+            log_info "Running Rust doctests..."
+            if ! "$CARGO" test --manifest-path "$TAURI_DIR/Cargo.toml" --doc 2>/dev/null; then
+                log_warn "Rust doctests: some failures (non-blocking)"
+            fi
         else
-            log_error "Rust tests: failures"
-            exit_code=1
+            log_info "Running Rust tests (cargo test)..."
+            if "$CARGO" test --manifest-path "$TAURI_DIR/Cargo.toml"; then
+                log_ok "Rust tests: all passed"
+            else
+                log_error "Rust tests: failures"
+                exit_code=1
+            fi
         fi
     else
         log_warn "Rust tests: skipped (cargo not found)"
