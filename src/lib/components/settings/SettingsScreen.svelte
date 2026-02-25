@@ -18,6 +18,7 @@
     ClipboardIcon, PlayIcon, SettingsIcon,
   } from '$lib/components/icons/md';
   import { Toggle, Select } from 'flowbite-svelte';
+  import { SETTINGS_HUES, colorfulStyle } from '$lib/theme/colorful-mappings';
   import type { Component } from 'svelte';
 
   const APP_VERSION = '0.2.0';
@@ -102,9 +103,9 @@
 
     <!-- ═══ Section: AI & Profile ═══ -->
     <section>
-      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div style={theme.isColorful ? colorfulStyle(SETTINGS_HUES[0]) : undefined} class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
         <button class={rowBtn} onclick={() => navigation.navigate('ai-settings')}>
-          <BrainIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <BrainIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_ai_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_ai_description')}</p>
@@ -114,30 +115,30 @@
           {:else}
             <span class="text-xs text-[var(--color-warning-800)] flex-shrink-0">{$t('settings.ai_not_configured')}</span>
           {/if}
-          <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-10 h-10 text-[var(--color-success)] flex-shrink-0" />
         </button>
 
         <button class={rowBtn} onclick={() => navigation.navigate('profiles')}>
-          <GroupIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <GroupIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_switch_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_switch_description')}</p>
           </div>
-          <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-10 h-10 text-[var(--color-success)] flex-shrink-0" />
         </button>
       </div>
     </section>
 
     <!-- ═══ Section: Preferences ═══ -->
     <section>
-      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div style={theme.isColorful ? colorfulStyle(SETTINGS_HUES[1]) : undefined} class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
         <!-- Language — inline pills -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button
             class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
             onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
           >
-            <GlobeIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <GlobeIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
             <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.language_label')}</span>
           </button>
           <div class="flex-1 flex justify-end">
@@ -151,7 +152,7 @@
             class="flex items-center gap-4 flex-shrink-0 text-left cursor-pointer"
             onclick={(e) => { const rg = (e.currentTarget as HTMLElement).closest('div')?.querySelector('[role=radiogroup] button'); if (rg instanceof HTMLElement) rg.focus(); }}
           >
-            <PaletteIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <PaletteIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
             <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.theme_heading')}</span>
           </button>
           <div class="flex-1 flex justify-end">
@@ -178,27 +179,27 @@
         <!-- Sound — toggle only (UA02-08) -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleSound}>
-            <VolumeIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <VolumeIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
             <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.sound_heading')}</span>
           </button>
-          <Toggle checked={soundEnabled} color="primary" onchange={toggleSound} aria-label={$t('settings.sound_enabled')} />
+          <Toggle checked={soundEnabled} color={theme.isColorful ? 'violet' : 'green'} onchange={toggleSound} aria-label={$t('settings.sound_enabled')} />
         </div>
       </div>
     </section>
 
     <!-- ═══ Section: Extraction (LP-01) ═══ -->
     <section>
-      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div style={theme.isColorful ? colorfulStyle(SETTINGS_HUES[2]) : undefined} class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
         <!-- Enable extraction — toggle -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
           <button class="flex items-center gap-4 flex-1 text-left cursor-pointer" onclick={toggleExtraction}>
-            <ClipboardIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+            <ClipboardIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_enabled')}</span>
               <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.extraction_enabled_desc')}</p>
             </div>
           </button>
-          <Toggle checked={extractionEnabled} color="primary" onchange={toggleExtraction} aria-label={$t('settings.extraction_enabled')} />
+          <Toggle checked={extractionEnabled} color={theme.isColorful ? 'orange' : 'green'} onchange={toggleExtraction} aria-label={$t('settings.extraction_enabled')} />
         </div>
 
         <!-- Batch hour — dropdown -->
@@ -220,7 +221,7 @@
 
         <!-- Manual trigger — action button -->
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
-          <PlayIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <PlayIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.extraction_run_now')}</p>
             {#if batchResult}
@@ -230,7 +231,7 @@
             {/if}
           </div>
           <button
-            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-primary)] text-white
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-success)] text-white
                    hover:opacity-90 transition-opacity disabled:opacity-50"
             onclick={runBatchNow}
             disabled={batchRunning}
@@ -248,7 +249,7 @@
               </span>
             </div>
             <button
-              class="text-xs text-[var(--color-primary)] font-medium hover:underline"
+              class="text-xs text-[var(--color-success)] font-medium hover:underline"
               onclick={() => navigation.navigate('home')}
             >
               {$t('settings.extraction_view')}
@@ -260,32 +261,32 @@
 
     <!-- ═══ Section: Privacy & Devices ═══ -->
     <section>
-      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
+      <div style={theme.isColorful ? colorfulStyle(SETTINGS_HUES[3]) : undefined} class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
         <button class={rowBtn} onclick={() => navigation.navigate('privacy')}>
-          <LockIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <LockIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_privacy_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_privacy_description')}</p>
           </div>
-          <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-10 h-10 text-[var(--color-success)] flex-shrink-0" />
         </button>
 
         <button class={rowBtn} onclick={() => navigation.navigate('companion')}>
-          <PhoneIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <PhoneIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_devices_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_devices_description')}</p>
           </div>
-          <ChevronRightIcon class="w-5 h-5 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+          <ChevronRightIcon class="w-10 h-10 text-[var(--color-success)] flex-shrink-0" />
         </button>
       </div>
     </section>
 
     <!-- ═══ Section: About ═══ -->
     <section>
-      <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm">
+      <div style={theme.isColorful ? colorfulStyle(SETTINGS_HUES[4]) : undefined} class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm">
         <div class="flex items-center gap-4 px-4 py-3 min-h-[52px]">
-          <InfoIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 flex-shrink-0" />
+          <InfoIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_about_title')}</p>
             <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>

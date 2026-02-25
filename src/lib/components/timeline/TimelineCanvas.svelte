@@ -86,7 +86,7 @@
 
 <div class="flex h-full">
   <!-- Fixed lane labels -->
-  <div class="flex-shrink-0 w-24 bg-white dark:bg-gray-900 border-r border-stone-200 dark:border-gray-700 z-10">
+  <div class="flex-shrink-0 w-40 bg-stone-50 dark:bg-gray-950 z-10">
     <div style="height: {HEADER_HEIGHT}px" class="border-b border-stone-100 dark:border-gray-800"></div>
     {#each LANE_LABELS as label, i}
       <div
@@ -139,12 +139,12 @@
           <line
             x1={tick.x} y1={HEADER_HEIGHT - 4}
             x2={tick.x} y2={HEADER_HEIGHT}
-            stroke="#D6D3D1" stroke-width="1"
+            class="grid-tick" stroke-width="0.5"
           />
           <line
             x1={tick.x} y1={HEADER_HEIGHT}
             x2={tick.x} y2={CANVAS_HEIGHT}
-            stroke="#F5F5F4" stroke-width="1"
+            class="grid-line" stroke-width="0.5"
           />
           <text
             x={tick.x} y={HEADER_HEIGHT - 8}
@@ -163,7 +163,7 @@
           y1={HEADER_HEIGHT + PADDING_Y + laneIdx * (LANE_HEIGHT + LANE_GAP)}
           x2={canvasWidth}
           y2={HEADER_HEIGHT + PADDING_Y + laneIdx * (LANE_HEIGHT + LANE_GAP)}
-          stroke="#F5F5F4" stroke-width="1"
+          class="grid-line" stroke-width="0.5"
         />
       {/each}
 
@@ -252,3 +252,18 @@
     </svg>
   </div>
 </div>
+
+<style>
+  .grid-line {
+    stroke: #00000020;
+  }
+  .grid-tick {
+    stroke: #00000040;
+  }
+  :global(.dark) .grid-line {
+    stroke: #ffffff20;
+  }
+  :global(.dark) .grid-tick {
+    stroke: #ffffff40;
+  }
+</style>

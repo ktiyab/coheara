@@ -101,7 +101,7 @@
 {:else}
   <div class="flex flex-col h-screen bg-stone-50 dark:bg-gray-950">
     <!-- Header -->
-    <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
+    <header class="flex items-center gap-3 px-4 py-3 bg-stone-50 dark:bg-gray-950 shrink-0">
       <BackButton />
       <div class="flex-1 min-w-0">
         <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100 truncate">
@@ -132,11 +132,11 @@
     {:else if reviewData}
       <!-- Tab switcher for narrow screens -->
       {#if isNarrow}
-        <div class="flex bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
+        <div class="flex bg-stone-50 dark:bg-gray-950 shrink-0">
           <button
             class="flex-1 py-3 text-sm font-medium min-h-[44px]
                    {activeTab === 'original'
-                     ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]'
+                     ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
                      : 'text-stone-500 dark:text-gray-400'}"
             onclick={() => activeTab = 'original'}
           >
@@ -145,7 +145,7 @@
           <button
             class="flex-1 py-3 text-sm font-medium min-h-[44px]
                    {activeTab === 'extracted'
-                     ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]'
+                     ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
                      : 'text-stone-500 dark:text-gray-400'}"
             onclick={() => activeTab = 'extracted'}
           >

@@ -27,7 +27,7 @@
            rounded-md hover:bg-amber-100 dark:hover:bg-amber-900/30"
     onclick={onReturnToSelf}
   >
-    <ChevronLeftIcon class="w-3.5 h-3.5" />
+    <ChevronLeftIcon class="w-7 h-7" />
     {$t('nav.return_to_self')}
   </button>
 </div>

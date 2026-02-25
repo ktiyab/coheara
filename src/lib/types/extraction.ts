@@ -63,7 +63,7 @@ export const MEDICATION_ROUTES = ['oral', 'topical', 'injection', 'inhaled', 'ot
 
 /** Severity color mappings (1-5). */
 export const SEVERITY_COLORS: Record<number, { bg: string; text: string; border: string }> = {
-	1: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-300 dark:border-green-700' },
+	1: { bg: 'bg-[var(--color-success-50)] dark:bg-[var(--color-success-50)]', text: 'text-[var(--color-success)] dark:text-[var(--color-success)]', border: 'border-[var(--color-success-200)] dark:border-[var(--color-success-200)]' },
 	2: { bg: 'bg-lime-100 dark:bg-lime-900/30', text: 'text-lime-700 dark:text-lime-400', border: 'border-lime-300 dark:border-lime-700' },
 	3: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-300 dark:border-amber-700' },
 	4: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-300 dark:border-orange-700' },

@@ -63,6 +63,6 @@
         · {entityText}
       </p>
     </div>
-    <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 mt-1" />
+    <ChevronRightIcon class="w-8 h-8 text-[var(--color-success)] mt-1" />
   </div>
 </button>

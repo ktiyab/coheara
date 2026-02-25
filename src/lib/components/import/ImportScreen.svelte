@@ -264,7 +264,7 @@
 
 <div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
   <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700 shrink-0">
+  <header class="flex items-center gap-3 px-4 py-3 bg-stone-50 dark:bg-gray-950 shrink-0">
     <BackButton />
     <h1 class="text-lg font-semibold text-stone-800 dark:text-gray-100">{$t('import.heading')}</h1>
   </header>

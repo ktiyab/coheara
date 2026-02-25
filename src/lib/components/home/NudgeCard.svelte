@@ -29,16 +29,16 @@
 {#if nudge.should_nudge && !dismissed}
   <section class="px-6 py-3" aria-label={$t('home.nudge_aria')}>
     <div
-      class="w-full flex items-center gap-3 p-3 rounded-xl bg-[var(--color-primary-50)] dark:bg-blue-900/20
-             border border-[var(--color-primary-200)] dark:border-blue-800"
+      class="w-full flex items-center gap-3 p-3 rounded-xl bg-[var(--color-success-50)]
+             border border-[var(--color-success-200)]"
     >
       <button
         onclick={handleTap}
         class="flex items-center gap-3 flex-1 min-w-0 text-left cursor-pointer
                hover:opacity-80 transition-opacity"
       >
-        <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-primary-100)] dark:bg-blue-800/40 flex items-center justify-center">
-          <SearchIcon class="w-5 h-5 text-[var(--color-primary)]" />
+        <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-success)] flex items-center justify-center">
+          <SearchIcon class="w-5 h-5 text-white" />
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-[var(--color-text-primary)]">

@@ -29,10 +29,10 @@
   };
 
   const typeColor: Record<string, string> = {
-    appointment_prep: 'text-[var(--color-primary)] bg-[var(--color-primary-50)] dark:bg-blue-900/20',
+    appointment_prep: 'text-[var(--color-success)] bg-[var(--color-success-50)]',
     medication_update: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20',
     lab_follow_up: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20',
-    symptom_tracking: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20',
+    symptom_tracking: 'text-[var(--color-success)] bg-[var(--color-success-50)]',
   };
 
   function handleAction(suggestion: ExtractionSuggestion) {
@@ -62,7 +62,7 @@
           <div class="flex-1 min-w-0">
             <p class="text-sm text-stone-800 dark:text-gray-100">{suggestion.message}</p>
             <button
-              class="mt-1.5 text-xs font-medium text-[var(--color-primary)] hover:underline"
+              class="mt-1.5 text-xs font-medium text-[var(--color-success)] hover:underline"
               onclick={() => handleAction(suggestion)}
             >
               {suggestion.action_label}

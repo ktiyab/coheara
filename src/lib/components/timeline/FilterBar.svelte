@@ -61,7 +61,7 @@
   let showFiltersExpanded = $state(false);
 </script>
 
-<div class="px-4 pb-2 border-b border-stone-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+<div class="px-4 pt-3 pb-2 bg-stone-50 dark:bg-gray-950">
   <!-- Type filter chips (scrollable row) -->
   <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
     {#each chipDefs as chip}
@@ -69,33 +69,33 @@
       {@const colors = EVENT_COLORS[chip.colorGroup]}
       {@const label = $t(chip.labelKey)}
       <button
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm whitespace-nowrap
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap font-medium
                min-h-[36px] transition-colors border
                {active
-                 ? 'border-transparent text-stone-800 dark:text-gray-100'
+                 ? 'border-transparent'
                  : 'border-stone-200 dark:border-gray-700 text-stone-500 dark:text-gray-400 bg-white dark:bg-gray-900'}"
-        style={active ? `background-color: ${colors.fill}; border-color: ${colors.stroke}40` : ''}
+        style={active ? `background-color: ${colors.fill}; border-color: ${colors.stroke}40; color: ${colors.stroke}` : ''}
         onclick={() => toggleChip(chip.types)}
         aria-pressed={active}
         aria-label={$t('timeline.filter_events_aria', { values: { label, count: eventCounts[chip.countKey] } })}
       >
-        <span class="w-2 h-2 rounded-full"
-              style="background-color: {active ? colors.stroke : '#D6D3D1'}"></span>
         {label}
-        <span class="text-xs opacity-70">{eventCounts[chip.countKey]}</span>
+        <span class="text-xs opacity-70 min-w-[1.5rem] text-center tabular-nums">{eventCounts[chip.countKey]}</span>
       </button>
     {/each}
-  </div>
 
-  <!-- Expandable filters row -->
-  <button
-    class="text-xs text-stone-500 dark:text-gray-400 py-1 min-h-[44px] w-full text-left"
-    onclick={() => { showFiltersExpanded = !showFiltersExpanded; }}
-    aria-expanded={showFiltersExpanded}
-    aria-controls="timeline-filters-expanded"
-  >
-    {showFiltersExpanded ? $t('timeline.filter_hide') : $t('timeline.filter_more')}
-  </button>
+    <!-- More filters button (inline with chips) -->
+    <button
+      class="flex items-center px-3 py-1.5 rounded-lg text-sm whitespace-nowrap font-medium min-h-[36px]
+             bg-[var(--color-success-50)] text-[var(--color-success-800)] border border-[var(--color-success)]
+             hover:bg-[var(--color-success-200)] transition-colors"
+      onclick={() => { showFiltersExpanded = !showFiltersExpanded; }}
+      aria-expanded={showFiltersExpanded}
+      aria-controls="timeline-filters-expanded"
+    >
+      {showFiltersExpanded ? $t('timeline.filter_hide') : $t('timeline.filter_more')}
+    </button>
+  </div>
 
   {#if showFiltersExpanded}
     <div id="timeline-filters-expanded" class="flex flex-wrap gap-3 py-2">
@@ -104,8 +104,9 @@
         <label for="prof-filter" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_professional')}</label>
         <select
           id="prof-filter"
-          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg pl-3 pr-8 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 appearance-none
+                 bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%2316a34a%22%20d%3D%22M2%204l4%204%204-4%22/%3E%3C/svg%3E')] bg-no-repeat bg-[right_0.75rem_center]"
           value={selectedProfessionalId ?? ''}
           onchange={(e) => onProfessionalChange(
             (e.target as HTMLSelectElement).value || null
@@ -125,8 +126,9 @@
         <label for="since-visit" class="text-xs text-stone-500 dark:text-gray-400">{$t('timeline.filter_since_last_visit')}</label>
         <select
           id="since-visit"
-          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg px-3 py-2 min-h-[44px]
-                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200"
+          class="text-sm border border-stone-200 dark:border-gray-700 rounded-lg pl-3 pr-8 py-2 min-h-[44px]
+                 bg-white dark:bg-gray-900 text-stone-700 dark:text-gray-200 appearance-none
+                 bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%2316a34a%22%20d%3D%22M2%204l4%204%204-4%22/%3E%3C/svg%3E')] bg-no-repeat bg-[right_0.75rem_center]"
           value={sinceAppointment ?? ''}
           onchange={(e) => onSinceVisitChange(
             (e.target as HTMLSelectElement).value || null

@@ -11,7 +11,7 @@
   let { symptoms }: Props = $props();
 
   const SEVERITY_COLORS: Record<number, string> = {
-    1: '#4ade80',
+    1: '#22c55e',
     2: '#a3e635',
     3: '#facc15',
     4: '#fb923c',
@@ -81,7 +81,7 @@
             <p class="text-xs text-[var(--color-text-muted)]">{formatDate(symptom.onset_date)}</p>
             <span class="text-xs px-1.5 py-0.5 rounded-full
               {symptom.still_active
-                ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                ? 'bg-[var(--color-success-50)] text-[var(--color-success)]'
                 : 'bg-stone-100 dark:bg-gray-800 text-stone-500 dark:text-gray-400'}">
               {symptom.still_active
                 ? ($t('home.symptoms_still_active') ?? 'Active')
@@ -94,7 +94,7 @@
 
     <!-- Log new -->
     <button
-      class="mt-2 flex items-center gap-1.5 text-sm text-[var(--color-primary)] hover:underline"
+      class="mt-2 flex items-center gap-1.5 text-sm text-[var(--color-success)] hover:underline"
       onclick={() => navigation.navigate('chat', { prefill: $t('chat.prefill_symptom') ?? 'I want to log a symptom.' })}
     >
       <PlusIcon class="w-3.5 h-3.5" />

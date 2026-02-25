@@ -102,7 +102,7 @@
             >
               <Avatar name={mp.name} size="sm" color={profileColor(mp)} />
               <span class="flex-1 text-sm text-left truncate">{mp.name}</span>
-              <ChevronRightIcon class="w-4 h-4 text-stone-300 dark:text-gray-600 flex-shrink-0" />
+              <ChevronRightIcon class="w-8 h-8 text-[var(--color-success)] flex-shrink-0" />
             </button>
           </li>
         {/each}

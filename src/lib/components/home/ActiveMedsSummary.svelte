@@ -30,10 +30,10 @@
     <button
       onclick={() => navigation.navigate('timeline', { filter: 'medication' })}
       class="w-full flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-900 border border-[var(--color-border)]
-             hover:border-[var(--color-primary)] hover:shadow-sm transition-colors cursor-pointer text-left"
+             hover:border-[var(--color-success)] hover:shadow-sm transition-colors cursor-pointer text-left"
     >
-      <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-success-50)] flex items-center justify-center">
-        <PillIcon class="w-5 h-5 text-[var(--color-success)]" />
+      <div class="shrink-0 w-10 h-10 rounded-lg bg-[var(--color-success)] flex items-center justify-center">
+        <PillIcon class="w-5 h-5 text-white" />
       </div>
       <div class="flex-1 min-w-0">
         <p class="text-sm font-medium text-[var(--color-text-primary)]">

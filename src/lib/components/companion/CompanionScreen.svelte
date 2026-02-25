@@ -212,8 +212,8 @@
 
 <div class="flex flex-col bg-stone-50 dark:bg-gray-950 min-h-full">
   <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700">
-    <DevicesIcon class="w-5 h-5 text-[var(--color-interactive)]" />
+  <header class="flex items-center gap-3 px-4 py-3 bg-stone-50 dark:bg-gray-950">
+    <DevicesIcon class="w-5 h-5 text-[var(--color-success)]" />
     <h1 class="text-base font-medium text-stone-800 dark:text-gray-100">{$t('companion.screen_title')}</h1>
   </header>
 
@@ -222,7 +222,7 @@
 
       <!-- ═══ Zone A: What is the Companion? ═══ -->
       <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm p-5">
-        <h2 class="text-sm font-semibold text-stone-800 dark:text-gray-100 mb-2">
+        <h2 class="text-sm font-semibold text-[var(--color-success)] mb-2">
           {$t('companion.what_heading')}
         </h2>
         <p class="text-sm text-stone-500 dark:text-gray-400 leading-relaxed mb-4">
@@ -234,11 +234,11 @@
             <span>{$t('companion.trust_privacy')}</span>
           </div>
           <div class="flex items-center gap-2 text-xs text-stone-500 dark:text-gray-400">
-            <DevicesIcon class="w-4 h-4 text-[var(--color-interactive)] flex-shrink-0" />
+            <DevicesIcon class="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
             <span>{$t('companion.trust_wifi')}</span>
           </div>
           <div class="flex items-center gap-2 text-xs text-stone-500 dark:text-gray-400">
-            <LockIcon class="w-4 h-4 text-[var(--color-primary)] flex-shrink-0" />
+            <LockIcon class="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
             <span>{$t('companion.trust_encrypted')}</span>
           </div>
         </div>
@@ -246,7 +246,7 @@
 
       <!-- ═══ Zone B: Get the App (Distribution Server) ═══ -->
       <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm p-5">
-        <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+        <h2 class="text-xs font-medium text-[var(--color-success)] uppercase tracking-wider mb-3">
           {$t('companion.get_app_heading')}
         </h2>
 
@@ -260,7 +260,7 @@
 
         {:else if serverView === 'starting'}
           <div class="flex items-center justify-center gap-2 py-6">
-            <div class="w-5 h-5 border-2 border-[var(--color-interactive)] border-t-transparent rounded-full animate-spin"></div>
+            <div class="w-5 h-5 border-2 border-[var(--color-success)] border-t-transparent rounded-full animate-spin"></div>
             <span class="text-sm text-stone-500 dark:text-gray-400">{$t('companion.starting')}</span>
           </div>
 
@@ -309,7 +309,7 @@
             <p class="text-sm text-red-600 dark:text-red-400">{serverError}</p>
           </div>
           <button
-            class="text-sm text-[var(--color-interactive)] font-medium hover:underline"
+            class="text-sm text-[var(--color-success)] font-medium hover:underline"
             onclick={() => { serverView = 'idle'; serverError = null; }}
           >
             {$t('common.try_again')}
@@ -319,7 +319,7 @@
 
       <!-- ═══ Zone B2: Secure Connection (HTTPS API Server) ═══ -->
       <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm p-5">
-        <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+        <h2 class="text-xs font-medium text-[var(--color-success)] uppercase tracking-wider mb-3">
           {$t('companion.secure_server_heading')}
         </h2>
 
@@ -336,7 +336,7 @@
 
         {:else if apiServerView === 'starting'}
           <div class="flex items-center justify-center gap-2 py-6">
-            <div class="w-5 h-5 border-2 border-[var(--color-interactive)] border-t-transparent rounded-full animate-spin"></div>
+            <div class="w-5 h-5 border-2 border-[var(--color-success)] border-t-transparent rounded-full animate-spin"></div>
             <span class="text-sm text-stone-500 dark:text-gray-400">{$t('companion.secure_server_starting')}</span>
           </div>
 
@@ -360,7 +360,7 @@
             <p class="text-sm text-red-600 dark:text-red-400">{apiError}</p>
           </div>
           <button
-            class="text-sm text-[var(--color-interactive)] font-medium hover:underline"
+            class="text-sm text-[var(--color-success)] font-medium hover:underline"
             onclick={() => { apiServerView = 'idle'; apiError = null; }}
           >
             {$t('common.try_again')}
@@ -371,7 +371,7 @@
       <!-- ═══ Zone C: Paired Devices ═══ -->
       <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm overflow-hidden">
         <div class="px-4 pt-4 pb-2 flex items-center justify-between">
-          <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase tracking-wider">
+          <h2 class="text-xs font-medium text-[var(--color-success)] uppercase tracking-wider">
             {$t('companion.paired_heading')}
           </h2>
         </div>
@@ -401,7 +401,7 @@
             <p class="text-sm text-red-600 dark:text-red-400">{pairingError}</p>
           </div>
           <button
-            class="text-sm text-[var(--color-interactive)] font-medium hover:underline"
+            class="text-sm text-[var(--color-success)] font-medium hover:underline"
             onclick={() => { pairingError = null; showPairing = false; }}
           >
             {$t('common.try_again')}
@@ -409,7 +409,7 @@
 
         {:else if pairingLoading}
           <div class="flex items-center justify-center gap-2 py-6">
-            <div class="w-5 h-5 border-2 border-[var(--color-interactive)] border-t-transparent rounded-full animate-spin"></div>
+            <div class="w-5 h-5 border-2 border-[var(--color-success)] border-t-transparent rounded-full animate-spin"></div>
             <span class="text-sm text-stone-500 dark:text-gray-400">{$t('pairing.generating')}</span>
           </div>
 

@@ -45,15 +45,15 @@
 
 {#if isDragging}
   <div
-    class="fixed inset-0 z-50 bg-[var(--color-primary-50)]/80 backdrop-blur-sm
+    class="fixed inset-0 z-50 bg-[var(--color-success-50)]/80 backdrop-blur-sm
            flex flex-col items-center justify-center pointer-events-none"
     role="status"
     aria-live="assertive"
   >
     <div class="w-20 h-20 bg-white dark:bg-gray-900 rounded-2xl shadow-lg flex items-center justify-center mb-4">
-      <ArrowDownIcon class="w-10 h-10 text-[var(--color-primary)]" />
+      <ArrowDownIcon class="w-10 h-10 text-[var(--color-success)]" />
     </div>
-    <p class="text-lg font-semibold text-[var(--color-primary)]">
+    <p class="text-lg font-semibold text-[var(--color-success)]">
       {$t('import.drop_files_here')}
     </p>
     <p class="text-sm text-[var(--color-text-secondary)] mt-1">

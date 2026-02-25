@@ -5,6 +5,7 @@
   import { t } from 'svelte-i18n';
   import { unlockForCompanion, type CompanionProfileInfo } from '$lib/api/companion';
   import { PROFILE_COLORS, type ProfileInfo } from '$lib/types/profile';
+  import { SupervisorIcon } from '$lib/components/icons/md';
 
   interface Props {
     /** Managed profiles not yet unlocked for companion. */
@@ -61,9 +62,14 @@
 
 <section class="mx-[var(--spacing-page-x)] mt-3">
   <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
-    <h2 class="text-sm font-medium text-stone-700 dark:text-gray-200 mb-1">
-      {$t('companion.unlock_heading')}
-    </h2>
+    <div class="flex items-center gap-3 mb-3">
+      <div class="w-10 h-10 rounded-lg bg-[var(--color-success)] flex items-center justify-center flex-shrink-0">
+        <SupervisorIcon class="w-5 h-5 text-white" />
+      </div>
+      <h2 class="text-sm font-medium text-stone-700 dark:text-gray-200">
+        {$t('companion.unlock_heading')}
+      </h2>
+    </div>
     <p class="text-xs text-stone-400 dark:text-gray-500 mb-4">
       {$t('companion.unlock_description')}
     </p>
@@ -108,7 +114,7 @@
                 class="px-3 py-1.5 rounded-lg text-xs font-medium min-h-[36px] transition-colors
                        {state === 'unlocking'
                          ? 'bg-stone-100 dark:bg-gray-800 text-stone-400 cursor-wait'
-                         : 'bg-[var(--color-interactive)] text-white hover:opacity-90'}
+                         : 'bg-[var(--color-success)] text-white hover:opacity-90'}
                        disabled:opacity-50"
                 disabled={state === 'unlocking' || !(passwords[p.id]?.trim())}
                 onclick={() => handleUnlock(p)}
@@ -135,7 +141,7 @@
       </button>
       {#if unlockedCount > 0}
         <button
-          class="px-4 py-2 text-xs font-medium bg-[var(--color-interactive)] text-white
+          class="px-4 py-2 text-xs font-medium bg-[var(--color-success)] text-white
                  rounded-lg min-h-[36px] transition-colors"
           onclick={handleDone}
         >

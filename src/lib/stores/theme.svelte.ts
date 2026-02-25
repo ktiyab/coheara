@@ -50,6 +50,10 @@ class ThemeStore {
     }
   }
 
+  get isColorful(): boolean {
+    return this.current === 'colorful';
+  }
+
   /** Set theme, apply to DOM, and persist via IPC. */
   async set(newTheme: Theme) {
     this.apply(newTheme);

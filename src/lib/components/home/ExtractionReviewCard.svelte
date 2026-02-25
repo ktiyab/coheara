@@ -71,7 +71,7 @@
 	let confidencePct = $derived(Math.round(item.confidence * 100));
 
 	let confidenceColor = $derived.by(() => {
-		if (item.grounding === 'grounded') return 'text-green-600 dark:text-green-400';
+		if (item.grounding === 'grounded') return 'text-[var(--color-success)]';
 		if (item.grounding === 'partial') return 'text-amber-600 dark:text-amber-400';
 		return 'text-red-600 dark:text-red-400';
 	});
@@ -151,14 +151,14 @@
 	<!-- Header row -->
 	<div class="flex items-start gap-3">
 		<div
-			class="shrink-0 w-9 h-9 rounded-lg bg-[var(--color-primary-50)] dark:bg-gray-800 flex items-center justify-center"
+			class="shrink-0 w-9 h-9 rounded-lg bg-[var(--color-success)] flex items-center justify-center"
 		>
-			<Icon class="w-4 h-4 text-[var(--color-primary)]" />
+			<Icon class="w-4 h-4 text-white" />
 		</div>
 		<div class="flex-1 min-w-0">
 			<div class="flex items-center gap-2">
 				<span
-					class="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-primary-50)] dark:bg-gray-800 text-[var(--color-primary)]"
+					class="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-success-50)] dark:bg-gray-800 text-[var(--color-success)]"
 				>
 					{$t(DOMAIN_LABELS[item.domain])}
 				</span>
@@ -222,7 +222,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.specific as string ?? ''}
 						oninput={(e) => updateField('specific', e.currentTarget.value)}
 					/>
@@ -232,7 +232,7 @@
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_category')}</span>
 					<select
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.category as string ?? 'Other'}
 						onchange={(e) => updateField('category', e.currentTarget.value)}
 					>
@@ -271,7 +271,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.body_region as string ?? ''}
 						oninput={(e) => updateField('body_region', e.currentTarget.value)}
 					/>
@@ -282,7 +282,7 @@
 					<input
 						type="date"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.onset_hint as string ?? ''}
 						oninput={(e) => updateField('onset_hint', e.currentTarget.value)}
 					/>
@@ -294,7 +294,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.name as string ?? ''}
 						oninput={(e) => updateField('name', e.currentTarget.value)}
 					/>
@@ -305,7 +305,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.dose as string ?? ''}
 						oninput={(e) => updateField('dose', e.currentTarget.value)}
 					/>
@@ -316,7 +316,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.frequency as string ?? ''}
 						oninput={(e) => updateField('frequency', e.currentTarget.value)}
 					/>
@@ -326,7 +326,7 @@
 					<span class="text-xs font-medium text-[var(--color-text-secondary)]">{$t('extraction.field_route')}</span>
 					<select
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.route as string ?? 'oral'}
 						onchange={(e) => updateField('route', e.currentTarget.value)}
 					>
@@ -341,7 +341,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.reason as string ?? ''}
 						oninput={(e) => updateField('reason', e.currentTarget.value)}
 					/>
@@ -352,7 +352,7 @@
 					<input
 						type="date"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.start_date_hint as string ?? ''}
 						oninput={(e) => updateField('start_date_hint', e.currentTarget.value)}
 					/>
@@ -364,7 +364,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.professional_name as string ?? ''}
 						oninput={(e) => updateField('professional_name', e.currentTarget.value)}
 					/>
@@ -375,7 +375,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.specialty as string ?? ''}
 						oninput={(e) => updateField('specialty', e.currentTarget.value)}
 					/>
@@ -386,7 +386,7 @@
 					<input
 						type="date"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.date_hint as string ?? ''}
 						oninput={(e) => updateField('date_hint', e.currentTarget.value)}
 					/>
@@ -397,7 +397,7 @@
 					<input
 						type="time"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.time_hint as string ?? ''}
 						oninput={(e) => updateField('time_hint', e.currentTarget.value)}
 					/>
@@ -408,7 +408,7 @@
 					<input
 						type="text"
 						class="mt-0.5 w-full text-sm rounded-lg border border-[var(--color-border)] bg-white dark:bg-gray-800
-							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)]"
+							   text-[var(--color-text-primary)] px-2.5 py-1.5 focus:ring-1 focus:ring-[var(--color-success)] focus:border-[var(--color-success)]"
 						value={edits.reason as string ?? ''}
 						oninput={(e) => updateField('reason', e.currentTarget.value)}
 					/>
@@ -421,7 +421,7 @@
 	<div class="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--color-border)]">
 		<button
 			class="flex-1 text-xs font-medium py-2 rounded-lg
-				   bg-[var(--color-primary)] text-white
+				   bg-[var(--color-success)] text-white
 				   hover:opacity-90 transition-opacity
 				   disabled:opacity-50"
 			onclick={handleConfirm}

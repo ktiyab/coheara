@@ -17,7 +17,7 @@
   /** Color class for the GPU tier dot. */
   function tierDotClass(tier: GpuTier): string {
     switch (tier) {
-      case 'full_gpu': return 'bg-green-500';
+      case 'full_gpu': return 'bg-[var(--color-success)]';
       case 'partial_gpu': return 'bg-amber-500';
       case 'cpu_only': return 'bg-red-500';
     }

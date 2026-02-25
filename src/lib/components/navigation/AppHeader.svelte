@@ -34,8 +34,8 @@
 </script>
 
 <header
-  class="h-[var(--header-height)] border-b border-stone-200 dark:border-gray-700
-         bg-white dark:bg-gray-900 px-6 flex items-center justify-between flex-shrink-0"
+  class="h-[var(--header-height)]
+         bg-stone-50 dark:bg-gray-950 px-6 flex items-center justify-between flex-shrink-0"
 >
   <!-- Left side -->
   <div class="flex items-center gap-3 min-w-0">

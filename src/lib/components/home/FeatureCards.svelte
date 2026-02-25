@@ -5,6 +5,8 @@
   import { DocsIcon, SearchIcon, TimelineIcon } from '$lib/components/icons/md';
   import Button from '$lib/components/ui/Button.svelte';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
+  import { theme } from '$lib/stores/theme.svelte';
+  import { FEATURE_HUES, colorfulStyle } from '$lib/theme/colorful-mappings';
   import type { Component } from 'svelte';
 
   interface Props {
@@ -57,22 +59,20 @@
   <div class="grid grid-cols-1 md:grid-cols-2 gap-[var(--spacing-grid)]">
     {#each cards as card, i}
       <div
+        style={theme.isColorful ? colorfulStyle(FEATURE_HUES[i]) : undefined}
         class="bg-white dark:bg-gray-900 border border-stone-200 dark:border-gray-700
                rounded-[var(--radius-card)] p-[var(--spacing-card)] flex flex-col
                {i === cards.length - 1 ? 'md:col-span-2' : ''}"
       >
-        <!-- Icon — top-left (AUDIT_01 §3B) -->
-        <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-4
-                    {!hasDocuments && card.primary
-                      ? 'bg-[var(--color-interactive-50)] text-[var(--color-interactive)]'
-                      : 'bg-stone-100 dark:bg-gray-800 text-stone-500 dark:text-gray-400'}">
-          <card.icon class="w-5 h-5" />
+        <!-- Icon + Title — inline row -->
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--color-success)]">
+            <card.icon class="w-5 h-5 text-white" />
+          </div>
+          <h3 class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100">
+            {$t(card.titleKey)}
+          </h3>
         </div>
-
-        <!-- Title — left-aligned -->
-        <h3 class="text-[var(--text-card-title)] font-semibold text-stone-800 dark:text-gray-100 mb-1">
-          {$t(card.titleKey)}
-        </h3>
 
         <!-- Body — always visible (AUDIT_01 §3B: description always shown) -->
         <p class="text-[var(--text-body)] text-stone-500 dark:text-gray-400 leading-relaxed mb-4 flex-1">
@@ -82,7 +82,7 @@
         <!-- CTA — filled for primary (AUDIT_01 §4) -->
         <div>
           <Button
-            variant={card.primary ? 'primary' : 'ghost'}
+            variant="ghost"
             size="sm"
             onclick={() => navigation.navigate(card.action)}
           >

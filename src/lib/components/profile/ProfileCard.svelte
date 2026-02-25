@@ -88,7 +88,7 @@
         title={$t('profile.switch_to', { values: { name: profileInfo.name } })}
         aria-label={$t('profile.switch_to', { values: { name: profileInfo.name } })}
       >
-        <ChevronRightIcon class="w-5 h-5" />
+        <ChevronRightIcon class="w-10 h-10 text-[var(--color-success)]" />
       </button>
     {/if}
 

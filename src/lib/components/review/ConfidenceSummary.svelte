@@ -27,7 +27,7 @@
   );
 </script>
 
-<div class="px-4 py-3 bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 shrink-0">
+<div class="px-4 py-3 bg-stone-50 dark:bg-gray-950 shrink-0">
   <div class="flex items-center gap-3">
     <div class="flex-1">
       <p class="text-sm text-stone-600 dark:text-gray-300">{summaryText}</p>

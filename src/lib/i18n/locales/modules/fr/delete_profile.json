@@ -1,7 +1,10 @@
 {
   "delete_profile": {
     "danger_zone": "ZONE DANGEREUSE",
+    "heading": "Supprimer le profil",
+    "description": "Effacer définitivement ce profil et toutes les données de santé associées. Cette suppression cryptographique est irréversible.",
     "delete_button": "Supprimer le profil et toutes les données",
+    "delete_button_short": "Supprimer",
     "permanent_warning": "Cela supprimera définitivement toutes les données de santé de {name}.",
     "cannot_undo": "Cette action est irréversible.",
     "type_confirm_label": "Tapez « {phrase} » pour confirmer :",

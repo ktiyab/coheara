@@ -37,6 +37,7 @@
   import ModelTagChip from '$lib/components/settings/ModelTagChip.svelte';
   import ModelTagEditor from '$lib/components/settings/ModelTagEditor.svelte';
   import { CloseIcon, RefreshIcon } from '$lib/components/icons/md';
+  import { Toggle } from 'flowbite-svelte';
 
   let pullInput = $state('');
   let deleteConfirm = $state<string | null>(null);
@@ -336,17 +337,7 @@
                   </div>
                   <div class="flex items-center gap-2">
                     <!-- CT-01: Enable/disable toggle -->
-                    <button
-                      class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {enabled ? 'bg-[var(--color-interactive)]' : 'bg-stone-300 dark:bg-gray-600'}"
-                      onclick={() => handleToggleEnabled(model.name)}
-                      aria-label={$t('ai.toggle_model_enabled')}
-                      aria-checked={enabled}
-                      role="switch"
-                    >
-                      <span
-                        class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform {enabled ? 'translate-x-4' : 'translate-x-1'}"
-                      ></span>
-                    </button>
+                    <Toggle checked={enabled} color="green" onchange={() => handleToggleEnabled(model.name)} aria-label={$t('ai.toggle_model_enabled')} />
                     {#if isActive}
                       <span class="text-xs font-medium text-[var(--color-interactive-hover)] bg-[var(--color-interactive-50)] px-2 py-1 rounded">{$t('ai.active_badge')}</span>
                     {:else}

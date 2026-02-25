@@ -168,7 +168,7 @@
 {/if}
 
 <!-- Action bar -->
-<div class="flex gap-3 px-4 py-4 bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 shrink-0">
+<div class="flex gap-3 px-4 py-4 bg-stone-50 dark:bg-gray-950 shrink-0">
   <Button variant="secondary" disabled={confirming || rejecting} onclick={() => showRejectDialog = true}>
     {$t('review.not_right')}
   </Button>

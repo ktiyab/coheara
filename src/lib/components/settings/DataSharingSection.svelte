@@ -13,6 +13,7 @@
   import { profile } from '$lib/stores/profile.svelte';
   import { profiles } from '$lib/stores/profiles.svelte';
   import { PROFILE_COLORS } from '$lib/types/profile';
+  import { GroupIcon } from '$lib/components/icons/md';
 
   let grantsOut = $state<EnrichedGrant[]>([]);
   let grantsIn = $state<EnrichedGrant[]>([]);
@@ -106,11 +107,16 @@
   onMount(loadGrants);
 </script>
 
-<section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
-  <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-4">
-    {$t('settings.data_sharing_heading')}
-  </h2>
+<section class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm">
+  <!-- Section header row with icon -->
+  <div class="flex items-center gap-4 px-4 py-3 min-h-[52px] border-b border-stone-100 dark:border-gray-800">
+    <GroupIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
+    <span class="text-sm font-medium text-stone-800 dark:text-gray-200">
+      {$t('settings.data_sharing_heading')}
+    </span>
+  </div>
 
+  <div class="px-4 py-4">
   {#if loading}
     <p class="text-sm text-stone-400 dark:text-gray-500">{$t('common.loading')}</p>
   {:else}
@@ -288,4 +294,5 @@
       </p>
     {/if}
   {/if}
+  </div>
 </section>

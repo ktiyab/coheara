@@ -7,13 +7,16 @@
   import { listConversations, deleteConversation } from '$lib/api/chat';
   import type { ConversationSummary } from '$lib/types/chat';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import { SearchIcon, PlusIcon, DeleteIcon } from '$lib/components/icons/md';
+  import { SearchIcon, DeleteIcon } from '$lib/components/icons/md';
   import EmptyStateUI from '$lib/components/ui/EmptyState.svelte';
   import { HistoryIcon } from '$lib/components/icons/md';
 
   let conversations: ConversationSummary[] = $state([]);
   let searchQuery = $state('');
   let confirmDeleteId: string | null = $state(null);
+
+  const PAGE_SIZE = 20;
+  let displayCount = $state(PAGE_SIZE);
 
   let filtered = $derived(
     searchQuery.trim()
@@ -23,6 +26,19 @@
         )
       : conversations
   );
+
+  let displayed = $derived(filtered.slice(0, displayCount));
+  let hasMore = $derived(displayCount < filtered.length);
+
+  function loadMore() {
+    displayCount += PAGE_SIZE;
+  }
+
+  // Reset pagination when search changes
+  $effect(() => {
+    searchQuery;
+    displayCount = PAGE_SIZE;
+  });
 
   async function loadConversations() {
     try {
@@ -69,13 +85,13 @@
     <h1 class="flex-1 text-2xl font-bold text-stone-800 dark:text-gray-100">{$t('nav.history')}</h1>
     <button
       class="min-h-[44px] min-w-[44px] px-4 py-2 flex items-center gap-2 rounded-xl
-             bg-[var(--color-interactive)] text-white text-sm font-medium
-             hover:bg-[var(--color-interactive-hover)] transition-colors"
+             bg-[var(--color-success)] text-white text-sm font-medium
+             hover:opacity-90 transition-colors"
       onclick={startNewConversation}
       aria-label={$t('chat.new_conversation')}
     >
-      <PlusIcon class="w-5 h-5" />
-      <span>{$t('chat.new_conversation_button')}</span>
+      <SearchIcon class="w-5 h-5" />
+      <span>{$t('chat.new_conversation')}</span>
     </button>
   </header>
 
@@ -91,7 +107,7 @@
           class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-200 dark:border-gray-700
                  bg-white dark:bg-gray-900 text-sm text-stone-800 dark:text-gray-100
                  placeholder:text-stone-400 dark:placeholder:text-gray-500
-                 focus:border-[var(--color-interactive)] focus:outline-none min-h-[44px]"
+                 focus:border-[var(--color-success)] focus:outline-none min-h-[44px]"
         />
       </div>
     </div>
@@ -104,8 +120,6 @@
         icon={HistoryIcon}
         title={$t('chat.no_conversations')}
         description={$t('chat.history_empty_description')}
-        actionLabel={$t('chat.new_conversation_button')}
-        onaction={startNewConversation}
       />
     {:else if filtered.length === 0}
       <div class="flex items-center justify-center py-16">
@@ -113,7 +127,7 @@
       </div>
     {:else}
       <div class="bg-white dark:bg-gray-900 rounded-[var(--radius-card)] border border-stone-100 dark:border-gray-800 shadow-sm divide-y divide-stone-100 dark:divide-gray-800">
-        {#each filtered as conv (conv.id)}
+        {#each displayed as conv (conv.id)}
           <div class="group relative">
             <button
               class="w-full text-left px-4 py-3.5 hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors min-h-[68px]
@@ -121,8 +135,8 @@
               onclick={() => openConversation(conv.id)}
             >
               <div class="flex items-start gap-3">
-                <div class="w-10 h-10 rounded-full bg-[var(--color-interactive)]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <SearchIcon class="w-5 h-5 text-[var(--color-interactive)]" />
+                <div class="w-10 h-10 rounded-full bg-[var(--color-success)]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <SearchIcon class="w-5 h-5 text-[var(--color-success)]" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline justify-between gap-2">
@@ -177,6 +191,18 @@
           </div>
         {/each}
       </div>
+
+      {#if hasMore}
+        <div class="flex justify-center py-4">
+          <button
+            class="px-4 py-2 text-sm font-medium text-stone-600 dark:text-gray-400
+                   hover:text-stone-800 dark:hover:text-gray-200 transition-colors"
+            onclick={loadMore}
+          >
+            {$t('documents.list_load_more')}
+          </button>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>

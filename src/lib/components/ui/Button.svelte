@@ -36,9 +36,9 @@
   }: Props = $props();
 
   const variantClasses: Record<string, string> = {
-    primary: 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-700)] active:bg-[var(--color-primary-800)]',
-    secondary: 'bg-stone-200 dark:bg-gray-700 text-stone-700 dark:text-gray-200 hover:bg-stone-300 dark:hover:bg-gray-600 active:bg-stone-400 dark:active:bg-gray-500',
-    ghost: 'bg-transparent text-stone-600 dark:text-gray-300 border border-stone-200 dark:border-gray-700 hover:bg-stone-50 dark:hover:bg-gray-800 active:bg-stone-100 dark:active:bg-gray-700',
+    primary: 'bg-[var(--color-success)] text-white hover:bg-[var(--color-success-800)] active:bg-[var(--color-success-800)]',
+    secondary: 'bg-[var(--color-success-50)] text-[var(--color-success-800)] hover:bg-[var(--color-success-200)] active:bg-[var(--color-success-200)]',
+    ghost: 'bg-transparent text-[var(--color-success)] border border-[var(--color-success)] hover:bg-[var(--color-success-50)] active:bg-[var(--color-success-200)]',
     danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
     dashed: 'bg-transparent text-stone-500 dark:text-gray-400 border border-dashed border-stone-300 dark:border-gray-600 hover:bg-stone-50 dark:hover:bg-gray-800 hover:border-stone-400 dark:hover:border-gray-500',
   };

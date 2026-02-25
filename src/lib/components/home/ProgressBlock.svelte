@@ -38,8 +38,8 @@
 
 {#if allComplete}
   <!-- Collapsed completion message -->
-  <div class="mx-[var(--spacing-page-x)] mt-4 px-4 py-3 bg-[var(--color-success-50)] dark:bg-green-900/20 border border-[var(--color-success-200)] dark:border-green-800 rounded-[var(--radius-card)] text-center">
-    <p class="text-sm text-[var(--color-success-700)] dark:text-green-300 font-medium">
+  <div class="mx-[var(--spacing-page-x)] mt-4 px-4 py-3 bg-[var(--color-success-50)] border border-[var(--color-success-200)] rounded-[var(--radius-card)] text-center">
+    <p class="text-sm text-[var(--color-success)] font-medium">
       {$t('home.progress_complete')}
     </p>
   </div>

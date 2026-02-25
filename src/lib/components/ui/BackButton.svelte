@@ -25,12 +25,12 @@
 
 <button
   class="min-h-[44px] min-w-[44px] flex items-center gap-1
-         text-stone-500 dark:text-gray-400 hover:text-stone-700 dark:hover:text-gray-200 transition-colors
+         text-[var(--color-success)] hover:text-[var(--color-success-800)] transition-colors
          focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
   onclick={onclick ?? (() => navigation.goBack())}
   aria-label={ariaLabel ?? $t('common.go_back')}
 >
-  <ChevronLeftIcon class="w-4 h-4" />
+  <ChevronLeftIcon class="w-8 h-8" />
   {#if label}
     <span class="text-sm">{label}</span>
   {/if}

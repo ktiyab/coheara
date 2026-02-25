@@ -20,10 +20,19 @@ const SIDEBAR_SCREENS = new Set([
 	'companion',
 	'settings',
 	'ai-settings',
+	'privacy',
 	'import',
 	'profiles',
 	'profiles-create'
 ]);
+
+/** Maps sub-screens to their parent nav item for sidebar highlighting. */
+export const PARENT_SCREEN: Record<string, string> = {
+	'privacy': 'settings',
+	'ai-settings': 'settings',
+	'profiles': 'settings',
+	'profiles-create': 'settings',
+};
 
 /** Navigation sections for sidebar grouping. */
 export const NAV_SECTIONS = {

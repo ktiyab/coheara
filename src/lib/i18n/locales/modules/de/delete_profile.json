@@ -1,7 +1,10 @@
 {
   "delete_profile": {
     "danger_zone": "GEFAHRENZONE",
+    "heading": "Profil löschen",
+    "description": "Dieses Profil und alle zugehörigen Gesundheitsdaten dauerhaft löschen. Diese kryptografische Löschung kann nicht rückgängig gemacht werden.",
     "delete_button": "Profil und alle Daten löschen",
+    "delete_button_short": "Löschen",
     "permanent_warning": "Dies wird alle Gesundheitsdaten von {name} dauerhaft löschen.",
     "cannot_undo": "Dies kann nicht rückgängig gemacht werden.",
     "type_confirm_label": "Geben Sie «{phrase}» zur Bestätigung ein:",

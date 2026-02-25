@@ -19,7 +19,7 @@
   });
 
   const dotColors: Record<StatusState, string> = {
-    running: 'bg-green-500',
+    running: 'bg-[var(--color-success)]',
     fallback: 'bg-amber-500',
     offline: 'bg-stone-400 dark:bg-gray-500',
   };

@@ -102,7 +102,7 @@
 
   {#if !expanded && hiddenCount > 0}
     <button
-      class="mt-2 text-sm text-[var(--color-primary)] hover:underline"
+      class="mt-2 text-sm text-[var(--color-success)] hover:underline"
       onclick={() => { expanded = true; }}
     >
       {$t('home.insights_show_more', { values: { count: hiddenCount } }) ?? `Show ${hiddenCount} more`}

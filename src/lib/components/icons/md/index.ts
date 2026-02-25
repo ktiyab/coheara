@@ -1,6 +1,7 @@
 // Material Design icon barrel export — all icons from Specs/logo/svg_icons/
 export { default as ArrowDownIcon } from './ArrowDownIcon.svelte';
 export { default as ArrowForwardIcon } from './ArrowForwardIcon.svelte';
+export { default as ArrowUpIcon } from './ArrowUpIcon.svelte';
 export { default as BarsIcon } from './BarsIcon.svelte';
 export { default as BrainIcon } from './BrainIcon.svelte';
 export { default as CalendarIcon } from './CalendarIcon.svelte';
@@ -34,6 +35,7 @@ export { default as SearchIcon } from './SearchIcon.svelte';
 export { default as SendIcon } from './SendIcon.svelte';
 export { default as SettingsIcon } from './SettingsIcon.svelte';
 export { default as SunIcon } from './SunIcon.svelte';
+export { default as SupervisorIcon } from './SupervisorIcon.svelte';
 export { default as ThumbsDownIcon } from './ThumbsDownIcon.svelte';
 export { default as ThumbsUpIcon } from './ThumbsUpIcon.svelte';
 export { default as TimelineIcon } from './TimelineIcon.svelte';

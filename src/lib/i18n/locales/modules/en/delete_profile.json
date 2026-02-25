@@ -1,7 +1,10 @@
 {
   "delete_profile": {
     "danger_zone": "DANGER ZONE",
+    "heading": "Delete Profile",
+    "description": "Permanently erase this profile and all associated health data. This uses cryptographic erasure and cannot be undone.",
     "delete_button": "Delete profile and all data",
+    "delete_button_short": "Delete",
     "permanent_warning": "This will permanently delete all of {name}'s health data.",
     "cannot_undo": "This cannot be undone.",
     "type_confirm_label": "Type \"{phrase}\" to confirm:",

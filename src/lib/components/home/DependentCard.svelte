@@ -58,7 +58,7 @@
     </div>
 
     <button
-      class="text-sm text-[var(--color-primary)] font-medium min-h-[44px] min-w-[44px]
+      class="text-sm text-[var(--color-success)] font-medium min-h-[44px] min-w-[44px]
              flex items-center justify-center flex-shrink-0 hover:underline"
       onclick={onViewProfile}
     >

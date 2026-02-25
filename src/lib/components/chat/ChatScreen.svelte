@@ -6,13 +6,10 @@
     startConversation,
     sendChatMessage,
     getConversationMessages,
-    listConversations,
     getPromptSuggestions,
-    deleteConversation,
   } from '$lib/api/chat';
   import type {
     Message,
-    ConversationSummary,
     ChatStreamEvent,
     CitationView,
     PromptSuggestion,
@@ -22,11 +19,10 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import MessageBubble from './MessageBubble.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
-  import ConversationList from './ConversationList.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
   import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { BarsIcon, PlusIcon } from '$lib/components/icons/md';
+  import { ArrowUpIcon } from '$lib/components/icons/md';
   import { soundManager } from '$lib/utils/sound';
 
   interface Props {
@@ -38,8 +34,8 @@
   // Conversation state
   let currentConversationId: string | null = $state(initialConversationId ?? null);
   let messages: Message[] = $state([]);
-  let conversations: ConversationSummary[] = $state([]);
   let suggestions: PromptSuggestion[] = $state([]);
+  let conversationTitle = $state($t('chat.new_conversation_title'));
 
   // Input state
   let inputText = $state('');
@@ -53,14 +49,28 @@
   let streamError: string | null = $state(null);
 
   // UI state
-  let showConversationList = $state(false);
   let messageContainer: HTMLElement | undefined = $state(undefined);
+  let textareaEl: HTMLTextAreaElement | undefined = $state(undefined);
+
+  // Auto-grow: scrollHeight-based resize (ChatGPT/Claude.ai pattern)
+  const INPUT_MAX_H = 200;
+
+  function autoGrow() {
+    if (!textareaEl) return;
+    textareaEl.style.height = 'auto';
+    const h = Math.min(textareaEl.scrollHeight, INPUT_MAX_H);
+    textareaEl.style.height = `${h}px`;
+    textareaEl.style.overflowY = textareaEl.scrollHeight > INPUT_MAX_H ? 'auto' : 'hidden';
+  }
+
+  // Resize on programmatic value changes (send reset, prefill, suggestion tap)
+  $effect(() => {
+    inputText;
+    autoGrow();
+  });
 
   // Derived
   let hasMessages = $derived(messages.length > 0);
-  let conversationTitle = $derived(
-    conversations.find(c => c.id === currentConversationId)?.title ?? $t('chat.new_conversation_title')
-  );
   let canSend = $derived(inputText.trim().length > 0 && !isSending && !isStreaming);
 
   function scrollToBottom() {
@@ -74,17 +84,15 @@
   async function loadMessages(convId: string) {
     try {
       messages = await getConversationMessages(convId);
+      // Derive title from first patient message
+      const firstPatient = messages.find(m => m.role === 'patient');
+      if (firstPatient) {
+        const text = firstPatient.content.trim();
+        conversationTitle = text.length > 50 ? text.slice(0, 50) + '...' : text;
+      }
       scrollToBottom();
     } catch (e) {
       console.error('Failed to load messages:', e);
-    }
-  }
-
-  async function loadConversations() {
-    try {
-      conversations = await listConversations();
-    } catch (e) {
-      console.error('Failed to load conversations:', e);
     }
   }
 
@@ -92,7 +100,6 @@
     // UA02-05: Lazy creation — don't persist to DB until first message is sent.
     // If current conversation is already empty, just stay on it.
     if (currentConversationId && messages.length === 0) {
-      showConversationList = false;
       return;
     }
     currentConversationId = null;
@@ -101,20 +108,36 @@
     pendingCitations = [];
     responseConfidence = null;
     streamError = null;
-    showConversationList = false;
+    conversationTitle = $t('chat.new_conversation_title');
     suggestions = await getPromptSuggestions().catch(() => []);
   }
 
-  async function handleSelectConversation(convId: string) {
+  // React to navigation prop changes (History → Chat, or sidebar "Ask" click)
+  $effect(() => {
+    const convId = initialConversationId;
+    const pre = prefill;
+
+    // Don't interrupt active streaming
     if (isStreaming) return;
-    currentConversationId = convId;
-    streamingText = '';
-    pendingCitations = [];
-    responseConfidence = null;
-    streamError = null;
-    showConversationList = false;
-    await loadMessages(convId);
-  }
+
+    if (convId && convId !== currentConversationId) {
+      // Navigating to a specific conversation from History
+      currentConversationId = convId;
+      streamingText = '';
+      pendingCitations = [];
+      responseConfidence = null;
+      streamError = null;
+      loadMessages(convId);
+    } else if (!convId && currentConversationId) {
+      // Sidebar "Ask" click — start new conversation
+      handleNewConversation();
+    }
+
+    // Handle prefill from other screens
+    if (pre) {
+      inputText = pre;
+    }
+  });
 
   async function handleSend() {
     if (!canSend) return;
@@ -130,6 +153,11 @@
         streamError = $t('chat.conversation_start_error');
         return;
       }
+    }
+
+    // Update title from first message
+    if (messages.length === 0) {
+      conversationTitle = text.length > 50 ? text.slice(0, 50) + '...' : text;
     }
 
     const patientMessage: Message = {
@@ -202,7 +230,6 @@
     } finally {
       unlisten();
       isSending = false;
-      await loadConversations();
     }
   }
 
@@ -229,7 +256,6 @@
   }
 
   onMount(async () => {
-    await loadConversations();
     suggestions = await getPromptSuggestions();
 
     if (currentConversationId) {
@@ -244,56 +270,13 @@
 </script>
 
 <div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
-  <!-- Header -->
-  <header class="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-900 border-b border-stone-200 dark:border-gray-700">
-    <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 dark:text-gray-400
-             hover:text-stone-600 dark:hover:text-gray-300"
-      onclick={() => showConversationList = !showConversationList}
-      aria-label={$t('chat.toggle_conversations')}
-    >
-      <BarsIcon class="w-5 h-5" />
-    </button>
-
-    <h1 class="flex-1 text-base font-medium text-stone-800 dark:text-gray-100 truncate">
-      {conversationTitle}
-    </h1>
-
-    <button
-      class="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 dark:text-gray-400
-             hover:text-[var(--color-interactive)]"
-      onclick={handleNewConversation}
-      aria-label={$t('chat.new_conversation')}
-    >
-      <PlusIcon class="w-6 h-6" />
-    </button>
-  </header>
-
-  <!-- Conversation list drawer -->
-  {#if showConversationList}
-    <div class="absolute inset-0 z-40 flex">
-      <button
-        class="absolute inset-0 bg-black/20"
-        onclick={() => showConversationList = false}
-        aria-label={$t('chat.close_conversations')}
-      ></button>
-      <div class="relative z-50 w-[280px] bg-white dark:bg-gray-900 h-full shadow-xl overflow-y-auto">
-        <ConversationList
-          {conversations}
-          activeConversationId={currentConversationId}
-          onSelect={handleSelectConversation}
-          onNewConversation={handleNewConversation}
-          onDelete={async (id) => {
-            await deleteConversation(id);
-            if (currentConversationId === id) {
-              currentConversationId = null;
-              messages = [];
-            }
-            await loadConversations();
-          }}
-        />
-      </div>
-    </div>
+  <!-- Header — only shows title when conversation has messages -->
+  {#if hasMessages}
+    <header class="flex items-center px-4 py-3 bg-stone-50 dark:bg-gray-950">
+      <h1 class="flex-1 text-base font-medium text-stone-800 dark:text-gray-100 truncate">
+        {conversationTitle}
+      </h1>
+    </header>
   {/if}
 
   <!-- Messages area -->
@@ -359,33 +342,88 @@
   {/if}
 
   <!-- Input bar -->
-  <div class="bg-white dark:bg-gray-900 border-t border-stone-200 dark:border-gray-700 px-4 py-3">
-    <div class="flex items-end gap-2 max-w-2xl mx-auto">
-      <textarea
-        class="flex-1 px-4 py-3 rounded-xl border border-stone-200 dark:border-gray-700 text-base
-               bg-white dark:bg-gray-800 text-stone-800 dark:text-gray-100
-               resize-none min-h-[44px] max-h-[120px]
-               focus:border-[var(--color-interactive)] focus:outline-none
-               placeholder:text-stone-500 dark:placeholder:text-gray-500"
-        placeholder={$t('chat.input_placeholder')}
-        bind:value={inputText}
-        onkeydown={handleKeydown}
-        rows={1}
-        disabled={isStreaming}
-        aria-label={$t('chat.input_aria')}
-      ></textarea>
-      <button
-        class="min-h-[44px] min-w-[44px] px-4 py-3 rounded-xl font-medium text-base
-               transition-colors
-               {canSend
-                 ? 'bg-[var(--color-interactive)] text-white hover:bg-[var(--color-interactive-hover)]'
-                 : 'bg-stone-100 dark:bg-gray-800 text-stone-500 dark:text-gray-400 cursor-not-allowed'}"
-        onclick={handleSend}
-        disabled={!canSend}
-        aria-label={$t('chat.send_aria')}
-      >
-        {$t('common.send')}
-      </button>
+  <div class="bg-stone-50 dark:bg-gray-950 px-4 py-3">
+    <div class="max-w-2xl mx-auto">
+      <!-- Input capsule — Claude.ai pattern: shadow-based boundary, no ring -->
+      <div class="input-capsule bg-white dark:bg-gray-800 rounded-[20px]
+                  border border-transparent cursor-text">
+        <div class="flex flex-col m-3.5 gap-2.5">
+          <textarea
+            bind:this={textareaEl}
+            class="chat-textarea block w-full text-base leading-relaxed
+                   border-0 ring-0 focus:ring-0 focus:outline-none
+                   bg-transparent text-stone-800 dark:text-gray-100
+                   resize-none pl-1.5 pt-1.5
+                   placeholder:text-stone-400 dark:placeholder:text-gray-500"
+            style="min-height: 24px; max-height: {INPUT_MAX_H}px; overflow-y: hidden;"
+            placeholder={$t('chat.input_placeholder')}
+            bind:value={inputText}
+            oninput={autoGrow}
+            onkeydown={handleKeydown}
+            rows={1}
+            disabled={isStreaming}
+            aria-label={$t('chat.input_aria')}
+          ></textarea>
+          <div class="flex items-center justify-end">
+            <button
+              class="w-8 h-8 flex items-center justify-center rounded-lg transition-colors
+                     {canSend
+                       ? 'bg-[var(--color-success)] text-white hover:opacity-90'
+                       : 'bg-stone-100 dark:bg-gray-700 text-stone-400 dark:text-gray-500 cursor-not-allowed'}"
+              onclick={handleSend}
+              disabled={!canSend}
+              aria-label={$t('chat.send_aria')}
+            >
+              <ArrowUpIcon class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Medical AI disclaimer -->
+      <p class="text-xs text-stone-400 dark:text-gray-500 text-center mt-2">
+        {$t('chat.ai_disclaimer')}
+      </p>
     </div>
   </div>
 </div>
+
+<style>
+  /* Container — shadow-based boundary (Claude.ai pattern) */
+  .input-capsule {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.035),
+      0 0 0 0.5px rgba(0, 0, 0, 0.06);
+    transition: box-shadow 200ms;
+  }
+  .input-capsule:hover {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.035),
+      0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  }
+  .input-capsule:focus-within {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.075),
+      0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  }
+  :global(.dark) .input-capsule {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.15),
+      0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  }
+  :global(.dark) .input-capsule:hover {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.15),
+      0 0 0 0.5px rgba(255, 255, 255, 0.16);
+  }
+  :global(.dark) .input-capsule:focus-within {
+    box-shadow:
+      0 0.25rem 1.25rem rgba(0, 0, 0, 0.3),
+      0 0 0 0.5px rgba(255, 255, 255, 0.16);
+  }
+
+  /* Textarea — strip all focus chrome */
+  .chat-textarea:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+</style>

@@ -238,7 +238,7 @@
     {/if}
 
     {#if homeData.stats.total_documents > 0 && !ai.isAiAvailable && !aiBannerDismissed}
-      <div class="mx-[var(--spacing-page-x)] mt-3 p-4 bg-[var(--color-primary-50)] border border-[var(--color-primary-200)] rounded-xl">
+      <div class="mx-[var(--spacing-page-x)] mt-3 p-4 bg-[var(--color-success-50)] border border-[var(--color-success-200)] rounded-xl">
         <p class="text-sm font-medium text-[var(--color-text-primary)] mb-1">
           {$t('home.ai_setup_title')}
         </p>

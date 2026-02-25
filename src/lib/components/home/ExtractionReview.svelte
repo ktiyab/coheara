@@ -67,12 +67,12 @@
 		<!-- Section header -->
 		<div class="flex items-center justify-between mb-3">
 			<div class="flex items-center gap-2">
-				<ClipboardIcon class="w-4 h-4 text-[var(--color-primary)]" />
+				<ClipboardIcon class="w-4 h-4 text-[var(--color-success)]" />
 				<h2 class="text-sm font-semibold text-[var(--color-text-primary)]">
 					{$t('extraction.review_heading')}
 				</h2>
 				<span
-					class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-[var(--color-primary)] text-white"
+					class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-[var(--color-success)] text-white"
 				>
 					{extraction.items.length}
 				</span>
@@ -80,7 +80,7 @@
 			{#if extraction.items.length > 1}
 				<div class="flex items-center gap-2">
 					<button
-						class="text-xs text-[var(--color-primary)] hover:opacity-80 font-medium transition-colors"
+						class="text-xs text-[var(--color-success)] hover:opacity-80 font-medium transition-colors"
 						onclick={handleConfirmAll}
 					>
 						{$t('extraction.confirm_all_btn')}
@@ -103,7 +103,7 @@
 		<!-- Success feedback -->
 		{#if successMsg}
 			<div
-				class="mb-2 px-3 py-2 text-xs font-medium rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+				class="mb-2 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--color-success-50)] text-[var(--color-success)]"
 				role="status"
 			>
 				{successMsg}

@@ -10,6 +10,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import type { ProfileInfo } from '$lib/types/profile';
   import ProfileCard from './ProfileCard.svelte';
+  import BackButton from '$lib/components/ui/BackButton.svelte';
   import { PlusIcon } from '$lib/components/icons/md';
 
   let activeInfo = $derived(profile.activeInfo);
@@ -40,10 +41,16 @@
   }
 </script>
 
-<div class="max-w-2xl mx-auto px-[var(--spacing-page-x)] py-8">
-  <h1 class="text-xl font-semibold text-stone-800 dark:text-gray-100 mb-6">
-    {$t('profile.profiles_heading')}
-  </h1>
+<div class="flex flex-col bg-stone-50 dark:bg-gray-950 min-h-full">
+  <!-- Header with back button -->
+  <header class="px-[var(--spacing-page-x)] pt-6 pb-4 flex items-center gap-3">
+    <BackButton />
+    <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">
+      {$t('profile.profiles_heading')}
+    </h1>
+  </header>
+
+  <div class="px-[var(--spacing-page-x)] pb-6">
 
   {#if deleteError}
     <div class="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
@@ -115,4 +122,5 @@
       <span class="text-sm font-medium">{$t('profile.popover_add')}</span>
     </button>
   {/if}
+  </div>
 </div>

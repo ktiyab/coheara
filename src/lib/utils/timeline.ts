@@ -17,7 +17,7 @@ export const LANE_GAP = 8;
 export const HEADER_HEIGHT = 40;
 export const MARKER_RADIUS = 8;
 export const TOUCH_TARGET_RADIUS = 22;
-export const PADDING_X = 40;
+export const PADDING_X = 80;
 export const PADDING_Y = 16;
 
 /** Event type → lane index mapping (top to bottom) */

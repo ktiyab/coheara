@@ -28,7 +28,7 @@
 
   const categoryStyles: Record<EntityCategory, { i18nKey: string; headerClass: string; borderClass: string }> = {
     Medication: { i18nKey: 'review.category_medications', headerClass: 'bg-blue-50 text-blue-800', borderClass: 'border-blue-200' },
-    LabResult: { i18nKey: 'review.category_lab_results', headerClass: 'bg-green-50 text-green-800', borderClass: 'border-green-200' },
+    LabResult: { i18nKey: 'review.category_lab_results', headerClass: 'bg-[var(--color-success-50)] text-[var(--color-success-800)]', borderClass: 'border-[var(--color-success-200)]' },
     Diagnosis: { i18nKey: 'review.category_diagnoses', headerClass: 'bg-indigo-50 text-indigo-800', borderClass: 'border-indigo-200' },
     Allergy: { i18nKey: 'review.category_allergies', headerClass: 'bg-red-50 text-red-800', borderClass: 'border-red-200' },
     Procedure: { i18nKey: 'review.category_procedures', headerClass: 'bg-teal-50 text-teal-800', borderClass: 'border-teal-200' },
