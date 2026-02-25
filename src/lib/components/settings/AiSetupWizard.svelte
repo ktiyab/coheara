@@ -14,7 +14,6 @@
   import {
     ollamaHealthCheck,
     listOllamaModels,
-    getRecommendedModels,
     getActiveModel,
     setActiveModel,
     pullOllamaModel,
@@ -26,7 +25,7 @@
   import { ai } from '$lib/stores/ai.svelte';
   import { profile } from '$lib/stores/profile.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import type { RecommendedModel, ModelPullProgress } from '$lib/types/ai';
+  import type { ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize } from '$lib/types/ai';
   import Button from '$lib/components/ui/Button.svelte';
   import { CheckIcon, WarningIcon } from '$lib/components/icons/md';
@@ -41,7 +40,7 @@
   let verifyPassed = $state(false);
   let verifyRunning = $state(false);
   let error = $state<string | null>(null);
-  let recommended = $state<RecommendedModel[]>([]);
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let pullInput = $state('');
   let detectedPlatform = $state<'windows' | 'macos' | 'linux'>('windows');
   let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -87,6 +86,7 @@
 
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
+    if (refreshTimer) clearTimeout(refreshTimer);
     unlistenPull?.();
   });
 
@@ -129,11 +129,9 @@
             return;
           }
           // Models exist but no active — skip to pull (for selection)
-          recommended = await getRecommendedModels().catch(() => []);
           step = 'pull';
         } else {
           // Ollama running, no models — skip to pull
-          recommended = await getRecommendedModels().catch(() => []);
           step = 'pull';
         }
       } else {
@@ -166,7 +164,6 @@
           const models = await listOllamaModels().catch(() => []);
           ai.models = models;
           hasModels = models.length > 0;
-          recommended = await getRecommendedModels().catch(() => []);
           step = 'pull';
         }
       } catch {
@@ -189,7 +186,6 @@
         const models = await listOllamaModels().catch(() => []);
         ai.models = models;
         hasModels = models.length > 0;
-        recommended = await getRecommendedModels().catch(() => []);
         step = 'pull';
       }
     } catch {
@@ -215,8 +211,21 @@
       // Advance to verify
       step = 'verify';
       await runVerify();
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+    } catch {
+      // CT-01/0D: Safety-net retry — Ollama may need a moment to register the model
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(async () => {
+        refreshTimer = null;
+        try {
+          ai.models = await listOllamaModels();
+          ai.activeModel = await setActiveModel(modelName, 'wizard');
+          hasModels = true;
+          step = 'verify';
+          await runVerify();
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+        }
+      }, 3000);
     }
   }
 
@@ -496,43 +505,6 @@
                     >
                       {$t('ai.use_this')}
                     </button>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-
-          <!-- Recommended models to download -->
-          {#if recommended.length > 0}
-            <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
-              <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">{$t('ai.recommended_models')}</h2>
-              <div class="space-y-3">
-                {#each recommended as rec, i (rec.name)}
-                  {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
-                  <div class="p-4 rounded-xl border {i === 0 ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100 dark:border-gray-800'}">
-                    <div class="flex items-start gap-3">
-                      <span class="text-lg" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
-                      <div class="flex-1">
-                        <div class="flex items-center gap-2">
-                          <p class="text-sm font-medium text-stone-800 dark:text-gray-100">{rec.name}</p>
-                          {#if i === 0}
-                            <span class="text-xs bg-[var(--color-interactive-50)] text-[var(--color-interactive)] px-2 py-0.5 rounded-full">{$t('ai.recommended_badge')}</span>
-                          {/if}
-                        </div>
-                        <p class="text-xs text-stone-600 dark:text-gray-300 mt-1">{rec.description}</p>
-                        <p class="text-xs text-stone-500 dark:text-gray-400 mt-0.5">{$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}</p>
-                      </div>
-                      {#if alreadyInstalled}
-                        <span class="text-xs text-stone-500 dark:text-gray-400 mt-1">{$t('ai.installed_tag')}</span>
-                      {:else}
-                        <button
-                          class="px-4 py-2 bg-[var(--color-interactive)] text-white text-sm rounded-lg hover:bg-[var(--color-interactive-hover)] min-h-[44px]"
-                          onclick={() => handlePull(rec.name)}
-                        >
-                          {$t('ai.download_button')}
-                        </button>
-                      {/if}
-                    </div>
                   </div>
                 {/each}
               </div>

@@ -9,7 +9,7 @@ use super::ollama_types::{
     OllamaError, OllamaHealth, OllamaShowResponse, OllamaTagsResponse, PullProgress,
     VisionChatMessage, VisionChatRequest, VisionGenerateRequest, VisionGenerationOptions,
     VISION_MODEL_PREFIXES,
-    extract_model_component, recommended_model_names, validate_base_url, validate_model_name,
+    extract_model_component, validate_base_url, validate_model_name,
 };
 use super::types::{LlmClient, VisionClient};
 
@@ -627,16 +627,6 @@ impl OllamaClient {
             if available_names.iter().any(|n| n.starts_with(rec.as_str())) {
                 tracing::info!(model = %rec, source = "recommended", elapsed_ms = %start.elapsed().as_millis(), "Ollama resolve_model complete");
                 return Ok(rec.clone());
-            }
-        }
-
-        // Also check default recommended list if preference.recommended is empty
-        if preference.recommended.is_empty() {
-            for rec in recommended_model_names() {
-                if available_names.iter().any(|n| n.starts_with(rec.as_str())) {
-                    tracing::info!(model = %rec, source = "default_recommended", elapsed_ms = %start.elapsed().as_millis(), "Ollama resolve_model complete");
-                    return Ok(rec);
-                }
             }
         }
 
