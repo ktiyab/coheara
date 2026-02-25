@@ -9,11 +9,11 @@
 ![Platform](https://img.shields.io/badge/platform-desktop%20%2B%20mobile-brightgreen)
 ![Privacy](https://img.shields.io/badge/privacy-offline--only-2ea44f)
 
-> **Alpha Software — Not for clinical use.**
+> **Alpha — Functional but not clinically validated.**
 >
-> Coheara is under active development. It has **not** been validated for clinical decision-making, regulatory compliance, or use with real patient data in a care setting. APIs, data models, and storage formats may change between versions without migration support.
+> Coheara is a working application with production-grade encryption, structured data extraction, and a mobile companion. However, it has **not** been tested with real patient populations, validated for clinical decision-making, or reviewed for regulatory compliance. APIs, data models, and storage formats may change between versions without migration support.
 >
-> This project is a research prototype exploring what a private, local-first medical AI could look like. It does not diagnose, prescribe, or replace professional medical judgment. If you choose to use it with personal health documents, you do so at your own risk and with the understanding that extracted data may be incomplete or incorrect.
+> The AI extracts structured health data from your documents, but extractions may be incomplete or incorrect. Coheara does not diagnose, prescribe, or replace professional medical judgment — it helps you understand your records and prepare better questions for your doctor. You are responsible for verifying any information it surfaces.
 >
 > **Powered by [MedGemma](https://ai.google.dev/gemma/docs/medgemma)** — Google's open-weight medical SLM, running locally via [Ollama](https://ollama.com). MedGemma is the core engine: it reads documents, extracts structured health data, and answers questions. Without it, Coheara cannot function. MedGemma is licensed separately under Google's [Health AI Developer Foundations (HAI-DEF) Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms) — by downloading the model you accept those terms. See [License](#license) for details.
 >
