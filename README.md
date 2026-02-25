@@ -1,5 +1,24 @@
 # Coheara
 
+![Stage: Alpha](https://img.shields.io/badge/stage-alpha-orange)
+![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)
+![Rust](https://img.shields.io/badge/rust-1.80+-B7410E?logo=rust&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-5-3178C6?logo=typescript&logoColor=white)
+![Svelte](https://img.shields.io/badge/svelte-5-FF3E00?logo=svelte&logoColor=white)
+![Tauri](https://img.shields.io/badge/tauri-2.10-24C8D8?logo=tauri&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-desktop%20%2B%20mobile-brightgreen)
+![Privacy](https://img.shields.io/badge/privacy-offline--only-2ea44f)
+
+> **Alpha Software — Not for clinical use.**
+>
+> Coheara is under active development. It has **not** been validated for clinical decision-making, regulatory compliance, or use with real patient data in a care setting. APIs, data models, and storage formats may change between versions without migration support.
+>
+> This project is a research prototype exploring what a private, local-first medical AI could look like. It does not diagnose, prescribe, or replace professional medical judgment. If you choose to use it with personal health documents, you do so at your own risk and with the understanding that extracted data may be incomplete or incorrect.
+>
+> Contributions, feedback, and testing are welcome — see [Getting Started](#getting-started).
+
+---
+
 A private, locally-run medical document vault designed to solve the global problem of fragmented healthcare records.
 
 You collect prescriptions, lab reports, discharge summaries, and medical letters from every doctor you see. They pile up: paper in folders, PDFs in downloads, photos on your phone. No single person sees the complete picture. Not even your doctor.
