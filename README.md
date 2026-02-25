@@ -15,6 +15,8 @@
 >
 > This project is a research prototype exploring what a private, local-first medical AI could look like. It does not diagnose, prescribe, or replace professional medical judgment. If you choose to use it with personal health documents, you do so at your own risk and with the understanding that extracted data may be incomplete or incorrect.
 >
+> **Powered by [MedGemma](https://ai.google.dev/gemma/docs/medgemma)** — Google's open-weight medical SLM, running locally via [Ollama](https://ollama.com). MedGemma is the core engine: it reads documents, extracts structured health data, and answers questions. Without it, Coheara cannot function. MedGemma is licensed separately under Google's [Health AI Developer Foundations (HAI-DEF) Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms) — by downloading the model you accept those terms. See [License](#license) for details.
+>
 > Contributions, feedback, and testing are welcome — see [Getting Started](#getting-started).
 
 ---
@@ -169,12 +171,14 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 | macOS | `xcode-select --install` |
 | Linux | `sudo apt-get install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` |
 
-**For AI features** (optional, everything else works without it):
+**MedGemma via Ollama** (required — Coheara's core AI engine):
 
 ```bash
 # Install Ollama: https://ollama.com/download
 ollama pull medgemma:4b
 ```
+
+MedGemma 1.5 4B runs locally on your machine. It requires approximately 8 GB of RAM. No GPU needed, though one will improve speed. By pulling the model you accept Google's [HAI-DEF Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms).
 
 ### Run the desktop app
 
