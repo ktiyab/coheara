@@ -107,8 +107,10 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 - **Log symptoms**: OLDCARTS-guided journal with temporal correlation to medications
 - **Prepare for appointments**: auto-generated summaries with PDF export for your doctor
 - **Browse your timeline**: interactive SVG timeline across all health events
-- **Capture from phone**: photograph documents with your phone camera, send to desktop
+- **Manage family health**: separate encrypted profiles for each family member (1Password Families pattern)
+- **Capture from phone**: photograph documents with your phone camera, send to desktop over encrypted HTTPS
 - **Install from desktop**: serve the phone companion directly over WiFi (QR code, APK or PWA, no app store)
+- **Configure AI models**: tag models with capabilities (vision, medical, PDF, text), enable/disable per model
 - **Back up everything**: encrypted backup files with cryptographic erasure
 
 ---
@@ -120,16 +122,19 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 | Layer | Technology |
 |-------|-----------|
 | Shell | Tauri 2.10 (Rust + WebView) |
-| Frontend | Svelte 5, SvelteKit 2, TailwindCSS 4 |
-| Backend | Rust 1.80+ (975 tests, 0 warnings) |
-| Database | SQLite (bundled via rusqlite, WAL mode) |
+| Frontend | Svelte 5, SvelteKit 2, TailwindCSS 4, Flowbite 4.0 |
+| Backend | Rust 1.80+ (1,800+ tests, 0 warnings) |
+| Database | SQLite via rusqlite 0.32 (SQLCipher encryption) |
 | Vectors | SQLite-backed cosine similarity search |
 | Encryption | AES-256-GCM, PBKDF2 600K iterations, BIP39 recovery |
 | AI | MedGemma 1.5 4B via Ollama (runs locally) |
 | Embeddings | all-MiniLM-L6-v2 via ONNX Runtime |
-| OCR | Tesseract (bundled) |
-| Phone API | axum REST + WebSocket server on local WiFi |
+| PDF / OCR | Google PDFium (pdfium-render 0.8) + MedGemma vision |
+| HTTPS | rustls 0.23 + local CA (rcgen 0.13, ECDSA P-256) |
+| Phone API | axum 0.7 REST + WebSocket over local HTTPS |
+| Key exchange | X25519 Diffie-Hellman (device pairing) |
 | Distribution | HTTP server for companion app install (APK + PWA) |
+| Bundler | Vite 7 (SPA via adapter-static) |
 
 ### Mobile
 
@@ -211,11 +216,11 @@ npm run tauri build
 
 | Platform | Output | Location |
 |----------|--------|----------|
-| Windows | `Coheara_0.1.0_x64-setup.exe` (NSIS) | `src-tauri/target/release/bundle/nsis/` |
-| Windows | `Coheara_0.1.0_x64_en-US.msi` | `src-tauri/target/release/bundle/msi/` |
-| macOS | `Coheara_0.1.0_aarch64.dmg` | `src-tauri/target/release/bundle/dmg/` |
-| Linux | `coheara_0.1.0_amd64.deb` | `src-tauri/target/release/bundle/deb/` |
-| Linux | `coheara_0.1.0_amd64.AppImage` | `src-tauri/target/release/bundle/appimage/` |
+| Windows | `Coheara_0.5.0_x64-setup.exe` (NSIS) | `src-tauri/target/release/bundle/nsis/` |
+| Windows | `Coheara_0.5.0_x64_en-US.msi` | `src-tauri/target/release/bundle/msi/` |
+| macOS | `Coheara_0.5.0_aarch64.dmg` | `src-tauri/target/release/bundle/dmg/` |
+| Linux | `coheara_0.5.0_amd64.deb` | `src-tauri/target/release/bundle/deb/` |
+| Linux | `coheara_0.5.0_amd64.AppImage` | `src-tauri/target/release/bundle/appimage/` |
 
 Build a specific format: `npm run tauri build -- --bundles nsis` (or `dmg`, `deb`, `appimage`).
 
@@ -258,10 +263,10 @@ For most users, the direct install via QR code from the desktop is the simplest 
 ### Desktop: automated via GitHub Actions
 
 ```bash
-# 1. Bump version in: tauri.conf.json, Cargo.toml, package.json, config.rs
+# 1. Bump version in: tauri.conf.json, Cargo.toml, package.json, mobile/package.json
 # 2. Commit and tag
-git commit -am "Release v0.2.0"
-git tag v0.2.0
+git commit -am "Bump version to vX.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z — Release title"
 git push origin main --tags
 ```
 
@@ -295,7 +300,7 @@ Direct install is the recommended path: no developer accounts, no store review, 
 - `npm run check`: Svelte/TypeScript type checking
 - `npm run build`: frontend build verification
 - `cargo clippy -- -D warnings`: zero-warning Rust lint
-- `cargo test`: 975 backend tests
+- `cargo nextest run`: 1,800+ backend tests
 
 ### On version tag (`.github/workflows/release.yml`)
 
@@ -318,22 +323,26 @@ coheara/
 ├── src/                              # Desktop frontend (Svelte 5)
 │   ├── routes/                       #   SvelteKit pages
 │   ├── lib/
-│   │   ├── components/               #   67 components across 12 domains
-│   │   ├── api/                      #   Tauri IPC wrappers
-│   │   └── types/                    #   TypeScript type definitions
+│   │   ├── components/               #   153 components across 14 domains
+│   │   ├── api/                      #   Tauri IPC wrappers (18 modules)
+│   │   └── types/                    #   TypeScript type definitions (17 modules)
 │   └── app.css                       #   TailwindCSS entry
 ├── src-tauri/                        # Desktop backend (Rust)
 │   ├── src/
-│   │   ├── models/                   #   Data model (18 tables, 16 enums)
-│   │   ├── db/                       #   SQLite schema + repository functions
-│   │   ├── crypto/                   #   AES-256-GCM, PBKDF2, BIP39 recovery
-│   │   ├── pipeline/                 #   Import > OCR > Structure > Embed > Store
+│   │   ├── models/                   #   Data model (34 tables, 16 enums)
+│   │   ├── db/                       #   SQLite schema + 16 repository modules
+│   │   ├── crypto/                   #   AES-256-GCM, Argon2id, BIP39 recovery
+│   │   ├── pipeline/                 #   Import > Extract > Structure > Embed > Store (67 files)
 │   │   ├── intelligence/             #   8 coherence detectors, alert lifecycle
-│   │   ├── commands/                 #   65 Tauri IPC commands
-│   │   ├── api/                      #   axum REST + WebSocket for phone sync
+│   │   ├── commands/                 #   120 Tauri IPC commands (18 files)
+│   │   ├── api/                      #   axum HTTPS + WebSocket for phone sync
+│   │   ├── trust/                    #   Backup, dose check, erasure, emergency
+│   │   ├── local_ca.rs               #   Local HTTPS CA (ECDSA P-256)
+│   │   ├── session_cache.rs          #   Multi-profile key cache (Zeroize)
+│   │   ├── authorization.rs          #   Access control (AuthZ cascade)
 │   │   ├── distribution.rs           #   App Distribution Server (APK + PWA over WiFi)
 │   │   └── sync.rs                   #   Version-based delta sync engine
-│   ├── migrations/                   #   SQLite schema (6 migrations)
+│   ├── migrations/                   #   SQLite schema (18 migrations)
 │   └── tauri.conf.json               #   App config + updater + bundle settings
 ├── mobile/                           # Phone companion (Capacitor 8)
 │   ├── src/
@@ -370,8 +379,8 @@ npm run tauri dev                  # Hot-reload dev mode
 npm run check                      # Svelte/TypeScript type check
 npm run build                      # Build frontend (required before cargo commands)
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml -- pipeline::safety  # Specific module
+cargo nextest run --manifest-path src-tauri/Cargo.toml
+cargo nextest run --manifest-path src-tauri/Cargo.toml -E 'test(pipeline::safety)'  # Specific module
 ```
 
 ### Mobile
@@ -388,11 +397,11 @@ npm run cap:open:ios               # Open Xcode
 
 ### Test suite
 
-1,456 tests across desktop and mobile:
+2,280+ tests across desktop and mobile:
 
 | Suite | Tests | Scope |
 |-------|-------|-------|
-| Desktop (Rust) | 975 | Encryption, data model, import, OCR, structuring, storage, RAG, safety, coherence, sync, pairing, WebSocket, distribution, commands |
+| Desktop (Rust) | 1,800+ | Encryption, data model, import, vision OCR, preprocessing, structuring, storage, RAG, safety, coherence, pipeline, model router, HTTPS CA, pairing, sync, commands |
 | Mobile (Vitest) | 481 | Stores, API clients, biometric, lifecycle, screenshot, integrity, cache, sync, safety filter, accessibility |
 
 ---
@@ -410,10 +419,13 @@ All data stays on the user's machine. Nothing is sent anywhere.
 | iOS | N/A | App-private Preferences (Keychain) |
 
 Each desktop profile is an isolated encrypted directory:
-- `database/coheara.db`: SQLite (encrypted at application level)
+- `database/coheara.db`: SQLite (AES-256-GCM via SQLCipher)
 - `originals/`: imported document files
 - `markdown/`: extracted structured documents
-- `verification.enc`: password verification token
+- `vectors/`: LanceDB vector store (embeddings)
+- `salt.bin`, `recovery_salt.bin`: cryptographic salts
+- `verification.enc`: password verification token (AES-GCM)
+- `recovery_blob.enc`: master key wrapped in recovery key
 
 The phone caches a read-only snapshot of the active profile. Revoking the device pairing clears all cached data.
 
@@ -429,7 +441,8 @@ The phone caches a read-only snapshot of the active profile. Revoking the device
 **Device pairing:** X25519 ECDH key exchange, one-time WebSocket tickets (30s TTL), token rotation with 30s grace period.
 **Phone privacy:** Face ID / fingerprint gating, screenshot prevention on sensitive screens, session timeout (5 min), root/jailbreak warning.
 **Network:** Zero internet access. Desktop-to-phone sync over local WiFi only.
-**App distribution:** HTTP (not HTTPS) on an ephemeral port. The distribution server only serves public install artifacts (APK, PWA assets), never patient data. Local WiFi with WPA2/WPA3 provides transport encryption. Per-IP rate limiting prevents abuse.
+**HTTPS:** Local Certificate Authority (ECDSA P-256, rcgen + rustls). CA generated once, installed on phones. Server certs issued per-session with SAN (local IP). Cert fingerprint embedded in QR code for pinning. 7 security boundaries verified, 0 vulnerabilities.
+**App distribution:** HTTP on an ephemeral port for initial CA cert download only (bootstrap). All patient data endpoints served over HTTPS. Per-IP rate limiting prevents abuse.
 **Telemetry:** None. No analytics, no crash reporting, no phone-home.
 
 ---
