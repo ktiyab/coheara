@@ -41,6 +41,16 @@
     "unlock_btn": "Freischalten",
     "unlock_success": "Freigeschaltet",
     "unlock_not_now": "Nicht jetzt",
-    "unlock_done": "Fertig"
+    "unlock_done": "Fertig",
+    "secure_server_heading": "Sichere Verbindung",
+    "secure_server_description": "Starten Sie den verschlüsselten HTTPS-Server, damit Ihr Telefon sicher auf Ihre Daten zugreifen kann.",
+    "secure_server_start": "Sicheren Server starten",
+    "secure_server_stop": "Sicheren Server stoppen",
+    "secure_server_starting": "Sicherer Server wird gestartet...",
+    "secure_server_running": "Sicherer Server aktiv",
+    "secure_server_address": "Adresse:",
+    "secure_server_port": "Port:",
+    "secure_server_required": "Starten Sie den sicheren Server oben, bevor Sie ein Gerät koppeln.",
+    "secure_server_error": "Sicherer Server konnte nicht gestartet werden"
   }
 }

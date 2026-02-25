@@ -341,4 +341,108 @@ mod tests {
         server.shutdown();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
+
+    /// SEC-HTTPS-01 integration: Full CA → server cert → HTTPS connection chain.
+    ///
+    /// Validates that a reqwest client configured to trust our generated CA
+    /// can successfully make an HTTPS request to the server.
+    #[tokio::test]
+    async fn https_full_chain_ca_trusted_client() {
+        use crate::local_ca;
+
+        let core = test_core();
+        let ca = local_ca::generate_ca().expect("CA generation should succeed");
+        let ip = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let cert = local_ca::issue_server_cert(&ca, ip)
+            .expect("Server cert should be issued");
+
+        let mut server = start_https_server(core, ip, cert.clone())
+            .await
+            .expect("HTTPS server should start");
+
+        let port = server.session.port;
+
+        // Build a reqwest client that trusts our CA
+        let ca_pem = local_ca::export_ca_pem(&ca.cert_der);
+        let ca_cert = reqwest::Certificate::from_pem(ca_pem.as_bytes())
+            .expect("CA PEM should parse as reqwest Certificate");
+        let client = reqwest::Client::builder()
+            .add_root_certificate(ca_cert)
+            .build()
+            .expect("Client should build");
+
+        // HTTPS request to the health endpoint — should connect (TLS handshake succeeds)
+        // The endpoint itself will return 4xx (no auth headers), but a successful
+        // HTTP status response proves the full TLS chain is valid.
+        let url = format!("https://127.0.0.1:{port}/api/health");
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .expect("HTTPS request should succeed (TLS chain validated)");
+
+        // Any HTTP response means the TLS handshake completed successfully.
+        // The health endpoint rejects unauthenticated requests with 4xx.
+        assert!(
+            resp.status().is_client_error() || resp.status().is_success(),
+            "Expected valid HTTP response, got {}",
+            resp.status()
+        );
+
+        server.shutdown();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    /// SEC-HTTPS-01: Untrusted client (no CA) should fail TLS handshake.
+    #[tokio::test]
+    async fn https_untrusted_client_rejected() {
+        use crate::local_ca;
+
+        let core = test_core();
+        let ca = local_ca::generate_ca().expect("CA generation should succeed");
+        let ip = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let cert = local_ca::issue_server_cert(&ca, ip)
+            .expect("Server cert should be issued");
+
+        let mut server = start_https_server(core, ip, cert)
+            .await
+            .expect("HTTPS server should start");
+
+        let port = server.session.port;
+
+        // Default client does NOT trust our CA — TLS handshake should fail
+        let url = format!("https://127.0.0.1:{port}/api/health");
+        let result = reqwest::get(&url).await;
+        assert!(result.is_err(), "Untrusted client should fail TLS handshake");
+
+        server.shutdown();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    /// SEC-HTTPS-01: Server cert fingerprint matches the CA-issued cert.
+    #[tokio::test]
+    async fn https_cert_fingerprint_matches() {
+        use crate::local_ca;
+
+        let core = test_core();
+        let ca = local_ca::generate_ca().expect("CA generation should succeed");
+        let ip = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let cert = local_ca::issue_server_cert(&ca, ip)
+            .expect("Server cert should be issued");
+
+        let expected_fp = cert.fingerprint.clone();
+
+        let mut server = start_https_server(core, ip, cert)
+            .await
+            .expect("HTTPS server should start");
+
+        // The server's stored fingerprint should match the cert's fingerprint
+        assert_eq!(
+            server.cert_fingerprint.as_deref(),
+            Some(expected_fp.as_str()),
+            "Server fingerprint should match issued cert fingerprint"
+        );
+
+        server.shutdown();
+    }
 }

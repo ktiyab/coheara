@@ -41,6 +41,16 @@
     "unlock_btn": "Unlock",
     "unlock_success": "Unlocked",
     "unlock_not_now": "Not now",
-    "unlock_done": "Done"
+    "unlock_done": "Done",
+    "secure_server_heading": "Secure Connection",
+    "secure_server_description": "Start the encrypted HTTPS server so your phone can securely access your data.",
+    "secure_server_start": "Start Secure Server",
+    "secure_server_stop": "Stop Secure Server",
+    "secure_server_starting": "Starting secure server...",
+    "secure_server_running": "Secure server running",
+    "secure_server_address": "Address:",
+    "secure_server_port": "Port:",
+    "secure_server_required": "Start the secure server above before pairing a device.",
+    "secure_server_error": "Failed to start secure server"
   }
 }

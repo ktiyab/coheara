@@ -1,12 +1,17 @@
 <!-- CP-01: Unified Companion Screen — WhatsApp Linked Devices + Google Home pattern -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { t } from 'svelte-i18n';
   import {
     startDistribution,
     stopDistribution,
     getDistributionStatus,
   } from '$lib/api/distribution';
+  import {
+    startMobileApi,
+    stopMobileApi,
+    getMobileApiStatus,
+  } from '$lib/api/mobile_api';
   import {
     startPairing,
     cancelPairing,
@@ -15,6 +20,7 @@
     denyPairing,
   } from '$lib/api/pairing';
   import type { InstallQrCode, DistributionStatus } from '$lib/types/distribution';
+  import type { MobileApiSession } from '$lib/types/mobile_api';
   import type { PairingStartResponse, PendingApproval } from '$lib/types/pairing';
   import PairedDevices from '$lib/components/settings/PairedDevices.svelte';
   import ConfirmPairingDialog from '$lib/components/settings/ConfirmPairingDialog.svelte';
@@ -64,6 +70,53 @@
   function stopStatusPolling() {
     if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
   }
+
+  // ═══ Zone B2: HTTPS API server state (SEC-HTTPS-01) ═══
+  type ApiServerView = 'idle' | 'starting' | 'running' | 'error';
+  let apiServerView = $state<ApiServerView>('idle');
+  let apiSession: MobileApiSession | null = $state(null);
+  let apiError: string | null = $state(null);
+  let apiLoading = $state(false);
+
+  async function handleStartApiServer() {
+    apiLoading = true;
+    apiError = null;
+    apiServerView = 'starting';
+    try {
+      apiSession = await startMobileApi();
+      apiServerView = 'running';
+    } catch (e) {
+      apiError = e instanceof Error ? e.message : String(e);
+      apiServerView = 'error';
+    } finally {
+      apiLoading = false;
+    }
+  }
+
+  async function handleStopApiServer() {
+    try { await stopMobileApi(); } catch { /* ignore */ }
+    apiSession = null;
+    apiServerView = 'idle';
+  }
+
+  // ═══ On-mount: detect already-running servers ═══
+  onMount(async () => {
+    try {
+      const [apiStatus, distStatusResult] = await Promise.all([
+        getMobileApiStatus(),
+        getDistributionStatus(),
+      ]);
+      if (apiStatus?.running && apiStatus.session) {
+        apiSession = apiStatus.session;
+        apiServerView = 'running';
+      }
+      if (distStatusResult?.session) {
+        distStatus = distStatusResult;
+        serverView = 'serving';
+        startStatusPolling();
+      }
+    } catch { /* non-fatal — stay idle */ }
+  });
 
   // ═══ Zone D: Pairing flow state ═══
   let showPairing = $state(false);
@@ -264,6 +317,57 @@
         {/if}
       </section>
 
+      <!-- ═══ Zone B2: Secure Connection (HTTPS API Server) ═══ -->
+      <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm p-5">
+        <h2 class="text-xs font-medium text-stone-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+          {$t('companion.secure_server_heading')}
+        </h2>
+
+        {#if apiServerView === 'idle'}
+          <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">
+            {$t('companion.secure_server_description')}
+          </p>
+          <Button variant="primary" fullWidth loading={apiLoading} onclick={handleStartApiServer}>
+            <span class="flex items-center justify-center gap-2">
+              <LockIcon class="w-4 h-4" />
+              {$t('companion.secure_server_start')}
+            </span>
+          </Button>
+
+        {:else if apiServerView === 'starting'}
+          <div class="flex items-center justify-center gap-2 py-6">
+            <div class="w-5 h-5 border-2 border-[var(--color-interactive)] border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-sm text-stone-500 dark:text-gray-400">{$t('companion.secure_server_starting')}</span>
+          </div>
+
+        {:else if apiServerView === 'running' && apiSession}
+          <div class="bg-stone-50 dark:bg-gray-950 rounded-lg p-3 text-xs text-stone-500 dark:text-gray-400 space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span class="font-medium">{$t('companion.secure_server_running')}</span>
+            </div>
+            <p><span class="font-medium">{$t('companion.secure_server_address')}</span> {apiSession.server_addr}</p>
+            <p><span class="font-medium">{$t('companion.secure_server_port')}</span> {apiSession.port}</p>
+          </div>
+          <div class="mt-4">
+            <Button variant="secondary" fullWidth onclick={handleStopApiServer}>
+              {$t('companion.secure_server_stop')}
+            </Button>
+          </div>
+
+        {:else if apiServerView === 'error'}
+          <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-200 dark:border-red-800 mb-3">
+            <p class="text-sm text-red-600 dark:text-red-400">{apiError}</p>
+          </div>
+          <button
+            class="text-sm text-[var(--color-interactive)] font-medium hover:underline"
+            onclick={() => { apiServerView = 'idle'; apiError = null; }}
+          >
+            {$t('common.try_again')}
+          </button>
+        {/if}
+      </section>
+
       <!-- ═══ Zone C: Paired Devices ═══ -->
       <section class="mt-4 mx-4 bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm overflow-hidden">
         <div class="px-4 pt-4 pb-2 flex items-center justify-between">
@@ -280,7 +384,12 @@
           <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">
             {$t('companion.pair_description')}
           </p>
-          <Button variant="primary" fullWidth onclick={handleStartPairing}>
+          {#if apiServerView !== 'running'}
+            <p class="text-xs text-amber-600 dark:text-amber-400 mb-3">
+              {$t('companion.secure_server_required')}
+            </p>
+          {/if}
+          <Button variant="primary" fullWidth disabled={apiServerView !== 'running'} onclick={handleStartPairing}>
             <span class="flex items-center justify-center gap-2">
               <PlusIcon class="w-5 h-5" />
               {$t('companion.pair_new')}

@@ -41,6 +41,16 @@
     "unlock_btn": "Déverrouiller",
     "unlock_success": "Déverrouillé",
     "unlock_not_now": "Pas maintenant",
-    "unlock_done": "Terminé"
+    "unlock_done": "Terminé",
+    "secure_server_heading": "Connexion sécurisée",
+    "secure_server_description": "Démarrez le serveur HTTPS chiffré pour que votre téléphone puisse accéder à vos données en toute sécurité.",
+    "secure_server_start": "Démarrer le serveur sécurisé",
+    "secure_server_stop": "Arrêter le serveur sécurisé",
+    "secure_server_starting": "Démarrage du serveur sécurisé...",
+    "secure_server_running": "Serveur sécurisé actif",
+    "secure_server_address": "Adresse :",
+    "secure_server_port": "Port :",
+    "secure_server_required": "Démarrez le serveur sécurisé ci-dessus avant de jumeler un appareil.",
+    "secure_server_error": "Échec du démarrage du serveur sécurisé"
   }
 }
