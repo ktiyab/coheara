@@ -52,3 +52,5 @@ AUDIT.txt
 .null
 Specs/
 babel-dashboard/
+tmp/
+diagnostic/

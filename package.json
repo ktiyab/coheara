@@ -1,7 +1,7 @@
 {
   "name": "coheara",
-  "private": true,
   "version": "0.4.0",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "i18n:build": "node src/lib/i18n/build-locales.js",
