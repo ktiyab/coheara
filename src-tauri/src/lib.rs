@@ -180,7 +180,15 @@ pub fn run() {
             commands::ai_setup::pull_ollama_model,
             commands::ai_setup::cancel_model_pull,
             commands::ai_setup::delete_ollama_model,
-            commands::ai_setup::get_recommended_models,
+            // CT-01: Model Capability Tags + Enabled Flag
+            commands::ai_setup::get_model_tags,
+            commands::ai_setup::set_model_tags,
+            commands::ai_setup::add_model_tag,
+            commands::ai_setup::remove_model_tag,
+            commands::ai_setup::get_all_model_tags,
+            commands::ai_setup::is_model_enabled,
+            commands::ai_setup::set_model_enabled,
+            commands::ai_setup::get_disabled_models,
             // L6-04: Model Preferences
             commands::ai_setup::set_active_model,
             commands::ai_setup::get_active_model,

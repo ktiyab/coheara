@@ -991,69 +991,71 @@ fn dedup_instructions(insts: &mut Vec<ExtractedInstruction>) {
 // Factory
 // ---------------------------------------------------------------------------
 
-/// Build a `DocumentProcessor` with production implementations.
+/// CT-01: Build a `DocumentProcessor` from a `PipelineAssignment`.
 ///
-/// - PDF renderer: `PdfiumRenderer` (renders any PDF page to PNG via PDFium)
-/// - Vision OCR: `OllamaVisionOcr` via the passed model
-/// - LLM structuring: `OllamaClient` → `DocumentStructurer`
+/// Dispatches on `ExtractionStrategy`:
+/// - `VisionOcr { model }` → full vision pipeline (PdfiumRenderer + OllamaVisionOcr)
+/// - `PdfiumText` / `DirectText` → text-only extractor (no vision model needed)
 ///
-/// Returns an error if required services are unavailable (no PDFium, no Ollama, no model).
-///
-/// Role-based model architecture — vision OCR and LLM structuring can use different models.
-/// Currently both default to MedGemma; the architecture supports future model diversity.
-/// - `vision_model`: Used for PDF page → text extraction (MedGemma default)
-/// - `llm_model`: Used for text → structured entities extraction (MedGemma default)
-/// - `config`: Hardware-tiered pipeline configuration (context windows, keep_alive, etc.)
-pub fn build_processor(
-    vision_model: &str,
-    llm_model: &str,
+/// The structuring model comes from `assignment.structuring_model`.
+pub fn build_processor_from_assignment(
+    assignment: &crate::pipeline::model_router::PipelineAssignment,
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
 ) -> Result<DocumentProcessor, ProcessingError> {
-    use crate::ollama_service::OllamaService;
-    use crate::pipeline::extraction::pdfium::PdfiumRenderer;
-    use crate::pipeline::extraction::preprocess::{ImagePreprocessor, PreprocessingPipeline};
-    use crate::pipeline::extraction::vision_ocr::{
-        OllamaMedicalImageInterpreter, OllamaVisionOcr,
+    use crate::pipeline::model_router::ExtractionStrategy;
+
+    let extractor: Box<dyn TextExtractor + Send + Sync> = match &assignment.extraction {
+        ExtractionStrategy::VisionOcr { model } => {
+            use crate::ollama_service::OllamaService;
+            use crate::pipeline::extraction::pdfium::PdfiumRenderer;
+            use crate::pipeline::extraction::preprocess::{ImagePreprocessor, PreprocessingPipeline};
+            use crate::pipeline::extraction::vision_ocr::{
+                OllamaMedicalImageInterpreter, OllamaVisionOcr,
+            };
+
+            let pdf_renderer = PdfiumRenderer::new()
+                .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
+            let mut vision_client = OllamaService::client();
+            vision_client.set_vision_num_ctx(config.num_ctx_vision);
+            let vision_client: Arc<dyn crate::pipeline::structuring::types::VisionClient> =
+                Arc::new(vision_client);
+            let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
+                Box::new(OllamaVisionOcr::new(Arc::clone(&vision_client), model.clone()).with_language(language));
+            let interpreter = Box::new(OllamaMedicalImageInterpreter::new(
+                Arc::clone(&vision_client),
+                model.clone(),
+            ));
+            let preprocessor: Box<dyn ImagePreprocessor> =
+                Box::new(PreprocessingPipeline::medgemma_gpu());
+            Box::new(
+                DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr, preprocessor)
+                    .with_interpreter(interpreter)
+                    .with_language(language),
+            )
+        }
+        ExtractionStrategy::PdfiumText | ExtractionStrategy::DirectText => {
+            Box::new(crate::pipeline::extraction::text_only::PlainTextExtractor)
+        }
     };
 
-    // PDF rendering (PdfiumRenderer) + vision OCR extraction + preprocessing pipeline
-    let pdf_renderer = PdfiumRenderer::new()
-        .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
-    let mut vision_client = OllamaService::client();
-    vision_client.set_vision_num_ctx(config.num_ctx_vision);
-    let vision_client: Arc<dyn crate::pipeline::structuring::types::VisionClient> =
-        Arc::new(vision_client);
-    let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
-        Box::new(OllamaVisionOcr::new(Arc::clone(&vision_client), vision_model.to_string()).with_language(language));
-    let interpreter = Box::new(OllamaMedicalImageInterpreter::new(
-        Arc::clone(&vision_client),
-        vision_model.to_string(),
-    ));
-    let preprocessor: Box<dyn ImagePreprocessor> =
-        Box::new(PreprocessingPipeline::medgemma_gpu());
-    let extractor = Box::new(
-        DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr, preprocessor)
-            .with_interpreter(interpreter)
-            .with_language(language),
-    );
-
-    // LLM structuring (separate client instance with hardware-tuned context window)
+    // LLM structuring (same for all strategies)
     let mut structuring_opts = crate::pipeline::structuring::ollama_types::GenerationOptions::default();
     structuring_opts.num_ctx = Some(config.num_ctx_structuring);
-    let structuring_client = OllamaService::client().with_options(structuring_opts);
+    let structuring_client = crate::ollama_service::OllamaService::client().with_options(structuring_opts);
     tracing::info!(
-        vision_model = %vision_model,
-        llm_model = %llm_model,
-        num_ctx_vision = config.num_ctx_vision,
-        num_ctx_structuring = config.num_ctx_structuring,
-        "Document processor initialized (role-based model architecture, hardware-tiered)"
+        extraction = ?assignment.extraction,
+        structuring_model = %assignment.structuring_model,
+        processing_mode = ?assignment.processing_mode,
+        "CT-01: Document processor built from PipelineAssignment"
     );
-    let structurer = Box::new(DocumentStructurer::new(Box::new(structuring_client), llm_model));
+    let structurer = Box::new(DocumentStructurer::new(
+        Box::new(structuring_client),
+        &assignment.structuring_model,
+    ));
 
     Ok(DocumentProcessor::new(extractor, structurer))
 }
-
 
 // ---------------------------------------------------------------------------
 // Tests

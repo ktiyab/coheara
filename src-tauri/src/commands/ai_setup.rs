@@ -9,9 +9,11 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::core_state::CoreState;
+use std::collections::HashMap;
+
 use crate::pipeline::structuring::ollama_types::{
-    ModelDetail, ModelInfo, OllamaHealth, PullProgress,
-    RecommendedModel, recommended_models, validate_model_name,
+    CapabilityTag, ModelDetail, ModelInfo, OllamaHealth, PullProgress,
+    validate_model_name,
 };
 use crate::pipeline::structuring::preferences::{
     PreferenceError, PreferenceSource, ResolvedModel,
@@ -112,6 +114,7 @@ pub fn pull_ollama_model(app: AppHandle, name: String) -> Result<(), String> {
         // Forward progress events to Tauri frontend
         let mut last_total: u64 = 0;
         let mut last_completed: u64 = 0;
+        let mut success_emitted = false;
 
         for progress in progress_rx {
             if let Some(total) = progress.total {
@@ -140,7 +143,7 @@ pub fn pull_ollama_model(app: AppHandle, name: String) -> Result<(), String> {
                 tracing::warn!(error = %e, "Failed to emit pull progress event");
             }
 
-            // On success, emit final event
+            // On success, emit final "complete" event
             if progress.status == "success" {
                 let final_event = ModelPullProgress {
                     status: "complete".to_string(),
@@ -151,13 +154,30 @@ pub fn pull_ollama_model(app: AppHandle, name: String) -> Result<(), String> {
                     error_message: None,
                 };
                 let _ = app.emit("model-pull-progress", &final_event);
+                success_emitted = true;
             }
         }
 
-        // Check pull result
+        // CT-01/AC-01: Guarantee "complete" event after successful join,
+        // even if "success" NDJSON line was missed in the progress stream.
         match pull_handle.join() {
             Ok(Ok(())) => {
                 tracing::info!(model = %model_name, "Model pull completed successfully");
+                if !success_emitted {
+                    tracing::warn!(
+                        model = %model_name,
+                        "Pull succeeded but 'success' status was not forwarded — emitting complete"
+                    );
+                    let final_event = ModelPullProgress {
+                        status: "complete".to_string(),
+                        model_name: model_name.clone(),
+                        progress_percent: 100.0,
+                        bytes_completed: last_total,
+                        bytes_total: last_total,
+                        error_message: None,
+                    };
+                    let _ = app.emit("model-pull-progress", &final_event);
+                }
             }
             Ok(Err(e)) => {
                 tracing::error!(model = %model_name, error = %e, "Model pull failed");
@@ -172,7 +192,17 @@ pub fn pull_ollama_model(app: AppHandle, name: String) -> Result<(), String> {
                 let _ = app.emit("model-pull-progress", &error_event);
             }
             Err(_) => {
+                // CT-01/AC-02: Emit error event on thread panic (was silent before).
                 tracing::error!(model = %model_name, "Model pull thread panicked");
+                let error_event = ModelPullProgress {
+                    status: "error".to_string(),
+                    model_name: model_name.clone(),
+                    progress_percent: 0.0,
+                    bytes_completed: 0,
+                    bytes_total: 0,
+                    error_message: Some("Internal error: pull thread panicked".to_string()),
+                };
+                let _ = app.emit("model-pull-progress", &error_event);
             }
         }
 
@@ -199,25 +229,29 @@ pub fn cancel_model_pull() -> Result<(), String> {
 /// Delete a locally installed model.
 ///
 /// SEC-L6-02: Model name validated before HTTP call.
+/// CT-01: Also cleans up capability tags and enabled state.
 /// Q-04: If deleted model was active, caller should re-run resolve_model.
 /// Runs on a blocking thread to avoid freezing the UI (HTTP call).
 #[tauri::command]
-pub async fn delete_ollama_model(name: String) -> Result<(), String> {
+pub async fn delete_ollama_model(
+    name: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let client = crate::ollama_service::OllamaService::client();
-        client.delete_model(&name).map_err(|e| e.to_string())
+        client.delete_model(&name).map_err(|e| e.to_string())?;
+
+        // CT-01/AC-14: Clean up tags and enabled state on deletion
+        if let Ok(conn) = state.open_db() {
+            let _ = crate::db::repository::delete_model_tags(&conn, &name);
+            let _ = crate::db::repository::delete_model_enabled(&conn, &name);
+        }
+
+        Ok(())
     })
     .await
     .map_err(|e| format!("Task failed: {e}"))?
-}
-
-/// Get the curated list of recommended medical models.
-///
-/// DOM-L6-01: Includes minimum RAM requirements.
-/// DOM-L6-02: Includes medical classification.
-#[tauri::command]
-pub fn get_recommended_models() -> Vec<RecommendedModel> {
-    recommended_models()
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -325,6 +359,117 @@ pub fn get_user_preference_cmd(
 }
 
 // ═══════════════════════════════════════════════════════════
+// CT-01: Model Capability Tags + Enabled Flag IPC Commands
+// ═══════════════════════════════════════════════════════════
+
+/// Get all capability tags for a model.
+#[tauri::command]
+pub fn get_model_tags(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+) -> Result<Vec<String>, String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let tags = crate::db::repository::get_model_tags(&conn, &model_name)
+        .map_err(|e| e.to_string())?;
+    Ok(tags.into_iter().map(|t| t.to_string()).collect())
+}
+
+/// Replace all tags for a model.
+#[tauri::command]
+pub fn set_model_tags(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let parsed: Vec<CapabilityTag> = tags
+        .iter()
+        .map(|s| s.parse::<CapabilityTag>().map_err(|e| e.to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::set_model_tags(&conn, &model_name, &parsed)
+        .map_err(|e| e.to_string())
+}
+
+/// Add a single tag to a model (idempotent).
+#[tauri::command]
+pub fn add_model_tag(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+    tag: String,
+) -> Result<(), String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let parsed = tag.parse::<CapabilityTag>().map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::add_model_tag(&conn, &model_name, &parsed)
+        .map_err(|e| e.to_string())
+}
+
+/// Remove a single tag from a model.
+#[tauri::command]
+pub fn remove_model_tag(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+    tag: String,
+) -> Result<(), String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let parsed = tag.parse::<CapabilityTag>().map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::remove_model_tag(&conn, &model_name, &parsed)
+        .map_err(|e| e.to_string())
+}
+
+/// Get all tags for all models (bulk load for frontend).
+#[tauri::command]
+pub fn get_all_model_tags(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let all = crate::db::repository::get_all_model_tags(&conn)
+        .map_err(|e| e.to_string())?;
+    Ok(all
+        .into_iter()
+        .map(|(name, tags)| (name, tags.into_iter().map(|t| t.to_string()).collect()))
+        .collect())
+}
+
+/// Check if a model is enabled for pipeline use.
+#[tauri::command]
+pub fn is_model_enabled(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+) -> Result<bool, String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::is_model_enabled(&conn, &model_name)
+        .map_err(|e| e.to_string())
+}
+
+/// Set a model's enabled/disabled state.
+#[tauri::command]
+pub fn set_model_enabled(
+    state: State<'_, Arc<CoreState>>,
+    model_name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    validate_model_name(&model_name).map_err(|e| e.to_string())?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::set_model_enabled(&conn, &model_name, enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Get all explicitly disabled model names.
+#[tauri::command]
+pub fn get_disabled_models(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<String>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::repository::get_disabled_models(&conn)
+        .map_err(|e| e.to_string())
+}
+
+// ═══════════════════════════════════════════════════════════
 // L6-03: AI Setup Wizard IPC Commands
 // ═══════════════════════════════════════════════════════════
 
@@ -418,16 +563,6 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"progress_percent\":45.5"));
         assert!(json.contains("\"model_name\":\"medgemma:4b\""));
-    }
-
-    #[test]
-    fn recommended_models_returns_medical_models() {
-        let models = get_recommended_models();
-        assert!(models.len() >= 2);
-        // R3: DeepSeek-OCR is recommended but not medical — at least one must be medical
-        assert!(models.iter().any(|m| m.medical));
-        assert!(models.iter().any(|m| m.name.contains("medgemma")));
-        assert!(models.iter().all(|m| m.min_ram_gb >= 4));
     }
 
     #[test]

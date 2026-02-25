@@ -353,61 +353,62 @@ pub async fn process_document(
         let conn = open_database(session.db_path(), Some(session.key_bytes()))
             .map_err(|e| format!("Database error: {e}"))?;
 
-        // Resolve models via preferences (L6-04, R3)
+        // CT-01: Detect file format → resolve pipeline via model tags → build processor
         let ollama = crate::ollama_service::OllamaService::client();
-        let llm_model = state
-            .resolver()
-            .resolve(&conn, &ollama)
-            .map_err(|e| format!("No AI model available: {e}"))?;
-        let vision_model = state
-            .resolver()
-            .resolve_for_role(
-                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
-                &conn,
-                &ollama,
-            )
-            .unwrap_or_else(|_| llm_model.clone());
+        let file_category = crate::pipeline::import::format::detect_format(path)
+            .map(|f| f.category)
+            .unwrap_or(crate::pipeline::import::format::FileCategory::DigitalPdf);
+        let assignment = crate::pipeline::model_router::resolve_pipeline(
+            &conn, state.resolver(), &ollama, &file_category,
+        ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access for the entire pipeline
+        // Acquire exclusive Ollama access based on assignment
+        let primary_model = match &assignment.extraction {
+            crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
+            _ => assignment.structuring_model.clone(),
+        };
         let _ollama_guard = state.ollama().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
-            &vision_model.name,
+            &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm vision model to avoid cold-start timeout during inference.
-        // If warm fails, log and continue — the real call will fail with a clearer error.
-        if let Err(e) = ollama.warm_model(&vision_model.name) {
-            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
-        }
-        // Pre-warm LLM model too if different from vision model
-        if llm_model.name != vision_model.name {
-            if let Err(e) = ollama.warm_model(&llm_model.name) {
-                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+        // Pre-warm models based on assignment
+        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+            if let Err(e) = ollama.warm_model(model) {
+                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
+            }
+            if *model != assignment.structuring_model {
+                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
+                }
+            }
+        } else {
+            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
             }
         }
 
         // Detect hardware → derive pipeline config (context windows, warm strategy)
         let pipeline_config = detect_pipeline_config(&ollama);
 
-        // Build the document processor with resolved models + hardware-tiered config
+        // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
+            crate::pipeline::processor::build_processor_from_assignment(&assignment, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages.
-        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
-            && vision_model.name != llm_model.name
-        {
-            let swap_vision = vision_model.name.clone();
-            let swap_llm = llm_model.name.clone();
-            processor.set_between_stages_hook(Box::new(move || {
-                let client = crate::ollama_service::OllamaService::client();
-                tracing::info!("CPU swap: unloading vision model, warming LLM");
-                let _ = client.unload_model(&swap_vision);
-                let _ = client.warm_model(&swap_llm);
-            }));
+        // CT-01: CPU swap hook only when ProcessingMode::BatchStages
+        if assignment.processing_mode == crate::pipeline::model_router::ProcessingMode::BatchStages {
+            if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+                let swap_vision = model.clone();
+                let swap_llm = assignment.structuring_model.clone();
+                processor.set_between_stages_hook(Box::new(move || {
+                    let client = crate::ollama_service::OllamaService::client();
+                    tracing::info!("CPU swap: unloading vision model, warming LLM");
+                    let _ = client.unload_model(&swap_vision);
+                    let _ = client.warm_model(&swap_llm);
+                }));
+            }
         }
 
         let tracker: StageTracker =
@@ -542,59 +543,60 @@ pub async fn process_documents_batch(
         let conn = open_database(session.db_path(), Some(session.key_bytes()))
             .map_err(|e| format!("Database error: {e}"))?;
 
-        // Resolve models via preferences (L6-04, R3)
+        // CT-01: Resolve pipeline via model tags (batch uses DigitalPdf as safe default)
         let ollama = crate::ollama_service::OllamaService::client();
-        let llm_model = state
-            .resolver()
-            .resolve(&conn, &ollama)
-            .map_err(|e| format!("No AI model available: {e}"))?;
-        let vision_model = state
-            .resolver()
-            .resolve_for_role(
-                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
-                &conn,
-                &ollama,
-            )
-            .unwrap_or_else(|_| llm_model.clone());
+        let assignment = crate::pipeline::model_router::resolve_pipeline(
+            &conn, state.resolver(), &ollama,
+            &crate::pipeline::import::format::FileCategory::DigitalPdf,
+        ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access for the entire batch
+        // Acquire exclusive Ollama access based on assignment
+        let primary_model = match &assignment.extraction {
+            crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
+            _ => assignment.structuring_model.clone(),
+        };
         let _ollama_guard = state.ollama().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
-            &vision_model.name,
+            &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm models to avoid cold-start timeout during inference
-        if let Err(e) = ollama.warm_model(&vision_model.name) {
-            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
-        }
-        if llm_model.name != vision_model.name {
-            if let Err(e) = ollama.warm_model(&llm_model.name) {
-                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+        // Pre-warm models based on assignment
+        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+            if let Err(e) = ollama.warm_model(model) {
+                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
+            }
+            if *model != assignment.structuring_model {
+                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
+                }
+            }
+        } else {
+            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
             }
         }
 
         // Detect hardware → derive pipeline config (context windows, warm strategy)
         let pipeline_config = detect_pipeline_config(&ollama);
 
-        // Build processor once for the batch with hardware-tiered config
+        // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
+            crate::pipeline::processor::build_processor_from_assignment(&assignment, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages.
-        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
-            && vision_model.name != llm_model.name
-        {
-            let swap_vision = vision_model.name.clone();
-            let swap_llm = llm_model.name.clone();
-            processor.set_between_stages_hook(Box::new(move || {
-                let client = crate::ollama_service::OllamaService::client();
-                tracing::info!("CPU swap: unloading vision model, warming LLM");
-                let _ = client.unload_model(&swap_vision);
-                let _ = client.warm_model(&swap_llm);
-            }));
+        // CT-01: CPU swap hook only when ProcessingMode::BatchStages
+        if assignment.processing_mode == crate::pipeline::model_router::ProcessingMode::BatchStages {
+            if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+                let swap_vision = model.clone();
+                let swap_llm = assignment.structuring_model.clone();
+                processor.set_between_stages_hook(Box::new(move || {
+                    let client = crate::ollama_service::OllamaService::client();
+                    tracing::info!("CPU swap: unloading vision model, warming LLM");
+                    let _ = client.unload_model(&swap_vision);
+                    let _ = client.warm_model(&swap_llm);
+                }));
+            }
         }
 
         let total = file_paths.len();
@@ -818,58 +820,60 @@ pub async fn reprocess_document(
             status: ImportStatus::Staged,
         };
 
-        // Resolve models + build processor (L6-04, R3)
+        // CT-01: Resolve pipeline via model tags (DigitalPdf default for reprocess)
         let ollama = crate::ollama_service::OllamaService::client();
-        let llm_model = state
-            .resolver()
-            .resolve(&conn, &ollama)
-            .map_err(|e| format!("No AI model available: {e}"))?;
-        let vision_model = state
-            .resolver()
-            .resolve_for_role(
-                crate::pipeline::structuring::ollama_types::ModelRole::VisionOcr,
-                &conn,
-                &ollama,
-            )
-            .unwrap_or_else(|_| llm_model.clone());
+        let assignment = crate::pipeline::model_router::resolve_pipeline(
+            &conn, state.resolver(), &ollama,
+            &crate::pipeline::import::format::FileCategory::DigitalPdf,
+        ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access for reprocessing
+        // Acquire exclusive Ollama access based on assignment
+        let primary_model = match &assignment.extraction {
+            crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
+            _ => assignment.structuring_model.clone(),
+        };
         let _ollama_guard = state.ollama().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
-            &vision_model.name,
+            &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm models to avoid cold-start timeout during inference
-        if let Err(e) = ollama.warm_model(&vision_model.name) {
-            tracing::warn!(model = %vision_model.name, error = %e, "Vision model pre-warm failed");
-        }
-        if llm_model.name != vision_model.name {
-            if let Err(e) = ollama.warm_model(&llm_model.name) {
-                tracing::warn!(model = %llm_model.name, error = %e, "LLM model pre-warm failed");
+        // Pre-warm models based on assignment
+        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+            if let Err(e) = ollama.warm_model(model) {
+                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
+            }
+            if *model != assignment.structuring_model {
+                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
+                }
+            }
+        } else {
+            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
+                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
             }
         }
 
         // Detect hardware → derive pipeline config (context windows, warm strategy)
         let pipeline_config = detect_pipeline_config(&ollama);
 
+        // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
         let mut processor =
-            crate::pipeline::processor::build_processor(&vision_model.name, &llm_model.name, &pipeline_config, &lang)
+            crate::pipeline::processor::build_processor_from_assignment(&assignment, &pipeline_config, &lang)
                 .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
-        // CPU swap strategy: unload vision model, warm LLM between stages.
-        // R4: Skip swap when both roles resolve to the same model (no point swapping identical models).
-        if pipeline_config.warm_strategy == crate::pipeline_config::WarmStrategy::SwapBetweenStages
-            && vision_model.name != llm_model.name
-        {
-            let swap_vision = vision_model.name.clone();
-            let swap_llm = llm_model.name.clone();
-            processor.set_between_stages_hook(Box::new(move || {
-                let client = crate::ollama_service::OllamaService::client();
-                tracing::info!("CPU swap: unloading vision model, warming LLM");
-                let _ = client.unload_model(&swap_vision);
-                let _ = client.warm_model(&swap_llm);
-            }));
+        // CT-01: CPU swap hook only when ProcessingMode::BatchStages
+        if assignment.processing_mode == crate::pipeline::model_router::ProcessingMode::BatchStages {
+            if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+                let swap_vision = model.clone();
+                let swap_llm = assignment.structuring_model.clone();
+                processor.set_between_stages_hook(Box::new(move || {
+                    let client = crate::ollama_service::OllamaService::client();
+                    tracing::info!("CPU swap: unloading vision model, warming LLM");
+                    let _ = client.unload_model(&swap_vision);
+                    let _ = client.warm_model(&swap_llm);
+                }));
+            }
         }
 
         // Reset pipeline status to Imported before reprocessing

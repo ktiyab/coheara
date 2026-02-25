@@ -15,48 +15,55 @@
   import {
     ollamaHealthCheck,
     listOllamaModels,
-    getRecommendedModels,
     getActiveModel,
     setActiveModel,
     deleteOllamaModel,
     pullOllamaModel,
     cancelModelPull,
     onPullProgress,
+    getAllModelTags,
+    getDisabledModels,
+    setModelEnabled,
   } from '$lib/api/ai';
   import { ai } from '$lib/stores/ai.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
-  import type { ModelInfo, RecommendedModel, ModelPullProgress } from '$lib/types/ai';
+  import type { ModelInfo, ModelPullProgress } from '$lib/types/ai';
   import { isMedicalModel, formatModelSize, sourceDisplayText } from '$lib/types/ai';
   import BackButton from '$lib/components/ui/BackButton.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import HardwareStatusCard from '$lib/components/settings/HardwareStatusCard.svelte';
-  import { CloseIcon } from '$lib/components/icons/md';
+  import ModelTagChip from '$lib/components/settings/ModelTagChip.svelte';
+  import ModelTagEditor from '$lib/components/settings/ModelTagEditor.svelte';
+  import { CloseIcon, RefreshIcon } from '$lib/components/icons/md';
 
-  let recommended = $state<RecommendedModel[]>([]);
   let pullInput = $state('');
   let deleteConfirm = $state<string | null>(null);
   let nonMedicalWarning = $state<string | null>(null);
+  let pullEndedAmbiguously = $state(false);
+  let editingTags = $state<string | null>(null);
   let unlistenPull: (() => void) | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMount(async () => {
     ai.loading = true;
     ai.error = null;
 
     try {
-      // Load all data in parallel
-      const [health, models, active, recs] = await Promise.all([
+      const [health, models, active, tags, disabled] = await Promise.all([
         ollamaHealthCheck().catch(() => null),
         listOllamaModels().catch(() => [] as ModelInfo[]),
         getActiveModel().catch(() => null),
-        getRecommendedModels().catch(() => [] as RecommendedModel[]),
+        getAllModelTags().catch(() => ({}) as Record<string, import('$lib/types/ai').CapabilityTag[]>),
+        getDisabledModels().catch(() => [] as string[]),
       ]);
 
       ai.health = health;
       ai.models = models;
       ai.activeModel = active;
-      recommended = recs;
+      ai.modelTags = tags;
+      ai.disabledModels = new Set(disabled);
     } catch (e) {
       ai.error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -69,17 +76,21 @@
 
   onDestroy(() => {
     unlistenPull?.();
+    if (refreshTimer) clearTimeout(refreshTimer);
   });
 
   function handlePullProgress(progress: ModelPullProgress) {
     ai.pullProgress = progress;
     if (progress.status === 'complete') {
-      // Refresh model list and auto-select if no active model (AC-24)
+      pullEndedAmbiguously = false;
       onPullComplete(progress.model_name);
+    } else if (progress.status === 'error') {
+      pullEndedAmbiguously = false;
     }
   }
 
   async function onPullComplete(pulledName: string) {
+    pullEndedAmbiguously = false;
     try {
       const [models, active] = await Promise.all([
         listOllamaModels(),
@@ -95,19 +106,36 @@
     } catch {
       // Silent — don't overwrite existing state
     }
+
+    // CT-01/AC-04: Safety-net refresh — Ollama may need a moment to register the model
+    scheduleRefresh(3000);
   }
 
+  /** CT-01/AC-03: Refresh installed model list from Ollama. */
   async function refreshModels() {
     try {
-      const [models, active] = await Promise.all([
+      const [models, active, tags, disabled] = await Promise.all([
         listOllamaModels(),
         getActiveModel(),
+        getAllModelTags().catch(() => ({}) as Record<string, import('$lib/types/ai').CapabilityTag[]>),
+        getDisabledModels().catch(() => [] as string[]),
       ]);
       ai.models = models;
       ai.activeModel = active;
+      ai.modelTags = tags;
+      ai.disabledModels = new Set(disabled);
+      pullEndedAmbiguously = false;
     } catch {
       // Silent — don't overwrite existing state
     }
+  }
+
+  function scheduleRefresh(delayMs: number) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      refreshTimer = null;
+      await refreshModels();
+    }, delayMs);
   }
 
   async function handleSelectModel(name: string) {
@@ -175,6 +203,17 @@
       ai.error = e instanceof Error ? e.message : String(e);
     } finally {
       ai.loading = false;
+    }
+  }
+
+  async function handleToggleEnabled(name: string) {
+    const wasEnabled = ai.isModelEnabled(name);
+    ai.setModelEnabled(name, !wasEnabled);
+    try {
+      await setModelEnabled(name, !wasEnabled);
+    } catch {
+      // Revert on failure
+      ai.setModelEnabled(name, wasEnabled);
     }
   }
 </script>
@@ -249,9 +288,18 @@
 
       <!-- Installed models list -->
       <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
-        <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400 mb-3">
-          {$t('ai.installed_models', { values: { count: ai.models.length } })}
-        </h2>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-medium text-stone-500 dark:text-gray-400">
+            {$t('ai.installed_models', { values: { count: ai.models.length } })}
+          </h2>
+          <button
+            class="p-1.5 text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300 rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
+            onclick={refreshModels}
+            aria-label={$t('ai.refresh_models')}
+          >
+            <RefreshIcon class="w-4 h-4" />
+          </button>
+        </div>
 
         {#if ai.models.length === 0}
           <p class="text-sm text-stone-500 dark:text-gray-400 py-4 text-center">
@@ -262,46 +310,82 @@
             {#each ai.models as model (model.name)}
               {@const isActive = ai.activeModel?.name === model.name}
               {@const medical = isMedicalModel(model.name)}
+              {@const enabled = ai.isModelEnabled(model.name)}
+              {@const tags = ai.getTagsForModel(model.name)}
               <div
-                class="flex items-center gap-3 p-3 rounded-lg border {isActive ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100 dark:border-gray-800'}"
+                class="p-3 rounded-lg border {isActive ? 'border-[var(--color-interactive)] bg-[var(--color-interactive-50)]' : 'border-stone-100 dark:border-gray-800'} {enabled ? '' : 'opacity-50'}"
                 role="listitem"
                 aria-current={isActive ? 'true' : undefined}
               >
-                <span
-                  class="text-base"
-                  aria-label={medical ? $t('ai.medical_model') : $t('ai.general_model')}
-                >
-                  {medical ? '\u2605' : '\u25CB'}
-                </span>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{model.name}</p>
-                  <p class="text-xs text-stone-500 dark:text-gray-400">
-                    {medical ? $t('ai.medical_label') : $t('ai.general_label')}
-                    &middot; {formatModelSize(model.size)}
-                    {#if model.details.family}
-                      &middot; {model.details.family}
-                    {/if}
-                  </p>
-                </div>
-                <div class="flex items-center gap-2">
-                  {#if isActive}
-                    <span class="text-xs font-medium text-[var(--color-interactive-hover)] bg-[var(--color-interactive-50)] px-2 py-1 rounded">{$t('ai.active_badge')}</span>
-                  {:else}
+                <div class="flex items-center gap-3">
+                  <span
+                    class="text-base"
+                    aria-label={medical ? $t('ai.medical_model') : $t('ai.general_model')}
+                  >
+                    {medical ? '\u2605' : '\u25CB'}
+                  </span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{model.name}</p>
+                    <p class="text-xs text-stone-500 dark:text-gray-400">
+                      {medical ? $t('ai.medical_label') : $t('ai.general_label')}
+                      &middot; {formatModelSize(model.size)}
+                      {#if model.details.family}
+                        &middot; {model.details.family}
+                      {/if}
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <!-- CT-01: Enable/disable toggle -->
                     <button
-                      class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
-                      onclick={() => handleSelectModel(model.name)}
+                      class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {enabled ? 'bg-[var(--color-interactive)]' : 'bg-stone-300 dark:bg-gray-600'}"
+                      onclick={() => handleToggleEnabled(model.name)}
+                      aria-label={$t('ai.toggle_model_enabled')}
+                      aria-checked={enabled}
+                      role="switch"
                     >
-                      {$t('ai.select_button')}
+                      <span
+                        class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform {enabled ? 'translate-x-4' : 'translate-x-1'}"
+                      ></span>
                     </button>
+                    {#if isActive}
+                      <span class="text-xs font-medium text-[var(--color-interactive-hover)] bg-[var(--color-interactive-50)] px-2 py-1 rounded">{$t('ai.active_badge')}</span>
+                    {:else}
+                      <button
+                        class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
+                        onclick={() => handleSelectModel(model.name)}
+                      >
+                        {$t('ai.select_button')}
+                      </button>
+                    {/if}
+                    <button
+                      class="text-stone-500 dark:text-gray-400 hover:text-[var(--color-danger)] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      onclick={() => { deleteConfirm = model.name; }}
+                      aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
+                    >
+                      <CloseIcon class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <!-- CT-01: Tag chips row -->
+                <div class="mt-2 flex items-center gap-1.5 flex-wrap">
+                  {#if tags.length > 0}
+                    {#each tags as tag (tag)}
+                      <ModelTagChip {tag} />
+                    {/each}
+                  {:else}
+                    <span class="text-xs text-stone-400 dark:text-gray-500">{$t('ai.no_tags')}</span>
                   {/if}
                   <button
-                    class="text-stone-500 dark:text-gray-400 hover:text-[var(--color-danger)] min-h-[44px] min-w-[44px] flex items-center justify-center"
-                    onclick={() => { deleteConfirm = model.name; }}
-                    aria-label={$t('ai.delete_model_aria', { values: { name: model.name } })}
+                    class="text-xs text-[var(--color-interactive)] hover:underline ml-1"
+                    onclick={() => { editingTags = editingTags === model.name ? null : model.name; }}
                   >
-                    <CloseIcon class="w-4 h-4" />
+                    {$t('ai.configure_tags')}
                   </button>
                 </div>
+                <!-- CT-01: Inline tag editor -->
+                {#if editingTags === model.name}
+                  <ModelTagEditor modelName={model.name} />
+                {/if}
               </div>
             {/each}
           </div>
@@ -351,6 +435,21 @@
         </div>
       {/if}
 
+      <!-- CT-01/AC-05: Ambiguous pull ending — model may need a moment to register -->
+      {#if pullEndedAmbiguously}
+        <div class="bg-[var(--color-info-50)] rounded-xl p-4 border border-[var(--color-info-200)] flex items-center justify-between gap-3">
+          <p class="text-sm text-[var(--color-info-800)]">
+            {$t('ai.pull_may_appear')}
+          </p>
+          <button
+            class="text-xs text-[var(--color-info-800)] border border-[var(--color-info-200)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-info-200)] min-h-[44px] whitespace-nowrap"
+            onclick={refreshModels}
+          >
+            {$t('ai.refresh_models')}
+          </button>
+        </div>
+      {/if}
+
       <!-- Pull section (when not actively pulling) -->
       {#if !ai.isPulling}
         <section class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-stone-100 dark:border-gray-800 shadow-sm">
@@ -374,34 +473,6 @@
             </button>
           </div>
 
-          <!-- Recommended models -->
-          {#if recommended.length > 0}
-            <h3 class="text-xs font-medium text-stone-500 dark:text-gray-400 mb-2">{$t('ai.recommended_section')}</h3>
-            <div class="space-y-2">
-              {#each recommended as rec (rec.name)}
-                {@const alreadyInstalled = ai.models.some(m => m.name === rec.name)}
-                <div class="flex items-center gap-3 p-3 rounded-lg border border-stone-100 dark:border-gray-800">
-                  <span class="text-base" aria-label={$t('ai.medical_model')}>{'\u2605'}</span>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-stone-800 dark:text-gray-100">{rec.name}</p>
-                    <p class="text-xs text-stone-500 dark:text-gray-400">
-                      {rec.description} &middot; {$t('ai.requires_ram', { values: { gb: rec.min_ram_gb } })}
-                    </p>
-                  </div>
-                  {#if alreadyInstalled}
-                    <span class="text-xs text-stone-500 dark:text-gray-400">{$t('ai.installed_tag')}</span>
-                  {:else}
-                    <button
-                      class="text-xs text-[var(--color-interactive-hover)] border border-[var(--color-interactive)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-interactive-50)] min-h-[44px]"
-                      onclick={() => handlePull(rec.name)}
-                    >
-                      {$t('ai.pull')}
-                    </button>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
         </section>
       {/if}
 

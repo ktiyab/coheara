@@ -26,7 +26,7 @@ use crate::pipeline::structuring::ollama::OllamaClient;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationKind {
-    /// Vision OCR extraction from document pages (DeepSeek-OCR / MedGemma)
+    /// Vision OCR extraction from document pages (MedGemma default)
     DocumentOcr,
     /// LLM text → structured entities extraction (MedGemma)
     DocumentStructuring,
@@ -110,7 +110,7 @@ impl OllamaService {
     ///
     /// # Example
     /// ```ignore
-    /// let _guard = state.ollama().acquire(OperationKind::DocumentOcr, "deepseek-ocr:latest")?;
+    /// let _guard = state.ollama().acquire(OperationKind::DocumentOcr, "medgemma:4b")?;
     /// let client = OllamaService::client();
     /// // ... run pipeline ... guard dropped here
     /// ```
@@ -220,13 +220,13 @@ mod tests {
     fn acquire_sets_current_operation() {
         let service = OllamaService::new();
         let guard = service
-            .acquire(OperationKind::DocumentOcr, "deepseek-ocr:latest")
+            .acquire(OperationKind::DocumentOcr, "medgemma:4b")
             .unwrap();
         assert!(service.is_busy());
 
         let op = service.current_operation().unwrap();
         assert_eq!(op.kind, OperationKind::DocumentOcr);
-        assert_eq!(op.model, "deepseek-ocr:latest");
+        assert_eq!(op.model, "medgemma:4b");
         assert!(!op.started_at.is_empty());
 
         drop(guard);
@@ -283,7 +283,7 @@ mod tests {
         // Thread 1: acquire and hold for 50ms
         let handle = thread::spawn(move || {
             let _guard = service2
-                .acquire(OperationKind::DocumentOcr, "deepseek-ocr:latest")
+                .acquire(OperationKind::DocumentOcr, "medgemma:4b")
                 .unwrap();
             thread::sleep(std::time::Duration::from_millis(50));
         });
@@ -329,12 +329,12 @@ mod tests {
     fn active_operation_serializes() {
         let op = ActiveOperation {
             kind: OperationKind::DocumentOcr,
-            model: "deepseek-ocr:latest".to_string(),
+            model: "medgemma:4b".to_string(),
             started_at: "2026-02-22T10:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&op).unwrap();
         assert!(json.contains("\"document_ocr\""));
-        assert!(json.contains("deepseek-ocr:latest"));
+        assert!(json.contains("medgemma:4b"));
         assert!(json.contains("2026-02-22T10:00:00Z"));
     }
 

@@ -179,15 +179,14 @@ pub trait LlmClient {
 /// Vision operations go through this trait.
 ///
 /// Two API modes:
-/// - `generate_with_images`: Uses `/api/generate` — for models that need raw prompt
-///   (e.g., DeepSeek-OCR with `<|grounding|>` token)
+/// - `generate_with_images`: Uses `/api/generate` — for models with raw prompt interfaces
 /// - `chat_with_images`: Uses `/api/chat` — for chat-template models (MedGemma, LLaVA)
-///   that expect messages-based format with proper role context
+///   that expect messages-based format with proper role context (R4: default path)
 pub trait VisionClient: Send + Sync {
     /// Generate text from a prompt with one or more base64-encoded images.
     ///
-    /// Uses `/api/generate` endpoint. Best for models with raw prompt interfaces
-    /// (DeepSeek-OCR). Chat-template models may fail with this endpoint.
+    /// Uses `/api/generate` endpoint. Best for models with raw prompt interfaces.
+    /// Chat-template models should use `chat_with_images` instead.
     fn generate_with_images(
         &self,
         model: &str,

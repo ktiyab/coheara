@@ -39,6 +39,92 @@ pub struct ModelDetails {
 }
 
 // ──────────────────────────────────────────────
+// CT-01: Model capability tags
+// ──────────────────────────────────────────────
+
+/// User-assigned capability tag for pipeline routing.
+///
+/// CT-01: Tags drive the extraction path — if a model only accepts TXT,
+/// the pipeline converts PDF→text before sending. These are routing
+/// instructions, not just metadata.
+///
+/// Stored in `model_capability_tags` table (migration 017).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum CapabilityTag {
+    /// Can process image inputs (multimodal).
+    Vision,
+    /// Medical domain knowledge.
+    Medical,
+    /// Native PDF understanding (future).
+    Pdf,
+    /// Can process PNG images.
+    Png,
+    /// Can process JPEG images.
+    Jpeg,
+    /// Can process TIFF images.
+    Tiff,
+    /// Can process plain text input.
+    Txt,
+}
+
+impl CapabilityTag {
+    /// All valid tags (for enumeration and validation).
+    pub fn all() -> &'static [CapabilityTag] {
+        &[
+            Self::Vision,
+            Self::Medical,
+            Self::Pdf,
+            Self::Png,
+            Self::Jpeg,
+            Self::Tiff,
+            Self::Txt,
+        ]
+    }
+
+    /// Database string representation (matches CHECK constraint).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Vision => "VISION",
+            Self::Medical => "MEDICAL",
+            Self::Pdf => "PDF",
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+            Self::Tiff => "TIFF",
+            Self::Txt => "TXT",
+        }
+    }
+
+    /// Whether this tag indicates vision/image processing capability.
+    pub fn is_vision_related(&self) -> bool {
+        matches!(self, Self::Vision | Self::Png | Self::Jpeg | Self::Tiff)
+    }
+}
+
+impl std::fmt::Display for CapabilityTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CapabilityTag {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "VISION" => Ok(Self::Vision),
+            "MEDICAL" => Ok(Self::Medical),
+            "PDF" => Ok(Self::Pdf),
+            "PNG" => Ok(Self::Png),
+            "JPEG" => Ok(Self::Jpeg),
+            "TIFF" => Ok(Self::Tiff),
+            "TXT" => Ok(Self::Txt),
+            _ => Err(format!("Unknown capability tag: '{s}'")),
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
 // R3: Vision model types
 // ──────────────────────────────────────────────
 
@@ -51,17 +137,6 @@ pub enum ModelCapability {
     TextOnly,
     /// Vision-capable model (e.g., MedGemma multimodal).
     Vision,
-}
-
-/// The role a model serves in the pipeline.
-///
-/// R3: Enables role-based model resolution — different models for different tasks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ModelRole {
-    /// Text generation: chat, structuring, reasoning (MedGemma).
-    LlmGeneration,
-    /// Vision OCR: document image → structured Markdown (MedGemma).
-    VisionOcr,
 }
 
 /// Request body for vision-enabled generation via Ollama `/api/generate`.
@@ -250,71 +325,18 @@ impl Default for GenerationOptions {
     }
 }
 
-/// A curated recommended model entry.
-///
-/// Advisory, not restrictive — users can pull any model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecommendedModel {
-    pub name: String,
-    pub description: String,
-    pub min_ram_gb: u32,
-    pub medical: bool,
-    /// R3: Whether this model is required for core functionality.
-    #[serde(default = "default_true")]
-    pub required: bool,
-    /// R3: Model capability (text-only or vision).
-    #[serde(default)]
-    pub capability: ModelCapability,
-}
-
-fn default_true() -> bool {
-    true
-}
-
 impl Default for ModelCapability {
     fn default() -> Self {
         Self::TextOnly
     }
 }
 
-/// Default model fallback when the resolver fails entirely.
+/// Emergency fallback model when the resolver fails entirely.
 ///
 /// Single source of truth — used by extraction and batch_extraction fallbacks.
-/// Points to the primary recommended model (MedGemma 1.5 built from safetensors).
-pub const DEFAULT_MODEL_FALLBACK: &str = "dcarrascosa/medgemma-1.5-4b-it";
-
-/// Return the curated list of recommended medical models.
-///
-/// Maintained in code (not fetched from registry).
-/// DOM-L6-01: includes minimum RAM requirements.
-///
-/// R-MOD-01 F4: Updated with working community models built from safetensors.
-/// Previous models (`MedAIBase/MedGemma1.5:4b`, `alibayram/medgemma:4b`) were
-/// built from quantized GGUFs with separate mmproj files — Ollama's engine for
-/// Gemma-family models can't combine them, so vision fails at inference time.
-/// See: https://github.com/ollama/ollama/issues/9967
-pub fn recommended_models() -> Vec<RecommendedModel> {
-    vec![
-        RecommendedModel {
-            name: "dcarrascosa/medgemma-1.5-4b-it".to_string(),
-            description: "MedGemma 1.5, 4B parameters, built from safetensors, vision working"
-                .to_string(),
-            min_ram_gb: 8,
-            medical: true,
-            required: true,
-            capability: ModelCapability::Vision, // MedGemma 1.5 is multimodal
-        },
-        RecommendedModel {
-            name: "amsaravi/medgemma-4b-it".to_string(),
-            description: "MedGemma 1.0, 4B parameters, Q6/Q8 quantized, vision confirmed"
-                .to_string(),
-            min_ram_gb: 8,
-            medical: true,
-            required: false,
-            capability: ModelCapability::Vision, // MedGemma 1.0 is multimodal
-        },
-    ]
-}
+/// CT-01: With capability tags, model selection is tag-driven. This constant
+/// is only used as a last resort when no models are tagged or installed.
+pub const EMERGENCY_FALLBACK_MODEL: &str = "dcarrascosa/medgemma-1.5-4b-it";
 
 // ──────────────────────────────────────────────
 // Error Taxonomy (L6-01 dedicated)
@@ -485,17 +507,6 @@ pub fn extract_model_component(full_name: &str) -> String {
     model_part.to_lowercase()
 }
 
-/// Build a list of recommended model names for preference resolution.
-///
-/// R-MOD-01 F5: Updated with working models built from safetensors.
-/// Used by `ActiveModelResolver` to prefer recommended models during fallback.
-pub fn recommended_model_names() -> Vec<String> {
-    vec![
-        "dcarrascosa/medgemma-1.5-4b-it".to_string(),
-        "amsaravi/medgemma-4b-it".to_string(),
-    ]
-}
-
 // ──────────────────────────────────────────────
 // Ollama API internal deserialization types
 // ──────────────────────────────────────────────
@@ -563,6 +574,53 @@ pub(crate) struct OllamaShowResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── CapabilityTag Tests (CT-01) ──
+
+    #[test]
+    fn capability_tag_roundtrip() {
+        for tag in CapabilityTag::all() {
+            let s = tag.to_string();
+            let parsed: CapabilityTag = s.parse().unwrap();
+            assert_eq!(*tag, parsed);
+        }
+    }
+
+    #[test]
+    fn capability_tag_serde_roundtrip() {
+        for tag in CapabilityTag::all() {
+            let json = serde_json::to_string(tag).unwrap();
+            let parsed: CapabilityTag = serde_json::from_str(&json).unwrap();
+            assert_eq!(*tag, parsed);
+        }
+        // Verify serialization format is uppercase
+        assert_eq!(serde_json::to_string(&CapabilityTag::Vision).unwrap(), "\"VISION\"");
+        assert_eq!(serde_json::to_string(&CapabilityTag::Txt).unwrap(), "\"TXT\"");
+    }
+
+    #[test]
+    fn capability_tag_all_has_seven_variants() {
+        assert_eq!(CapabilityTag::all().len(), 7);
+    }
+
+    #[test]
+    fn capability_tag_is_vision_related() {
+        assert!(CapabilityTag::Vision.is_vision_related());
+        assert!(CapabilityTag::Png.is_vision_related());
+        assert!(CapabilityTag::Jpeg.is_vision_related());
+        assert!(CapabilityTag::Tiff.is_vision_related());
+        assert!(!CapabilityTag::Medical.is_vision_related());
+        assert!(!CapabilityTag::Pdf.is_vision_related());
+        assert!(!CapabilityTag::Txt.is_vision_related());
+    }
+
+    #[test]
+    fn capability_tag_from_str_case_insensitive() {
+        assert_eq!("vision".parse::<CapabilityTag>().unwrap(), CapabilityTag::Vision);
+        assert_eq!("MEDICAL".parse::<CapabilityTag>().unwrap(), CapabilityTag::Medical);
+        assert_eq!("Txt".parse::<CapabilityTag>().unwrap(), CapabilityTag::Txt);
+        assert!("unknown".parse::<CapabilityTag>().is_err());
+    }
 
     // ── URL Validation Tests (SEC-L6-01) ──
 
@@ -934,38 +992,4 @@ mod tests {
         assert!(json.get("num_predict").is_some());
     }
 
-    // ── Recommended Models ──
-
-    #[test]
-    fn recommended_model_names_not_empty() {
-        let names = recommended_model_names();
-        assert!(names.len() >= 2);
-        // Working models built from safetensors (vision projector baked in)
-        assert!(names.contains(&"dcarrascosa/medgemma-1.5-4b-it".to_string()));
-        assert!(names.contains(&"amsaravi/medgemma-4b-it".to_string()));
-    }
-
-    #[test]
-    fn recommended_models_have_valid_entries() {
-        let models = recommended_models();
-        assert!(models.len() >= 2, "Should have at least 2 recommended models");
-
-        // All recommended models are medical MedGemma variants with namespace.
-        // At least the primary model must be required.
-        assert!(models[0].required, "Primary model must be required");
-        for model in &models {
-            assert!(
-                model.name.contains('/'),
-                "Model '{}' should be a real community model with namespace",
-                model.name
-            );
-            assert!(model.medical, "Model '{}' should be medical", model.name);
-            assert_eq!(
-                model.capability,
-                ModelCapability::Vision,
-                "Model '{}' should be vision-capable",
-                model.name
-            );
-        }
-    }
 }

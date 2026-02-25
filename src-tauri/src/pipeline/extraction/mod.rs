@@ -5,6 +5,7 @@ pub mod pdfium;
 pub mod preprocess;
 pub mod orchestrator;
 pub mod vision_ocr;
+pub mod text_only; // CT-01: Text-only extraction (PlainText + DigitalPdf, no vision model)
 
 pub use types::*;
 pub use confidence::*;

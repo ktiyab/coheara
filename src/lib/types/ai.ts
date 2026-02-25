@@ -33,13 +33,37 @@ export interface ModelDetail {
 	details: ModelDetails;
 }
 
-// ── Recommended Models (curated medical list) ───────────────
+// ── CT-01: Capability Tags (user-defined model routing) ─────
 
-export interface RecommendedModel {
-	name: string;
-	description: string;
-	min_ram_gb: number;
-	medical: boolean;
+/** Fixed set of capability tags for model routing. */
+export type CapabilityTag = 'VISION' | 'MEDICAL' | 'PDF' | 'PNG' | 'JPEG' | 'TIFF' | 'TXT';
+
+/** All known capability tags (for UI enumeration). */
+export const ALL_CAPABILITY_TAGS: CapabilityTag[] = [
+	'VISION', 'MEDICAL', 'PDF', 'PNG', 'JPEG', 'TIFF', 'TXT'
+];
+
+/** Tag display metadata for UI rendering. */
+export interface TagDisplayInfo {
+	tag: CapabilityTag;
+	label: string;
+	color: 'blue' | 'green' | 'purple' | 'amber' | 'gray';
+}
+
+/** Tag display configuration — colors and labels per tag. */
+export const TAG_DISPLAY: Record<CapabilityTag, TagDisplayInfo> = {
+	VISION:  { tag: 'VISION',  label: 'Vision',  color: 'blue' },
+	MEDICAL: { tag: 'MEDICAL', label: 'Medical', color: 'green' },
+	PDF:     { tag: 'PDF',     label: 'PDF',     color: 'purple' },
+	PNG:     { tag: 'PNG',     label: 'PNG',     color: 'amber' },
+	JPEG:    { tag: 'JPEG',    label: 'JPEG',    color: 'amber' },
+	TIFF:    { tag: 'TIFF',    label: 'TIFF',    color: 'amber' },
+	TXT:     { tag: 'TXT',     label: 'Text',    color: 'gray' },
+};
+
+/** Check if a tag set indicates vision capability (can process images). */
+export function hasVisionCapability(tags: CapabilityTag[]): boolean {
+	return tags.some((t) => t === 'VISION' || t === 'PNG' || t === 'JPEG' || t === 'TIFF');
 }
 
 // ── Ollama Health ───────────────────────────────────────────

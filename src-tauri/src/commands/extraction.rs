@@ -232,7 +232,7 @@ fn resolve_model_name(state: &Arc<CoreState>) -> Result<String, String> {
         .resolve(&conn, &client)
         .ok()
         .map(|m| m.name)
-        .unwrap_or_else(|| crate::pipeline::structuring::ollama_types::DEFAULT_MODEL_FALLBACK.to_string());
+        .unwrap_or_else(|| crate::pipeline::structuring::ollama_types::EMERGENCY_FALLBACK_MODEL.to_string());
 
     Ok(model)
 }

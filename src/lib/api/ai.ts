@@ -9,11 +9,11 @@ import { listen } from '@tauri-apps/api/event';
 import type {
 	ModelInfo,
 	ModelDetail,
-	RecommendedModel,
 	OllamaHealth,
 	ResolvedModel,
 	ModelPullProgress,
-	HardwareStatus
+	HardwareStatus,
+	CapabilityTag
 } from '$lib/types/ai';
 
 // ── L6-01: Ollama Integration ──────────────────────────────
@@ -42,10 +42,6 @@ export async function deleteOllamaModel(name: string): Promise<void> {
 	return invoke<void>('delete_ollama_model', { name });
 }
 
-export async function getRecommendedModels(): Promise<RecommendedModel[]> {
-	return invoke<RecommendedModel[]>('get_recommended_models');
-}
-
 // ── L6-04: Model Preferences ──────────────────────────────
 
 export async function setActiveModel(
@@ -72,6 +68,40 @@ export async function setUserPreference(key: string, value: string): Promise<voi
 
 export async function getUserPreference(key: string): Promise<string | null> {
 	return invoke<string | null>('get_user_preference_cmd', { key });
+}
+
+// ── CT-01: Model Capability Tags + Enabled Flag ──────────
+
+export async function getModelTags(modelName: string): Promise<CapabilityTag[]> {
+	return invoke<CapabilityTag[]>('get_model_tags', { modelName });
+}
+
+export async function setModelTags(modelName: string, tags: CapabilityTag[]): Promise<void> {
+	return invoke<void>('set_model_tags', { modelName, tags });
+}
+
+export async function addModelTag(modelName: string, tag: CapabilityTag): Promise<void> {
+	return invoke<void>('add_model_tag', { modelName, tag });
+}
+
+export async function removeModelTag(modelName: string, tag: CapabilityTag): Promise<void> {
+	return invoke<void>('remove_model_tag', { modelName, tag });
+}
+
+export async function getAllModelTags(): Promise<Record<string, CapabilityTag[]>> {
+	return invoke<Record<string, CapabilityTag[]>>('get_all_model_tags');
+}
+
+export async function isModelEnabled(modelName: string): Promise<boolean> {
+	return invoke<boolean>('is_model_enabled', { modelName });
+}
+
+export async function setModelEnabled(modelName: string, enabled: boolean): Promise<void> {
+	return invoke<void>('set_model_enabled', { modelName, enabled });
+}
+
+export async function getDisabledModels(): Promise<string[]> {
+	return invoke<string[]>('get_disabled_models');
 }
 
 // ── L6-03: AI Setup Wizard ────────────────────────────────

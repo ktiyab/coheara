@@ -62,7 +62,7 @@ impl PdfiumRenderer {
 ///    - macOS .app:    `<exe_dir>/../Resources/pdfium/{bin,lib}/`
 ///    - Linux alt:     `<exe_dir>/../resources/pdfium/{bin,lib}/`
 /// 4. System library search paths
-fn load_pdfium() -> Result<Pdfium, ExtractionError> {
+pub(super) fn load_pdfium() -> Result<Pdfium, ExtractionError> {
     // 1. Explicit path via env var
     if let Ok(path) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
         debug!(path = %path, "Loading PDFium from env var");
@@ -118,7 +118,7 @@ fn load_pdfium() -> Result<Pdfium, ExtractionError> {
 }
 
 /// Map PDF load errors — detect encrypted PDFs for user-friendly messaging.
-fn map_load_error(e: PdfiumError) -> ExtractionError {
+pub(super) fn map_load_error(e: PdfiumError) -> ExtractionError {
     let msg = format!("{e}");
     let lower = msg.to_lowercase();
     if lower.contains("password") || lower.contains("encrypt") {

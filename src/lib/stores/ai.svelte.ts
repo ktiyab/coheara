@@ -16,6 +16,7 @@
  */
 
 import type { ModelInfo, ResolvedModel, ModelPullProgress, OllamaHealth } from '$lib/types/ai';
+import type { CapabilityTag } from '$lib/types/ai';
 import { isMedicalModel } from '$lib/types/ai';
 import type { StatusLevel, AiStatus } from '$lib/api/profile';
 import { classifyAiFailure } from '$lib/utils/ai-failure';
@@ -34,6 +35,13 @@ class AiStore {
 	statusSummary = $state<string>('');
 	// S.6: Status check error
 	statusError = $state<string | null>(null);
+
+	// CT-01: Timestamp when pull ended (for auto-refresh coordination)
+	pullEndedAt = $state<number | null>(null);
+	// CT-01: Capability tags per model, keyed by model name
+	modelTags = $state<Record<string, CapabilityTag[]>>({});
+	// CT-01: Set of disabled model names
+	disabledModels = $state<Set<string>>(new Set());
 
 	// Startup verify timer (one-shot, not recurring)
 	private _verifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -73,6 +81,38 @@ class AiStore {
 	/** Check if a model name is classified as medical. */
 	isModelMedical(name: string): boolean {
 		return isMedicalModel(name);
+	}
+
+	/** CT-01: Get capability tags for a specific model. */
+	getTagsForModel(modelName: string): CapabilityTag[] {
+		return this.modelTags[modelName] ?? [];
+	}
+
+	/** CT-01: Update tags for a model in local state. */
+	setTagsForModel(modelName: string, tags: CapabilityTag[]): void {
+		this.modelTags = { ...this.modelTags, [modelName]: tags };
+	}
+
+	/** CT-01: Remove a model's tags from local state (after model deletion). */
+	removeModelFromTags(modelName: string): void {
+		const { [modelName]: _, ...rest } = this.modelTags;
+		this.modelTags = rest;
+	}
+
+	/** CT-01: Check if a model is enabled (default: true if not in disabled set). */
+	isModelEnabled(modelName: string): boolean {
+		return !this.disabledModels.has(modelName);
+	}
+
+	/** CT-01: Update a model's enabled state in local store. */
+	setModelEnabled(modelName: string, enabled: boolean): void {
+		const next = new Set(this.disabledModels);
+		if (enabled) {
+			next.delete(modelName);
+		} else {
+			next.add(modelName);
+		}
+		this.disabledModels = next;
 	}
 
 	/** S.5: Apply backend AiStatus to unified store. */
@@ -189,6 +229,9 @@ class AiStore {
 		this.activeModel = null;
 		this.health = null;
 		this.pullProgress = null;
+		this.pullEndedAt = null;
+		this.modelTags = {};
+		this.disabledModels = new Set();
 		this.loading = false;
 		this.error = null;
 		this.statusLevel = 'unknown';
