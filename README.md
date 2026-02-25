@@ -61,15 +61,23 @@ Your professionals bring clinical judgment. You bring understanding and the righ
 
 ### Managing your own health
 
-Whether you take 7 medications from 3 doctors and forget why you take half of them, or you track a chronic condition and want full data visibility, Coheara works for you. Take a photo of your prescription and ask *"what does this mean?"* or dig into medication timelines, lab trends, and document search. Simple by default, detailed on demand. At the pharmacy or the clinic, pull up your full medication list on your phone instead of trying to remember 7 drug names.
+Leila is 29, healthy, and assumes she has no need for a medical tool. Her records tell a different story: lab results in three email inboxes, a vaccination booklet she last saw during a move, and an allergist's letter she photographed but never filed. When a new doctor asks her medical history, she guesses.
+
+If that sounds familiar, Coheara is for you. Import your documents — PDFs, photos, scans — and let the AI organize what you never had time to. Take a photo of a prescription and ask *"what does this mean?"* Pull up your full medication list on your phone at the pharmacy instead of trying to remember drug names. Simple by default, detailed on demand.
 
 ### Caring for someone else
 
-If you coordinate a parent's care across multiple specialists, you know what happens when two doctors prescribe conflicting medications without knowing about each other. Coheara lets you manage another person's documents in a separate encrypted profile, detect conflicts, and print appointment summaries to bring to every visit. When you are with the person you care for, your phone gives you instant access to their alerts, medication history, and what changed since the last appointment.
+Thomas drives his mother Jeanne to four specialists. Each knows their own prescriptions; none sees the full picture. After a fall, the ER doctor asks what medications Jeanne takes. Thomas scrolls through photos, reads handwriting aloud, and misses the interaction between a cardiologist's blood thinner and a rheumatologist's anti-inflammatory. 80% of adverse events in care transitions involve exactly this kind of information gap.
+
+Coheara lets you manage another person's documents in a separate encrypted profile. It detects conflicts across providers, generates appointment summaries, and puts the complete picture on your phone. When you are in the room with the person you care for, you carry their alerts, medication history, and what changed since the last visit — not scattered photos and half-remembered drug names.
+
+### Families and shared access
+
+Clara and Mehdi raise two children. Pediatric visits, allergy tests, vaccination schedules — split across two parents, two phones, and a drawer of paper. Neither has the full timeline. With multi-profile access, both parents see the same structured data for each child, synchronized over local WiFi. No shared cloud account. No forwarded PDFs. One source of truth per family member, each in its own encrypted vault.
 
 ### Privacy without compromise
 
-Coheara runs offline, encrypts each profile with AES-256-GCM, stores nothing in the cloud, makes zero network calls, and collects zero telemetry. Every privacy claim is architecturally enforced and verifiable: no accounts, no tracking, no phone-home. The phone syncs over local WiFi only, locks behind biometrics, and if you revoke the pairing, all cached data is erased.
+Coheara runs offline, encrypts each profile with AES-256-GCM, stores nothing in the cloud, makes zero network calls, and collects zero telemetry. Every privacy claim is architecturally enforced and verifiable: no accounts, no tracking, no phone-home. The phone syncs over local WiFi only, locks behind biometrics, and if you revoke the pairing, all cached data is erased. It works the same in Paris, Dakar, and rural Ontario — 8 GB of RAM, no GPU, no internet, three languages.
 
 The desktop is where you prepare. The phone is where you show up informed.
 
