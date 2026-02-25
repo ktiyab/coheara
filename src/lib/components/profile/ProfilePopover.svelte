@@ -10,6 +10,7 @@
     activeProfile: ProfileInfo;
     managedProfiles: ProfileInfo[];
     isSelfManaged: boolean;
+    collapsed?: boolean;
     onSwitchTo: (profile: ProfileInfo) => void;
     onManage: () => void;
     onAdd: () => void;
@@ -21,6 +22,7 @@
     activeProfile,
     managedProfiles,
     isSelfManaged,
+    collapsed = false,
     onSwitchTo,
     onManage,
     onAdd,
@@ -53,7 +55,9 @@
 
 <!-- Popover card -->
 <div
-  class="absolute bottom-full left-0 mb-2 w-[var(--sidebar-width)] z-50
+  class="{collapsed
+    ? 'fixed bottom-14 left-[var(--sidebar-collapsed-width)]'
+    : 'absolute bottom-full left-0'} mb-2 w-[var(--sidebar-width)] z-50
          bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-stone-200 dark:border-gray-700
          overflow-hidden"
   role="dialog"

@@ -197,6 +197,7 @@
         activeProfile={activeInfo}
         {managedProfiles}
         isSelfManaged={profile.isSelfManaged}
+        {collapsed}
         onSwitchTo={handleSwitchTo}
         onManage={handleManage}
         onAdd={handleAdd}
