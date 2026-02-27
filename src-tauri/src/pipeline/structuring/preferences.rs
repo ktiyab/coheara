@@ -122,9 +122,9 @@ const MEDICAL_MODEL_PREFIXES: &[&str] = &[
 /// an arbitrary data store.
 const ALLOWED_PREFERENCE_KEYS: &[&str] = &[
     "dismissed_ai_setup",
-    "theme",
     "language",
     "sidebar_collapsed",
+    "theme",
 ];
 
 // ── Classification (pure) ──────────────────────────────────────

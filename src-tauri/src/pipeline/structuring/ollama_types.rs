@@ -336,7 +336,10 @@ impl Default for ModelCapability {
 /// Single source of truth — used by extraction and batch_extraction fallbacks.
 /// CT-01: With capability tags, model selection is tag-driven. This constant
 /// is only used as a last resort when no models are tagged or installed.
-pub const EMERGENCY_FALLBACK_MODEL: &str = "dcarrascosa/medgemma-1.5-4b-it";
+///
+/// Built from Google's official safetensors (setup-medgemma.sh) — not community
+/// GGUF builds, which may contain unverified modifications to model weights.
+pub const EMERGENCY_FALLBACK_MODEL: &str = "medgemma-1.5-4b-it";
 
 // ──────────────────────────────────────────────
 // Error Taxonomy (L6-01 dedicated)
@@ -459,7 +462,7 @@ pub fn validate_base_url(url: &str) -> Result<(), OllamaError> {
 /// malicious characters in model names before any HTTP call.
 ///
 /// Supports community namespace format: `namespace/model:tag`
-/// Valid: `medgemma:4b`, `MedAIBase/MedGemma1.5:4b`, `alibayram/medgemma`
+/// Valid: `medgemma:4b`, `someuser/medgemma:4b`, `alibayram/medgemma`
 /// Invalid: `../etc/passwd`, `; rm -rf /`, `a/b/c` (double namespace)
 ///
 /// R-MOD-01: Updated to accept exactly one optional namespace `/` segment.
@@ -735,7 +738,7 @@ mod tests {
 
     #[test]
     fn validate_name_accepts_namespaced_model() {
-        assert!(validate_model_name("MedAIBase/MedGemma1.5:4b").is_ok());
+        assert!(validate_model_name("someuser/medgemma:4b").is_ok());
     }
 
     #[test]
@@ -783,7 +786,7 @@ mod tests {
 
     #[test]
     fn extract_component_from_namespaced_with_tag() {
-        assert_eq!(extract_model_component("MedAIBase/MedGemma1.5:4b"), "medgemma1.5");
+        assert_eq!(extract_model_component("someuser/medgemma:4b"), "medgemma");
     }
 
     #[test]
@@ -829,9 +832,7 @@ mod tests {
         assert!(is_vision_model("medgemma:4b"));
         assert!(is_vision_model("dcarrascosa/medgemma-1.5-4b-it"));
         assert!(is_vision_model("amsaravi/medgemma-4b-it"));
-        // Legacy names (broken but still detected as vision-capable)
-        assert!(is_vision_model("MedAIBase/MedGemma1.5:4b"));
-        assert!(is_vision_model("alibayram/medgemma:4b"));
+        assert!(is_vision_model("someuser/medgemma:4b"));
     }
 
     #[test]

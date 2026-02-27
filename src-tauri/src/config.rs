@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn app_version_matches_cargo() {
-        assert_eq!(APP_VERSION, "0.4.0");
+        assert_eq!(APP_VERSION, "0.5.0");
     }
 
     #[test]

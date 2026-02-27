@@ -30,6 +30,7 @@ pub mod pipeline_config; // Hardware-tiered pipeline configuration
 pub mod time_estimation; // Hardware-aware processing time estimates
 pub mod ollama_service; // Centralized SLM access controller
 
+
 use std::sync::Arc;
 use tauri::Manager;
 use tracing_subscriber::EnvFilter;

@@ -183,10 +183,11 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 
 ```bash
 # Install Ollama: https://ollama.com/download
-ollama pull medgemma:4b
+# Build from Google's official source (includes vision)
+./setup-medgemma.sh
 ```
 
-MedGemma 1.5 4B runs locally on your machine. It requires approximately 8 GB of RAM. No GPU needed, though one will improve speed. By pulling the model you accept Google's [HAI-DEF Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms).
+MedGemma 1.5 4B runs locally on your machine. It requires approximately 8 GB of RAM. No GPU needed, though one will improve speed. The setup script downloads directly from [Google's official HuggingFace repo](https://huggingface.co/google/medgemma-4b-it) and builds with vision support baked in. By using MedGemma you accept Google's [HAI-DEF Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms).
 
 ### Run the desktop app
 
