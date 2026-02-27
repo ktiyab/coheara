@@ -62,6 +62,14 @@ pub enum StructuringError {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// L6-06: Model output degenerated (repetition loop detected by StreamGuard).
+    #[error("Model output degenerated ({pattern}) after {tokens_before_abort} tokens")]
+    Degeneration {
+        pattern: String,
+        tokens_before_abort: usize,
+        partial_output: String,
+    },
 }
 
 /// Patient-friendly error message (K.5).
@@ -124,6 +132,12 @@ impl StructuringError {
                 title: "File Access Error".into(),
                 message: "Could not read or write a file needed for analysis.".into(),
                 suggestion: "Please check available disk space and try again.".into(),
+                retry_possible: true,
+            },
+            StructuringError::Degeneration { .. } => PatientMessage {
+                title: "Analysis Incomplete".into(),
+                message: "The AI model entered a repetition loop and was stopped early.".into(),
+                suggestion: "Please try again. If this repeats, a different extraction strategy may be needed.".into(),
                 retry_possible: true,
             },
         }
@@ -217,6 +231,11 @@ mod patient_message_tests {
             StructuringError::ResponseParsing("err".into()),
             StructuringError::InputTooShort,
             StructuringError::Io(std::io::Error::new(std::io::ErrorKind::Other, "err")),
+            StructuringError::Degeneration {
+                pattern: "sequence_repeat".into(),
+                tokens_before_abort: 500,
+                partial_output: "partial...".into(),
+            },
         ];
         for err in &errors {
             let msg = err.patient_message();

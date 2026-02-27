@@ -52,6 +52,8 @@ pub struct PipelineAssignment {
     pub extraction: ExtractionStrategy,
     pub structuring_model: String,
     pub processing_mode: ProcessingMode,
+    /// L6-05: Prompt strategy for this pipeline run. None = legacy behavior.
+    pub prompt_strategy: Option<crate::pipeline::strategy::PromptStrategy>,
 }
 
 // ──────────────────────────────────────────────
@@ -100,6 +102,7 @@ pub fn resolve_pipeline(
         extraction,
         structuring_model,
         processing_mode,
+        prompt_strategy: None, // L6-05: Caller can resolve and set after pipeline assignment
     })
 }
 

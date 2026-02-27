@@ -748,6 +748,136 @@ impl OllamaClient {
 
         Ok(full_response)
     }
+
+    /// L6-06: Streaming generation with StreamGuard degeneration watchdog.
+    ///
+    /// Wraps `generate_streaming` with a `StreamGuard` that monitors the token
+    /// stream for repetition patterns and aborts early on degeneration.
+    ///
+    /// Returns the full (healthy) response, or `StructuringError::Degeneration`
+    /// if the guard detects a degeneration pattern.
+    pub fn generate_streaming_guarded(
+        &self,
+        model: &str,
+        prompt: &str,
+        system: &str,
+        token_tx: std::sync::mpsc::Sender<String>,
+        guard_config: crate::pipeline::stream_guard::StreamGuardConfig,
+    ) -> Result<String, StructuringError> {
+        use crate::pipeline::stream_guard::StreamGuard;
+
+        let mut guard = StreamGuard::new(guard_config);
+
+        // Create an intermediate channel to intercept tokens
+        let (inner_tx, inner_rx) = std::sync::mpsc::channel::<String>();
+
+        // Run the streaming generation in the current thread
+        // but with the inner_tx sender. We process tokens as they arrive.
+        validate_model_name(model).map_err(|e| StructuringError::HttpClient(e.to_string()))?;
+        let _span = tracing::info_span!("ollama_generate_streaming_guarded", model = %model).entered();
+        let start = std::time::Instant::now();
+
+        let url = format!("{}/api/generate", self.base_url);
+        let mut options = serde_json::json!({
+            "temperature": self.options.temperature,
+            "top_p": self.options.top_p,
+            "top_k": self.options.top_k,
+        });
+        if let Some(num_ctx) = self.options.num_ctx {
+            options["num_ctx"] = serde_json::json!(num_ctx);
+        }
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "system": system,
+            "stream": true,
+            "keep_alive": "30m",
+            "options": options,
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .map_err(|e| {
+                if e.is_connect() || e.is_timeout() {
+                    StructuringError::OllamaConnection(self.base_url.clone())
+                } else {
+                    StructuringError::HttpClient(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body_text = response.text().unwrap_or_default();
+            return Err(StructuringError::OllamaError {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        // Stream NDJSON with StreamGuard monitoring
+        let reader = std::io::BufReader::new(response);
+        // inner_tx/inner_rx not used — we process inline
+        drop(inner_tx);
+        drop(inner_rx);
+
+        for line_result in reader.lines() {
+            let line = line_result.map_err(|e| StructuringError::HttpClient(e.to_string()))?;
+
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            #[derive(Deserialize)]
+            struct StreamChunk {
+                response: String,
+                #[serde(default)]
+                done: bool,
+            }
+
+            match serde_json::from_str::<StreamChunk>(&line) {
+                Ok(chunk) => {
+                    // Feed token to StreamGuard before forwarding
+                    if let Err(abort) = guard.feed(&chunk.response) {
+                        tracing::warn!(
+                            pattern = %abort.pattern,
+                            tokens = abort.tokens_before_abort,
+                            "StreamGuard detected degeneration — aborting stream"
+                        );
+                        return Err(StructuringError::Degeneration {
+                            pattern: abort.pattern.to_string(),
+                            tokens_before_abort: abort.tokens_before_abort,
+                            partial_output: abort.partial_output,
+                        });
+                    }
+
+                    // Token is healthy — forward to consumer
+                    if token_tx.send(chunk.response).is_err() {
+                        tracing::info!("Streaming generation cancelled by receiver");
+                        return Ok(guard.accumulated_output().to_string());
+                    }
+
+                    if chunk.done {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(line = %line, error = %e, "Unparseable NDJSON chunk during guarded streaming");
+                }
+            }
+        }
+
+        tracing::info!(
+            model = %model,
+            elapsed_ms = %start.elapsed().as_millis(),
+            tokens = guard.total_tokens(),
+            "Ollama generate_streaming_guarded complete"
+        );
+
+        Ok(guard.accumulated_output().to_string())
+    }
 }
 
 // ──────────────────────────────────────────────
