@@ -1104,7 +1104,7 @@ fn dedup_instructions(insts: &mut Vec<ExtractedInstruction>) {
 /// CT-01: Build a `DocumentProcessor` from a `PipelineAssignment`.
 ///
 /// Dispatches on `ExtractionStrategy`:
-/// - `VisionOcr { model }` → full vision pipeline (PdfiumRenderer + OllamaVisionOcr)
+/// - `VisionOcr { model }` → full vision pipeline (Classify → IterativeDrill)
 /// - `PdfiumText` / `DirectText` → text-only extractor (no vision model needed)
 ///
 /// The structuring model comes from `assignment.structuring_model`.
@@ -1113,53 +1113,72 @@ pub fn build_processor_from_assignment(
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
 ) -> Result<DocumentProcessor, ProcessingError> {
-    build_processor_from_assignment_with_fallback(assignment, config, language, None)
+    build_processor_from_assignment_with_vision(assignment, config, language, false)
 }
 
-/// Build a `DocumentProcessor` with optional vision fallback.
+/// C4-FIX: Build a `DocumentProcessor` with vision extraction config.
 ///
-/// When `fallback` is provided, OCR degeneration triggers iterative vision Q&A
-/// instead of failing permanently (C4: hybrid vision OCR).
-pub fn build_processor_from_assignment_with_fallback(
+/// When `has_gpu` is true, the VisionSession uses GPU-optimized strategy.
+pub fn build_processor_from_assignment_with_vision(
     assignment: &crate::pipeline::model_router::PipelineAssignment,
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
-    fallback: Option<crate::pipeline::extraction::orchestrator::VisionFallback>,
+    has_gpu: bool,
 ) -> Result<DocumentProcessor, ProcessingError> {
     use crate::pipeline::model_router::ExtractionStrategy;
 
     let extractor: Box<dyn TextExtractor + Send + Sync> = match &assignment.extraction {
         ExtractionStrategy::VisionOcr { model } => {
+            use crate::butler_service::FallbackSession;
             use crate::ollama_service::OllamaService;
             use crate::pipeline::extraction::pdfium::PdfiumRenderer;
             use crate::pipeline::extraction::preprocess::{ImagePreprocessor, PreprocessingPipeline};
+            use crate::pipeline::extraction::vision_classifier::OllamaVisionClassifier;
             use crate::pipeline::extraction::vision_ocr::{
-                OllamaMedicalImageInterpreter, OllamaVisionOcr,
+                OllamaMedicalImageInterpreter, build_system_prompt,
             };
+            use crate::pipeline::strategy::ContextType;
 
             let pdf_renderer = PdfiumRenderer::new()
                 .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
+
+            // Shared vision client for classification, drill, and interpretation
             let mut vision_client = OllamaService::client();
             vision_client.set_vision_num_ctx(config.num_ctx);
             let vision_client: Arc<dyn crate::pipeline::structuring::types::VisionClient> =
                 Arc::new(vision_client);
-            let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
-                Box::new(OllamaVisionOcr::new(Arc::clone(&vision_client), model.clone()).with_language(language));
+
+            // C4-FIX: Classifier (lightweight Document/MedicalImage detection)
+            let classifier = Box::new(
+                OllamaVisionClassifier::new(Arc::clone(&vision_client), model.clone())
+            );
+
+            // C4-FIX: VisionSession for IterativeDrill (primary extraction)
+            let session = FallbackSession::new(model, ContextType::VisionOcr, has_gpu);
+
+            // Drill client (separate instance to avoid shared mutable state)
+            let mut drill_client = OllamaService::client();
+            drill_client.set_vision_num_ctx(config.num_ctx);
+
+            let system_prompt = build_system_prompt(language).to_string();
+
             let interpreter = Box::new(OllamaMedicalImageInterpreter::new(
                 Arc::clone(&vision_client),
                 model.clone(),
             ));
             let preprocessor: Box<dyn ImagePreprocessor> =
                 Box::new(PreprocessingPipeline::medgemma_gpu());
-            let mut doc_extractor =
-                DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr, preprocessor)
-                    .with_interpreter(interpreter)
-                    .with_language(language);
 
-            // C4: Wire vision fallback if provided
-            if let Some(fb) = fallback {
-                doc_extractor = doc_extractor.with_vision_fallback(fb);
-            }
+            let doc_extractor = DocumentExtractor::new(
+                Box::new(pdf_renderer),
+                classifier,
+                Box::new(session),
+                Box::new(drill_client),
+                system_prompt,
+                preprocessor,
+            )
+            .with_interpreter(interpreter)
+            .with_language(language);
 
             Box::new(doc_extractor)
         }
@@ -1211,13 +1230,15 @@ mod tests {
 
     use chrono::NaiveDate;
 
+    use crate::butler_service::FallbackSession;
     use crate::crypto::profile;
     use crate::db::sqlite::open_database;
     use crate::pipeline::extraction::pdfium::MockPdfPageRenderer;
     use crate::pipeline::extraction::preprocess::MockImagePreprocessor;
-    use crate::pipeline::extraction::vision_ocr::MockVisionOcr;
+    use crate::pipeline::extraction::vision_classifier::MockVisionClassifier;
+    use crate::pipeline::strategy::ContextType;
     use crate::pipeline::structuring::extraction_strategy::{MockExtractionStrategy, StrategyOutput};
-    use crate::pipeline::structuring::ollama::MockLlmClient;
+    use crate::pipeline::structuring::ollama::{MockLlmClient, MockVisionClient};
     use crate::pipeline::structuring::types::{
         ExtractedDiagnosis, ExtractedEntities, ExtractedMedication, ExtractedProfessional,
     };
@@ -1273,14 +1294,21 @@ mod tests {
         }
     }
 
+    /// Build a DocumentExtractor with mock classifier + drill mocks for processor tests.
+    fn build_test_extractor(page_count: usize) -> DocumentExtractor {
+        let session = FallbackSession::new("medgemma:4b", ContextType::VisionOcr, false);
+        DocumentExtractor::new(
+            Box::new(MockPdfPageRenderer::new(page_count)),
+            Box::new(MockVisionClassifier::document()),
+            Box::new(session),
+            Box::new(MockVisionClient::new("mock drill response")),
+            "You are a medical document extractor.".into(),
+            Box::new(MockImagePreprocessor::new()),
+        )
+    }
+
     fn build_test_processor() -> DocumentProcessor {
-        let pdf_renderer = Box::new(MockPdfPageRenderer::new(1));
-        let vision_ocr = Box::new(
-            MockVisionOcr::new("Metformin 500mg twice daily", "mock-vision")
-                .with_confidence(0.85),
-        );
-        let preprocessor = Box::new(MockImagePreprocessor::new());
-        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr, preprocessor));
+        let extractor = Box::new(build_test_extractor(1));
 
         let strategy = Box::new(MockExtractionStrategy::with_output(mock_strategy_output()));
         let llm = Box::new(MockLlmClient::new("unused"));
@@ -1498,12 +1526,7 @@ mod tests {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
-        let pdf_renderer = Box::new(MockPdfPageRenderer::new(1));
-        let vision_ocr = Box::new(
-            MockVisionOcr::new("Some medical text here", "mock-vision").with_confidence(0.85),
-        );
-        let preprocessor = Box::new(MockImagePreprocessor::new());
-        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr, preprocessor));
+        let extractor = Box::new(build_test_extractor(1));
         let processor = DocumentProcessor::new(extractor, Box::new(FailingStructurer));
 
         let tmp = tempfile::tempdir().unwrap();
@@ -2247,13 +2270,7 @@ mod tests {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
-        let pdf_renderer = Box::new(MockPdfPageRenderer::new(3));
-        let vision_ocr = Box::new(
-            MockVisionOcr::new("Metformin 500mg twice daily", "mock-vision")
-                .with_confidence(0.85),
-        );
-        let preprocessor = Box::new(MockImagePreprocessor::new());
-        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr, preprocessor));
+        let extractor = Box::new(build_test_extractor(3));
 
         let structurer = Box::new(AlternatingStructurer {
             call_count: std::sync::atomic::AtomicUsize::new(0),
@@ -2305,13 +2322,7 @@ mod tests {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
-        let pdf_renderer = Box::new(MockPdfPageRenderer::new(1));
-        let vision_ocr = Box::new(
-            MockVisionOcr::new("Some medical text content", "mock-vision")
-                .with_confidence(0.85),
-        );
-        let preprocessor = Box::new(MockImagePreprocessor::new());
-        let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr, preprocessor));
+        let extractor = Box::new(build_test_extractor(1));
         let processor = DocumentProcessor::new(extractor, Box::new(AlwaysFailStructurer));
 
         let tmp = tempfile::tempdir().unwrap();

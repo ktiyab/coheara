@@ -223,14 +223,14 @@ fn process_fresh_job(
     ollama.set_vision_num_ctx(pipeline_config.num_ctx);
     crate::commands::import::warm_assignment_models(state.butler(), &ollama, &assignment);
 
-    // Build processor with C4 vision fallback
+    // C4-FIX: Build processor with primary IterativeDrill extraction
     let lang = state.get_profile_language();
-    let fallback = build_vision_fallback(&state, &assignment, &pipeline_config, &lang);
-    let mut processor = crate::pipeline::processor::build_processor_from_assignment_with_fallback(
+    let has_gpu = detect_gpu(&state);
+    let mut processor = crate::pipeline::processor::build_processor_from_assignment_with_vision(
         &assignment,
         &pipeline_config,
         &lang,
-        fallback,
+        has_gpu,
     )
     .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
@@ -366,14 +366,14 @@ fn process_recovery_job(
     ollama.set_vision_num_ctx(pipeline_config.num_ctx);
     crate::commands::import::warm_assignment_models(state.butler(), &ollama, &assignment);
 
-    // Build processor with C4 vision fallback
+    // C4-FIX: Build processor with primary IterativeDrill extraction
     let lang = state.get_profile_language();
-    let fallback = build_vision_fallback(&state, &assignment, &pipeline_config, &lang);
-    let mut processor = crate::pipeline::processor::build_processor_from_assignment_with_fallback(
+    let has_gpu = detect_gpu(&state);
+    let mut processor = crate::pipeline::processor::build_processor_from_assignment_with_vision(
         &assignment,
         &pipeline_config,
         &lang,
-        fallback,
+        has_gpu,
     )
     .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
@@ -473,23 +473,9 @@ fn resolve_pipeline_setup(
 /// Creates a `FallbackSession` (unguarded — caller already holds butler guard)
 /// and a `VisionClient` for iterative vision Q&A. Returns `None` for
 /// non-vision extraction strategies (plain text, pdfium text).
-fn build_vision_fallback(
-    state: &CoreState,
-    assignment: &crate::pipeline::model_router::PipelineAssignment,
-    pipeline_config: &crate::pipeline_config::PipelineConfig,
-    language: &str,
-) -> Option<crate::pipeline::extraction::orchestrator::VisionFallback> {
-    use crate::butler_service::FallbackSession;
-    use crate::pipeline::extraction::orchestrator::VisionFallback;
-    use crate::pipeline::extraction::vision_ocr::build_system_prompt;
-    use crate::pipeline::strategy::ContextType;
-
-    let model = match &assignment.extraction {
-        crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
-        _ => return None, // No vision fallback needed for non-vision strategies
-    };
-
-    let has_gpu = state
+/// C4-FIX: Detect GPU availability for strategy resolution.
+fn detect_gpu(state: &CoreState) -> bool {
+    state
         .butler()
         .hardware_tier()
         .map_or(false, |t| {
@@ -498,20 +484,7 @@ fn build_vision_fallback(
                 crate::hardware::GpuTier::FullGpu
                     | crate::hardware::GpuTier::PartialGpu
             )
-        });
-
-    let session = FallbackSession::new(&model, ContextType::VisionOcr, has_gpu);
-
-    let mut vision_client = crate::ollama_service::OllamaService::client();
-    vision_client.set_vision_num_ctx(pipeline_config.num_ctx);
-
-    let system_prompt = build_system_prompt(language).to_string();
-
-    Some(VisionFallback {
-        session: Box::new(session),
-        vision_client: Box::new(vision_client),
-        system_prompt,
-    })
+        })
 }
 
 /// Set up CPU swap hook for BatchStages mode.
