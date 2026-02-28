@@ -9,6 +9,7 @@ pub mod distribution;
 pub mod extraction;
 pub mod home;
 pub mod import;
+pub mod import_queue;
 pub mod journal;
 pub mod medications;
 pub mod mobile_api;
@@ -179,9 +180,9 @@ pub async fn verify_ai_status(
 
         let model_name = active_model.as_ref().map(|m| m.name.clone());
 
-        // Try to acquire Ollama exclusively for verification — skip if busy
+        // BTL-07: Try to acquire via Butler — skip if busy
         let guard = model_name.as_ref().and_then(|name| {
-            state.ollama().try_acquire(
+            state.butler().try_acquire(
                 crate::ollama_service::OperationKind::ModelVerification,
                 name,
             )
@@ -205,7 +206,7 @@ pub async fn verify_ai_status(
             (None, Some(_)) => {
                 // Ollama is busy with a real operation — the running operation IS the proof
                 tracing::info!(
-                    busy_with = ?state.ollama().current_operation(),
+                    busy_with = ?state.butler().inner().current_operation(),
                     "Ollama busy, skipping verification — active use implies working"
                 );
                 // Return current verified state without changing it
@@ -268,7 +269,18 @@ fn build_status(
 pub fn ollama_current_operation(
     state: State<'_, Arc<CoreState>>,
 ) -> Option<crate::ollama_service::ActiveOperation> {
-    state.ollama().current_operation()
+    state.butler().inner().current_operation()
+}
+
+/// BTL-08: Query the Butler Service status (model state, warm endpoints, hardware).
+///
+/// Returns the current state of the SLM lifecycle orchestrator.
+/// Used by the frontend AI status indicator for warm/loading state display.
+#[tauri::command]
+pub fn get_butler_status(
+    state: State<'_, Arc<CoreState>>,
+) -> crate::butler_service::ButlerStatus {
+    state.butler().status()
 }
 
 /// Detect which embedding backend will be used at runtime.

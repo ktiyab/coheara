@@ -21,6 +21,7 @@ mod professional;
 mod profile_trust;
 mod referral;
 mod symptom;
+mod entity_connection;
 mod vital_sign;
 
 use uuid::Uuid;
@@ -53,6 +54,7 @@ pub use professional::*;
 pub use profile_trust::*;
 pub use referral::*;
 pub use symptom::*;
+pub use entity_connection::*;
 pub use vital_sign::*;
 
 #[cfg(test)]
@@ -1034,5 +1036,233 @@ mod tests {
             .filter(|i| i.category == "stuck_pipeline")
             .collect();
         assert!(stuck_after.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // BTL-10 C2: Processing log
+    // -----------------------------------------------------------------------
+
+    fn make_processing_log(doc_id: Uuid, stage: ProcessingStage, success: bool) -> ProcessingLogEntry {
+        ProcessingLogEntry {
+            id: Uuid::new_v4(),
+            document_id: doc_id,
+            model_name: "medgemma-4b".into(),
+            model_variant: Some("q8_0".into()),
+            processing_stage: stage,
+            started_at: "2026-02-27T10:00:00".into(),
+            completed_at: if success { Some("2026-02-27T10:01:00".into()) } else { None },
+            success,
+            error_message: if success { None } else { Some("Vision OCR timed out".into()) },
+        }
+    }
+
+    fn make_entity_connection(doc_id: Uuid) -> EntityConnection {
+        EntityConnection {
+            id: Uuid::new_v4(),
+            source_type: EntityType::Medication,
+            source_id: Uuid::new_v4(),
+            target_type: EntityType::Diagnosis,
+            target_id: Uuid::new_v4(),
+            relationship_type: RelationshipType::PrescribedFor,
+            confidence: 1.0,
+            document_id: doc_id,
+            created_at: "2026-02-27T10:00:00".into(),
+        }
+    }
+
+    #[test]
+    fn processing_log_insert_and_retrieve() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let entry = make_processing_log(doc_id, ProcessingStage::Extraction, true);
+
+        insert_processing_log(&conn, &entry).unwrap();
+
+        let logs = get_processing_log_for_document(&conn, &doc_id).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].model_name, "medgemma-4b");
+        assert_eq!(logs[0].processing_stage, ProcessingStage::Extraction);
+        assert!(logs[0].success);
+    }
+
+    #[test]
+    fn processing_log_multiple_stages() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+
+        let extraction = make_processing_log(doc_id, ProcessingStage::Extraction, true);
+        let mut structuring = make_processing_log(doc_id, ProcessingStage::Structuring, true);
+        structuring.started_at = "2026-02-27T10:02:00".into();
+
+        insert_processing_log(&conn, &extraction).unwrap();
+        insert_processing_log(&conn, &structuring).unwrap();
+
+        let logs = get_processing_log_for_document(&conn, &doc_id).unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].processing_stage, ProcessingStage::Extraction);
+        assert_eq!(logs[1].processing_stage, ProcessingStage::Structuring);
+    }
+
+    #[test]
+    fn processing_log_last_error() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let entry = make_processing_log(doc_id, ProcessingStage::Extraction, false);
+
+        insert_processing_log(&conn, &entry).unwrap();
+
+        let error = get_last_processing_error(&conn, &doc_id).unwrap();
+        assert_eq!(error.as_deref(), Some("Vision OCR timed out"));
+    }
+
+    #[test]
+    fn processing_log_no_error_returns_none() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let entry = make_processing_log(doc_id, ProcessingStage::Extraction, true);
+
+        insert_processing_log(&conn, &entry).unwrap();
+
+        let error = get_last_processing_error(&conn, &doc_id).unwrap();
+        assert!(error.is_none());
+    }
+
+    #[test]
+    fn processing_log_cascade_delete() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let entry = make_processing_log(doc_id, ProcessingStage::Extraction, true);
+        insert_processing_log(&conn, &entry).unwrap();
+
+        delete_document_cascade(&conn, &doc_id).unwrap();
+
+        let logs = get_processing_log_for_document(&conn, &doc_id).unwrap();
+        assert!(logs.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // BTL-10 C2: Entity connections
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn entity_connection_insert_and_retrieve() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let connection = make_entity_connection(doc_id);
+
+        insert_entity_connection(&conn, &connection).unwrap();
+
+        let conns = get_connections_for_document(&conn, &doc_id).unwrap();
+        assert_eq!(conns.len(), 1);
+        assert_eq!(conns[0].source_type, EntityType::Medication);
+        assert_eq!(conns[0].target_type, EntityType::Diagnosis);
+        assert_eq!(conns[0].relationship_type, RelationshipType::PrescribedFor);
+        assert!((conns[0].confidence - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn entity_connection_query_by_entity() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let mut connection = make_entity_connection(doc_id);
+        let med_id = connection.source_id;
+        insert_entity_connection(&conn, &connection).unwrap();
+
+        // Second connection with same medication as source
+        connection.id = Uuid::new_v4();
+        connection.target_id = Uuid::new_v4();
+        connection.relationship_type = RelationshipType::ContraindicatedBy;
+        connection.target_type = EntityType::Allergy;
+        insert_entity_connection(&conn, &connection).unwrap();
+
+        let conns = get_connections_for_entity(&conn, &EntityType::Medication, &med_id).unwrap();
+        assert_eq!(conns.len(), 2);
+    }
+
+    #[test]
+    fn entity_connection_query_by_target() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let connection = make_entity_connection(doc_id);
+        let dx_id = connection.target_id;
+        insert_entity_connection(&conn, &connection).unwrap();
+
+        let conns = get_connections_for_entity(&conn, &EntityType::Diagnosis, &dx_id).unwrap();
+        assert_eq!(conns.len(), 1);
+    }
+
+    #[test]
+    fn entity_connection_delete_for_document() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        insert_entity_connection(&conn, &make_entity_connection(doc_id)).unwrap();
+        insert_entity_connection(&conn, &make_entity_connection(doc_id)).unwrap();
+
+        let deleted = delete_connections_for_document(&conn, &doc_id).unwrap();
+        assert_eq!(deleted, 2);
+
+        let conns = get_connections_for_document(&conn, &doc_id).unwrap();
+        assert!(conns.is_empty());
+    }
+
+    #[test]
+    fn entity_connection_cascade_delete() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        insert_entity_connection(&conn, &make_entity_connection(doc_id)).unwrap();
+
+        delete_document_cascade(&conn, &doc_id).unwrap();
+
+        let conns = get_connections_for_document(&conn, &doc_id).unwrap();
+        assert!(conns.is_empty());
+    }
+
+    #[test]
+    fn entity_connection_empty_document() {
+        let conn = test_db();
+        let doc_id = make_document(&conn, None);
+        let conns = get_connections_for_document(&conn, &doc_id).unwrap();
+        assert!(conns.is_empty());
+    }
+
+    #[test]
+    fn entity_type_round_trip() {
+        for (variant, s) in [
+            (EntityType::Medication, "Medication"),
+            (EntityType::LabResult, "LabResult"),
+            (EntityType::Diagnosis, "Diagnosis"),
+            (EntityType::Allergy, "Allergy"),
+            (EntityType::Procedure, "Procedure"),
+            (EntityType::Referral, "Referral"),
+        ] {
+            assert_eq!(variant.as_str(), s);
+            assert_eq!(EntityType::from_str(s).unwrap(), variant);
+        }
+    }
+
+    #[test]
+    fn relationship_type_round_trip() {
+        for (variant, s) in [
+            (RelationshipType::PrescribedFor, "PrescribedFor"),
+            (RelationshipType::EvidencesFor, "EvidencesFor"),
+            (RelationshipType::MonitorsFor, "MonitorsFor"),
+            (RelationshipType::ContraindicatedBy, "ContraindicatedBy"),
+            (RelationshipType::FollowUpTo, "FollowUpTo"),
+            (RelationshipType::ReplacedBy, "ReplacedBy"),
+        ] {
+            assert_eq!(variant.as_str(), s);
+            assert_eq!(RelationshipType::from_str(s).unwrap(), variant);
+        }
+    }
+
+    #[test]
+    fn processing_stage_round_trip() {
+        for (variant, s) in [
+            (ProcessingStage::Extraction, "extraction"),
+            (ProcessingStage::Structuring, "structuring"),
+        ] {
+            assert_eq!(variant.as_str(), s);
+            assert_eq!(ProcessingStage::from_str(s).unwrap(), variant);
+        }
     }
 }

@@ -164,7 +164,27 @@ impl VisionOcrEngine for OllamaVisionOcr {
                 &images,
                 Some(system_prompt),
             )
-            .map_err(|e| ExtractionError::OcrProcessing(format!("Vision OCR failed: {e}")))?;
+            .map_err(|e| match e {
+                // SGV-01: Map vision degeneration to typed error
+                crate::pipeline::structuring::ollama_types::OllamaError::VisionDegeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                } => {
+                    tracing::warn!(
+                        model = %self.model_name,
+                        pattern = %pattern,
+                        tokens = tokens_before_abort,
+                        "SGV-01: Vision OCR degenerated — model entered repetition loop"
+                    );
+                    ExtractionError::VisionDegeneration {
+                        pattern,
+                        tokens_before_abort,
+                        partial_output,
+                    }
+                }
+                other => ExtractionError::OcrProcessing(format!("Vision OCR failed: {other}")),
+            })?;
 
         // Parse classification tag from response
         let (text, content_type) = parse_classification_tag(&raw_response);
@@ -336,8 +356,28 @@ impl MedicalImageInterpreter for OllamaMedicalImageInterpreter {
                 &images,
                 Some(INTERPRET_SYSTEM_PROMPT),
             )
-            .map_err(|e| {
-                ExtractionError::OcrProcessing(format!("Medical image interpretation failed: {e}"))
+            .map_err(|e| match e {
+                // SGV-01: Map vision degeneration to typed error
+                crate::pipeline::structuring::ollama_types::OllamaError::VisionDegeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                } => {
+                    tracing::warn!(
+                        model = %self.model_name,
+                        pattern = %pattern,
+                        tokens = tokens_before_abort,
+                        "SGV-01: Medical image interpretation degenerated"
+                    );
+                    ExtractionError::VisionDegeneration {
+                        pattern,
+                        tokens_before_abort,
+                        partial_output,
+                    }
+                }
+                other => ExtractionError::OcrProcessing(
+                    format!("Medical image interpretation failed: {other}"),
+                ),
             })?;
 
         let findings = raw_response.trim().to_string();

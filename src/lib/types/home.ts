@@ -9,6 +9,15 @@ export interface EntitySummary {
   referrals: number;
 }
 
+export type DocumentLifecycleStatus =
+  | 'Imported'
+  | 'Extracting'
+  | 'Structuring'
+  | 'PendingReview'
+  | 'Confirmed'
+  | 'Failed'
+  | 'Rejected';
+
 export interface DocumentCard {
   id: string;
   document_type: string;
@@ -17,7 +26,8 @@ export interface DocumentCard {
   professional_specialty: string | null;
   document_date: string | null;
   imported_at: string;
-  status: 'PendingReview' | 'Confirmed';
+  status: DocumentLifecycleStatus;
+  error_message: string | null;
   entity_summary: EntitySummary;
 }
 

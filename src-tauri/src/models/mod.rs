@@ -16,6 +16,7 @@ pub mod enums;
 pub mod vital_sign;
 pub mod cached_explanation;
 pub mod caregiver;
+pub mod entity_connection;
 
 pub use document::*;
 pub use medication::*;
@@ -34,3 +35,4 @@ pub use filters::*;
 pub use vital_sign::*;
 pub use cached_explanation::*;
 pub use caregiver::*;
+pub use entity_connection::*;

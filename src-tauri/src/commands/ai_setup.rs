@@ -493,7 +493,8 @@ pub async fn verify_ai_model(
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
         use crate::pipeline::structuring::types::LlmClient;
-        let _guard = state.ollama().acquire(
+        // BTL-07: Acquire via Butler (tracks model state)
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::ModelVerification,
             &model_name,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;

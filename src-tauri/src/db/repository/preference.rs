@@ -267,6 +267,39 @@ pub fn delete_model_enabled(conn: &Connection, model_name: &str) -> Result<(), D
 }
 
 // ──────────────────────────────────────────────
+// BTL-02: Auto-tag suggestions
+// ──────────────────────────────────────────────
+
+/// Suggest capability tags for a newly discovered model.
+///
+/// BTL-02: This is a SUGGESTION function — it does NOT write to the database.
+/// The caller decides whether to apply these tags. The DB-stored tags remain
+/// the single source of truth for routing.
+///
+/// # Known families
+/// - `medgemma*` → Vision, Medical, Png, Jpeg, Txt
+/// - `llava*`, `bakllava*`, `moondream*`, `cogvlm*` → Vision, Png, Jpeg, Txt
+/// - All others → Txt only
+pub fn suggest_auto_tags(model_name: &str) -> Vec<CapabilityTag> {
+    let component =
+        crate::pipeline::structuring::ollama_types::extract_model_component(model_name);
+    let mut tags = vec![CapabilityTag::Txt];
+
+    let vision_families = ["medgemma", "llava", "bakllava", "moondream", "cogvlm"];
+    if vision_families.iter().any(|f| component.starts_with(f)) {
+        tags.push(CapabilityTag::Vision);
+        tags.push(CapabilityTag::Png);
+        tags.push(CapabilityTag::Jpeg);
+    }
+
+    if component.starts_with("medgemma") {
+        tags.push(CapabilityTag::Medical);
+    }
+
+    tags
+}
+
+// ──────────────────────────────────────────────
 // Tests
 // ──────────────────────────────────────────────
 
@@ -405,5 +438,50 @@ mod tests {
         delete_model_enabled(&conn, "llava:13b").unwrap();
         // After deletion, defaults back to enabled
         assert!(is_model_enabled(&conn, "llava:13b").unwrap());
+    }
+
+    // ── BTL-02: Auto-tag suggestion tests ──────────────────────
+
+    #[test]
+    fn suggest_tags_medgemma_vision_medical() {
+        let tags = suggest_auto_tags("medgemma:4b");
+        assert!(tags.contains(&CapabilityTag::Txt));
+        assert!(tags.contains(&CapabilityTag::Vision));
+        assert!(tags.contains(&CapabilityTag::Medical));
+        assert!(tags.contains(&CapabilityTag::Png));
+        assert!(tags.contains(&CapabilityTag::Jpeg));
+    }
+
+    #[test]
+    fn suggest_tags_llava_vision_no_medical() {
+        let tags = suggest_auto_tags("llava:13b");
+        assert!(tags.contains(&CapabilityTag::Vision));
+        assert!(tags.contains(&CapabilityTag::Png));
+        assert!(!tags.contains(&CapabilityTag::Medical));
+    }
+
+    #[test]
+    fn suggest_tags_generic_txt_only() {
+        let tags = suggest_auto_tags("llama3:8b");
+        assert_eq!(tags, vec![CapabilityTag::Txt]);
+    }
+
+    #[test]
+    fn suggest_tags_namespaced_medgemma() {
+        // BTL-02: coheara-medgemma should still match medgemma family
+        let tags = suggest_auto_tags("dcarrascosa/medgemma-1.5-4b-it");
+        assert!(tags.contains(&CapabilityTag::Vision));
+        assert!(tags.contains(&CapabilityTag::Medical));
+    }
+
+    #[test]
+    fn suggest_tags_coheara_prefixed_medgemma() {
+        // The production failure model: coheara-medgemma-4b-f16
+        // extract_model_component strips namespace → "coheara-medgemma-4b-f16"
+        // This does NOT start with "medgemma" — suggest_auto_tags correctly
+        // returns only Txt. The user must explicitly tag it.
+        let tags = suggest_auto_tags("ktiyab/coheara-medgemma-4b-f16");
+        // coheara-medgemma doesn't start with "medgemma", so no vision
+        assert_eq!(tags, vec![CapabilityTag::Txt]);
     }
 }

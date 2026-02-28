@@ -143,6 +143,19 @@ pub fn update_pipeline_status(
     Ok(())
 }
 
+/// Update only the page_count of a document (set after extraction).
+pub fn update_document_page_count(
+    conn: &Connection,
+    document_id: &Uuid,
+    page_count: u32,
+) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE documents SET page_count = ?2 WHERE id = ?1",
+        params![document_id.to_string(), page_count],
+    )?;
+    Ok(())
+}
+
 /// Get all documents matching a pipeline status.
 pub fn get_documents_by_pipeline_status(
     conn: &Connection,

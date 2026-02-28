@@ -21,7 +21,6 @@ const SIDEBAR_SCREENS = new Set([
 	'settings',
 	'ai-settings',
 	'privacy',
-	'import',
 	'profiles',
 	'profiles-create'
 ]);
@@ -47,6 +46,7 @@ const REDIRECT_MAP: Record<string, string> = {
 	medications: 'home',
 	appointments: 'home',
 	pairing: 'companion',
+	import: 'documents',
 };
 
 class NavigationStore {

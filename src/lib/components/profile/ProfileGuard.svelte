@@ -9,6 +9,7 @@
   import { navigation } from '$lib/stores/navigation.svelte';
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { importQueue } from '$lib/stores/importQueue.svelte';
   import type { ProfileInfo, AppScreen } from '$lib/types/profile';
   import TrustScreen from './TrustScreen.svelte';
   import ProfileTypeChoice from './ProfileTypeChoice.svelte';
@@ -43,6 +44,7 @@
     navigation.reset();   // screenParams (documentIds), URL hash
     ai.reset();           // model status, timers, health
     extraction.reset();   // pending review items (medical data!)
+    importQueue.reset();  // BTL-10: import jobs (cross-profile isolation)
 
     try { profiles = await listProfiles(); } catch { profiles = []; }
     if (profiles.length === 0) { screen = 'trust'; return; }

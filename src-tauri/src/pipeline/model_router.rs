@@ -16,7 +16,7 @@ use rusqlite::Connection;
 
 use crate::db::repository;
 use crate::pipeline::import::format::FileCategory;
-use crate::pipeline::structuring::ollama_types::{is_vision_model, CapabilityTag};
+use crate::pipeline::structuring::ollama_types::{normalize_model_identity, CapabilityTag};
 use crate::pipeline::structuring::preferences::{ActiveModelResolver, PreferenceError};
 use crate::pipeline::structuring::types::LlmClient;
 
@@ -91,8 +91,14 @@ pub fn resolve_pipeline(
     let structuring_model = resolve_structuring(conn, resolver, client, &all_tags, &enabled)?;
 
     // Auto-select processing mode
+    // BTL-03: Use normalized identity to compare — namespaced variants
+    // (e.g., "ktiyab/coheara-medgemma-4b-f16" vs "coheara-medgemma-4b-f16")
+    // are the same model and should use Interleaved mode.
     let processing_mode = match &extraction {
-        ExtractionStrategy::VisionOcr { model } if model != &structuring_model => {
+        ExtractionStrategy::VisionOcr { model }
+            if normalize_model_identity(model)
+                != normalize_model_identity(&structuring_model) =>
+        {
             ProcessingMode::BatchStages
         }
         _ => ProcessingMode::Interleaved,
@@ -111,6 +117,10 @@ pub fn resolve_pipeline(
 // ──────────────────────────────────────────────
 
 /// Resolve extraction strategy from file category + tags.
+///
+/// BTL-02: CT-01 capability tags are the sole authority.
+/// Prefix heuristic removed — if no VISION tag, digital PDFs fall back to PdfiumText,
+/// scanned PDFs and images return NoVisionModel error.
 fn resolve_extraction(
     file_category: &FileCategory,
     all_tags: &HashMap<String, Vec<CapabilityTag>>,
@@ -121,24 +131,19 @@ fn resolve_extraction(
         FileCategory::Unsupported => Err(PreferenceError::NoModelAvailable),
 
         FileCategory::DigitalPdf => {
-            // Digital PDF: prefer vision model if available, else pdfium text layer
             if let Some(model) = find_enabled_with_tag(all_tags, enabled, CapabilityTag::Vision) {
                 Ok(ExtractionStrategy::VisionOcr { model })
-            } else if let Some(model) = find_enabled_vision_by_prefix(enabled) {
-                Ok(ExtractionStrategy::VisionOcr { model })
             } else {
+                tracing::info!("No VISION-tagged model — falling back to PdfiumText for digital PDF");
                 Ok(ExtractionStrategy::PdfiumText)
             }
         }
 
         FileCategory::ScannedPdf | FileCategory::Image => {
-            // Scanned PDF / Image: MUST have a vision model
             if let Some(model) = find_enabled_with_tag(all_tags, enabled, CapabilityTag::Vision) {
                 Ok(ExtractionStrategy::VisionOcr { model })
-            } else if let Some(model) = find_enabled_vision_by_prefix(enabled) {
-                Ok(ExtractionStrategy::VisionOcr { model })
             } else {
-                Err(PreferenceError::NoModelAvailable)
+                Err(PreferenceError::NoVisionModel)
             }
         }
     }
@@ -164,16 +169,8 @@ fn resolve_structuring(
         return Ok(model);
     }
 
-    // Step 3: Prefix heuristic — first enabled medical model
-    for model in enabled {
-        if super::structuring::preferences::classify_model(model)
-            == super::structuring::preferences::ModelQuality::Medical
-        {
-            return Ok(model.clone());
-        }
-    }
-
-    // Step 4: Any enabled model
+    // Step 3: Any enabled model (BTL-02: prefix heuristic removed, tags are sole authority)
+    // classify_model() still exists for informational labeling but no longer gates routing.
     if let Some(model) = enabled.first() {
         return Ok(model.clone());
     }
@@ -197,10 +194,7 @@ fn find_enabled_with_tag(
     None
 }
 
-/// Find first enabled model that passes the vision prefix heuristic.
-fn find_enabled_vision_by_prefix(enabled: &[String]) -> Option<String> {
-    enabled.iter().find(|m| is_vision_model(m)).cloned()
-}
+// BTL-02: find_enabled_vision_by_prefix() removed. CT-01 tags are sole authority.
 
 /// Filter installed models to only those that are enabled.
 fn filter_enabled(installed: &[String], disabled: &[String]) -> Vec<String> {
@@ -314,26 +308,33 @@ mod tests {
 
         repository::set_model_tags(&conn, "llama3:8b", &[CapabilityTag::Txt]).unwrap();
 
+        // BTL-02: TXT-only model → NoVisionModel for scanned PDFs
         let result = resolve_pipeline(&conn, &resolver, &client, &FileCategory::ScannedPdf);
-        assert!(matches!(result, Err(PreferenceError::NoModelAvailable)));
+        assert!(matches!(result, Err(PreferenceError::NoVisionModel)));
     }
 
-    // ── Scenario E: No tags → prefix heuristic fallback ──
+    // ── Scenario E: No tags → NoVisionModel error (BTL-02) ──
 
     #[test]
-    fn scenario_e_no_tags_prefix_fallback() {
+    fn scenario_e_no_tags_returns_no_vision_model() {
         let conn = setup();
         let client = MockClient::with(&["medgemma:4b"]);
         let resolver = ActiveModelResolver::new();
 
-        // No tags set — relies on prefix heuristic
-        let assignment = resolve_pipeline(&conn, &resolver, &client, &FileCategory::ScannedPdf).unwrap();
+        // No tags set — CT-01 tags are sole authority, no prefix fallback
+        let result = resolve_pipeline(&conn, &resolver, &client, &FileCategory::ScannedPdf);
+        assert!(matches!(result, Err(PreferenceError::NoVisionModel)));
+    }
 
-        // medgemma matches VISION_MODEL_PREFIXES → VisionOcr
-        assert_eq!(assignment.extraction, ExtractionStrategy::VisionOcr { model: "medgemma:4b".to_string() });
-        // medgemma matches MEDICAL_MODEL_PREFIXES → structuring
-        assert_eq!(assignment.structuring_model, "medgemma:4b");
-        assert_eq!(assignment.processing_mode, ProcessingMode::Interleaved);
+    #[test]
+    fn scenario_e_no_tags_digital_pdf_falls_back_to_pdfium_text() {
+        let conn = setup();
+        let client = MockClient::with(&["medgemma:4b"]);
+        let resolver = ActiveModelResolver::new();
+
+        // No tags — digital PDF gracefully falls back to PdfiumText
+        let assignment = resolve_pipeline(&conn, &resolver, &client, &FileCategory::DigitalPdf).unwrap();
+        assert_eq!(assignment.extraction, ExtractionStrategy::PdfiumText);
     }
 
     // ── Scenario F: Disabled model skipped ──
@@ -403,8 +404,9 @@ mod tests {
 
         repository::set_model_tags(&conn, "llama3:8b", &[CapabilityTag::Txt]).unwrap();
 
+        // BTL-02: TXT-only model → NoVisionModel for images
         let result = resolve_pipeline(&conn, &resolver, &client, &FileCategory::Image);
-        assert!(matches!(result, Err(PreferenceError::NoModelAvailable)));
+        assert!(matches!(result, Err(PreferenceError::NoVisionModel)));
     }
 
     #[test]

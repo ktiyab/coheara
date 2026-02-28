@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -74,6 +74,10 @@ pub enum ProcessingError {
 
     #[error("OCR engine initialization failed: {0}")]
     OcrInit(String),
+
+    /// §21 Fix C: Processing cancelled by user via cooperative cancellation token.
+    #[error("Processing cancelled by user")]
+    Cancelled,
 }
 
 /// R.1: Patient-friendly error with category, guidance, and sanitized message.
@@ -122,6 +126,17 @@ fn sanitize_error_message(raw: &str) -> String {
 impl ProcessingError {
     /// R.1: Convert to a patient-friendly error with full context.
     pub fn to_patient_error(&self) -> PatientError {
+        // §21 Fix C: Cancelled is not a real error — neutral messaging.
+        if matches!(self, ProcessingError::Cancelled) {
+            return PatientError {
+                title: "Import Cancelled".into(),
+                message: "The import was cancelled.".into(),
+                suggestion: "You can re-import this document at any time.".into(),
+                category: ErrorCategory::UnsupportedFile,
+                retry_possible: false,
+            };
+        }
+
         // Delegate to StructuringError's existing patient_message if available
         if let ProcessingError::Structuring(e) = self {
             let pm = e.patient_message();
@@ -198,8 +213,8 @@ impl ProcessingError {
                 category: ErrorCategory::OcrUnavailable,
                 retry_possible: false,
             },
-            // Structuring is handled above via early return
-            ProcessingError::Structuring(_) => unreachable!(),
+            // Structuring and Cancelled are handled above via early return
+            ProcessingError::Structuring(_) | ProcessingError::Cancelled => unreachable!(),
         }
     }
 
@@ -225,6 +240,7 @@ impl ProcessingError {
             ProcessingError::Database(_) => ErrorCategory::DatabaseError,
             ProcessingError::PersistFailed(_) => ErrorCategory::StorageError,
             ProcessingError::OcrInit(_) => ErrorCategory::OcrUnavailable,
+            ProcessingError::Cancelled => ErrorCategory::UnsupportedFile,
         }
     }
 
@@ -237,6 +253,7 @@ impl ProcessingError {
             ProcessingError::Database(_) => false,
             ProcessingError::PersistFailed(_) => true,
             ProcessingError::OcrInit(_) => false,
+            ProcessingError::Cancelled => false,
         }
     }
 }
@@ -290,12 +307,44 @@ pub struct ProcessingOutput {
 // ---------------------------------------------------------------------------
 
 /// Shared stage indicator for progress reporting.
+/// Used by both `ProgressMonitor` (IPC commands) and `StageWatcher` (queue worker).
 pub type StageTracker = Arc<AtomicU8>;
 
 /// Stage constants matching the frontend's expected stage names.
 pub const STAGE_IMPORTING: u8 = 0;
 pub const STAGE_EXTRACTING: u8 = 1;
 pub const STAGE_STRUCTURING: u8 = 2;
+
+/// §22: Work-based progress tracker for the import queue path.
+///
+/// Wraps a `StageTracker` (shared with `DocumentProcessor`) and adds per-page
+/// counters for real work-based progress. The queue worker's `StageWatcher`
+/// reads all fields every 500ms to compute page-level progress.
+///
+/// `AtomicU8` for pages: max 255 covers >99.9% of medical documents.
+/// For >255 pages, values clamp to 255 — progress still works, just coarser.
+pub struct ProgressTracker {
+    /// The stage atomic — shared with DocumentProcessor via `stage()`.
+    pub stage: StageTracker,
+    pub page_current: AtomicU8,
+    pub page_total: AtomicU8,
+}
+
+impl ProgressTracker {
+    pub fn new(initial_stage: u8) -> Self {
+        Self {
+            stage: Arc::new(AtomicU8::new(initial_stage)),
+            page_current: AtomicU8::new(0),
+            page_total: AtomicU8::new(0),
+        }
+    }
+
+    /// Get the inner `StageTracker` to pass to `DocumentProcessor`.
+    /// The processor writes stage transitions; the queue worker reads them.
+    pub fn stage_tracker(&self) -> StageTracker {
+        self.stage.clone()
+    }
+}
 
 /// Map stage constant to frontend-expected stage name.
 pub fn stage_name(stage: u8) -> &'static str {
@@ -307,13 +356,17 @@ pub fn stage_name(stage: u8) -> &'static str {
     }
 }
 
-/// Progress percentage range per stage (min, max).
+/// §22: Canonical progress percentage range per stage (min, max).
+/// Single source of truth — used by both processor and StageWatcher.
+///
+/// Extraction and structuring each get 40% width (roughly equal processing time
+/// for vision-based workflows). Importing is instant (5% width).
 pub fn stage_pct_range(stage: u8) -> (u8, u8) {
     match stage {
-        STAGE_IMPORTING => (5, 15),
-        STAGE_EXTRACTING => (15, 40),
-        STAGE_STRUCTURING => (40, 85),
-        _ => (5, 15),
+        STAGE_IMPORTING => (5, 10),
+        STAGE_EXTRACTING => (10, 50),
+        STAGE_STRUCTURING => (50, 90),
+        _ => (5, 10),
     }
 }
 
@@ -333,13 +386,19 @@ const MIN_PAGE_TEXT_LENGTH: usize = 10;
 pub struct DocumentProcessor {
     extractor: Box<dyn TextExtractor + Send + Sync>,
     structurer: Box<dyn MedicalStructurer + Send + Sync>,
+    /// Stage tracker — shared atomic for stage transitions.
+    /// Used by both IPC commands (ProgressMonitor) and queue worker (StageWatcher).
     stage_tracker: Option<StageTracker>,
-    /// Hook called between extraction and structuring stages.
+    /// §22: Optional page-level progress tracker (queue worker path only).
+    /// When set, the processor writes page_current/page_total during structuring.
+    progress_tracker: Option<Arc<ProgressTracker>>,
+    /// §22 G4: Hook called between extraction and structuring stages.
     /// Used by CPU swap strategy to unload vision model and warm LLM model.
-    between_stages_fn: Option<Box<dyn Fn() + Send + Sync>>,
-    /// Callback for per-page structuring progress.
-    /// Args: (current_page: usize, total_pages: usize)
-    page_progress_fn: Option<Box<dyn Fn(usize, usize) + Send + Sync>>,
+    /// Returns Result so model swap failures propagate as clear error messages.
+    between_stages_fn: Option<Box<dyn Fn() -> Result<(), String> + Send + Sync>>,
+    /// §21 Fix C: Cooperative cancellation token shared with import queue.
+    /// Set to `true` when user cancels; checked at processing checkpoints.
+    cancellation_token: Option<Arc<AtomicBool>>,
 }
 
 impl DocumentProcessor {
@@ -351,28 +410,47 @@ impl DocumentProcessor {
             extractor,
             structurer,
             stage_tracker: None,
+            progress_tracker: None,
             between_stages_fn: None,
-            page_progress_fn: None,
+            cancellation_token: None,
         }
     }
 
     /// Set a shared stage tracker for progress reporting.
-    /// The command layer reads this from the heartbeat thread.
+    /// The command layer (ProgressMonitor) reads this from a heartbeat thread.
     pub fn set_stage_tracker(&mut self, tracker: StageTracker) {
         self.stage_tracker = Some(tracker);
     }
 
-    /// Set a hook called between extraction and structuring.
+    /// §22: Set a work-based progress tracker (queue worker path).
+    /// Also sets the stage tracker from the ProgressTracker's inner stage atomic.
+    pub fn set_progress_tracker(&mut self, tracker: Arc<ProgressTracker>) {
+        self.stage_tracker = Some(tracker.stage_tracker());
+        self.progress_tracker = Some(tracker);
+    }
+
+    /// §22 G4: Set a hook called between extraction and structuring.
     /// Used by CPU swap strategy to unload vision model and warm LLM.
-    pub fn set_between_stages_hook(&mut self, f: Box<dyn Fn() + Send + Sync>) {
+    /// Returns Result so model swap failures propagate clearly.
+    pub fn set_between_stages_hook(&mut self, f: Box<dyn Fn() -> Result<(), String> + Send + Sync>) {
         self.between_stages_fn = Some(f);
     }
 
-    /// Set a callback for per-page structuring progress reporting.
-    /// The command layer uses this to emit Tauri events to the frontend.
-    /// Args: (current_page: usize, total_pages: usize)
-    pub fn set_page_progress(&mut self, f: Box<dyn Fn(usize, usize) + Send + Sync>) {
-        self.page_progress_fn = Some(f);
+    /// §21 Fix C: Set a cooperative cancellation token.
+    /// The import queue sets this to `true` when the user cancels.
+    pub fn set_cancellation_token(&mut self, token: Arc<AtomicBool>) {
+        self.cancellation_token = Some(token);
+    }
+
+    /// §21 Fix C: Check if cancellation has been requested.
+    /// Returns `Err(ProcessingError::Cancelled)` if the token is set.
+    fn check_cancellation(&self) -> Result<(), ProcessingError> {
+        if let Some(ref token) = self.cancellation_token {
+            if token.load(Ordering::Relaxed) {
+                return Err(ProcessingError::Cancelled);
+            }
+        }
+        Ok(())
     }
 
     /// Full pipeline from a source file path.
@@ -503,6 +581,9 @@ impl DocumentProcessor {
     ) -> Result<(ExtractionSummary, StructuringSummary, StructuringResult), ProcessingError> {
         let staged_path = Path::new(&import.staged_path);
 
+        // §21 Fix C: Checkpoint 1 — before extraction starts
+        self.check_cancellation()?;
+
         // Update stage tracker → Extracting
         if let Some(ref tracker) = self.stage_tracker {
             tracker.store(STAGE_EXTRACTING, Ordering::Relaxed);
@@ -526,9 +607,11 @@ impl DocumentProcessor {
             document_id = %import.document_id,
             "Processing: starting extraction"
         );
+        // §22: Pass progress tracker to extractor for page-level extraction progress
+        let progress_ref = self.progress_tracker.as_deref();
         let extraction = self
             .extractor
-            .extract(&import.document_id, staged_path, &import.format, session)?;
+            .extract(&import.document_id, staged_path, &import.format, session, progress_ref)?;
 
         let extraction_summary = ExtractionSummary {
             method: format!("{:?}", extraction.method),
@@ -537,7 +620,7 @@ impl DocumentProcessor {
             text_length: extraction.full_text.len(),
         };
 
-        // Step 3: Update OCR confidence in DB
+        // Step 3: Update OCR confidence + page count in DB
         if let Err(e) =
             update_ocr_confidence(conn, &import.document_id, extraction.overall_confidence)
         {
@@ -547,10 +630,28 @@ impl DocumentProcessor {
                 "Failed to update OCR confidence — continuing"
             );
         }
+        if let Err(e) = repository::update_document_page_count(
+            conn,
+            &import.document_id,
+            extraction.page_count as u32,
+        ) {
+            tracing::warn!(
+                document_id = %import.document_id,
+                error = %e,
+                "Failed to update page count — continuing"
+            );
+        }
 
-        // CPU swap: unload vision model, warm LLM model between stages
+        // §21 Fix C: Checkpoint 2 — between extraction and structuring
+        self.check_cancellation()?;
+
+        // §22 G4: CPU swap between stages — errors now propagate
         if let Some(ref hook) = self.between_stages_fn {
-            hook();
+            hook().map_err(|e| {
+                ProcessingError::Extraction(ExtractionError::OcrProcessing(
+                    format!("Model swap failed: {e}"),
+                ))
+            })?;
         }
 
         // Update stage tracker → Structuring
@@ -578,7 +679,16 @@ impl DocumentProcessor {
         let total_pages = extraction.pages.len();
         let mut page_results: Vec<StructuringResult> = Vec::with_capacity(total_pages);
 
+        // §22: Set page counters for work-based structuring progress
+        if let Some(ref tracker) = self.progress_tracker {
+            tracker.page_current.store(0, Ordering::Relaxed);
+            tracker.page_total.store(total_pages.min(255) as u8, Ordering::Relaxed);
+        }
+
         for (idx, page) in extraction.pages.iter().enumerate() {
+            // §21 Fix C: Checkpoint 3 — per-page cancellation check
+            self.check_cancellation()?;
+
             // Skip blank/short pages
             if page.text.trim().len() < MIN_PAGE_TEXT_LENGTH {
                 tracing::debug!(
@@ -630,9 +740,9 @@ impl DocumentProcessor {
                 }
             }
 
-            // Per-page progress callback
-            if let Some(ref progress) = self.page_progress_fn {
-                progress(idx + 1, total_pages);
+            // §22: Update page counter for work-based progress
+            if let Some(ref tracker) = self.progress_tracker {
+                tracker.page_current.store((idx + 1).min(255) as u8, Ordering::Relaxed);
             }
         }
 
@@ -1017,7 +1127,7 @@ pub fn build_processor_from_assignment(
             let pdf_renderer = PdfiumRenderer::new()
                 .map_err(|e| ProcessingError::OcrInit(format!("PDFium init failed: {e}")))?;
             let mut vision_client = OllamaService::client();
-            vision_client.set_vision_num_ctx(config.num_ctx_vision);
+            vision_client.set_vision_num_ctx(config.num_ctx);
             let vision_client: Arc<dyn crate::pipeline::structuring::types::VisionClient> =
                 Arc::new(vision_client);
             let vision_ocr: Box<dyn crate::pipeline::extraction::types::VisionOcrEngine> =
@@ -1039,19 +1149,33 @@ pub fn build_processor_from_assignment(
         }
     };
 
-    // LLM structuring (same for all strategies)
+    // LLM structuring — strategy-aware (STR-01)
     let mut structuring_opts = crate::pipeline::structuring::ollama_types::GenerationOptions::default();
-    structuring_opts.num_ctx = Some(config.num_ctx_structuring);
+    structuring_opts.num_ctx = Some(config.num_ctx);
     let structuring_client = crate::ollama_service::OllamaService::client().with_options(structuring_opts);
+
+    // STR-01: Resolve extraction strategy from PipelineAssignment.
+    // Strategy must be resolved by caller (import.rs) before building processor.
+    let prompt_strategy = assignment.prompt_strategy.clone().unwrap_or_else(|| {
+        tracing::warn!("STR-01: prompt_strategy not set, falling back to MarkdownList");
+        crate::pipeline::strategy::resolve_strategy(
+            crate::pipeline::strategy::ContextType::DocumentExtraction,
+            crate::pipeline::strategy::detect_model_variant(&assignment.structuring_model),
+        )
+    });
+    let extraction_strategy = crate::pipeline::structuring::extraction_strategy::build_strategy(&prompt_strategy);
+
     tracing::info!(
         extraction = ?assignment.extraction,
         structuring_model = %assignment.structuring_model,
         processing_mode = ?assignment.processing_mode,
-        "CT-01: Document processor built from PipelineAssignment"
+        strategy = extraction_strategy.name(),
+        "STR-01: Document processor built with strategy"
     );
     let structurer = Box::new(DocumentStructurer::new(
         Box::new(structuring_client),
         &assignment.structuring_model,
+        extraction_strategy,
     ));
 
     Ok(DocumentProcessor::new(extractor, structurer))
@@ -1073,9 +1197,10 @@ mod tests {
     use crate::pipeline::extraction::pdfium::MockPdfPageRenderer;
     use crate::pipeline::extraction::preprocess::MockImagePreprocessor;
     use crate::pipeline::extraction::vision_ocr::MockVisionOcr;
+    use crate::pipeline::structuring::extraction_strategy::{MockExtractionStrategy, StrategyOutput};
     use crate::pipeline::structuring::ollama::MockLlmClient;
     use crate::pipeline::structuring::types::{
-        ExtractedEntities, ExtractedProfessional,
+        ExtractedDiagnosis, ExtractedEntities, ExtractedMedication, ExtractedProfessional,
     };
 
     // -- Helpers -----------------------------------------------------------
@@ -1088,55 +1213,45 @@ mod tests {
         (dir, session)
     }
 
-    fn mock_llm_response() -> String {
-        r#"```json
-{
-  "document_type": "prescription",
-  "document_date": "2024-01-15",
-  "professional": {"name": "Dr. Chen", "specialty": "GP", "institution": null},
-  "medications": [
-    {
-      "generic_name": "Metformin",
-      "brand_name": "Glucophage",
-      "dose": "500mg",
-      "frequency": "twice daily",
-      "frequency_type": "scheduled",
-      "route": "oral",
-      "reason": "Type 2 diabetes",
-      "instructions": ["Take with food"],
-      "is_compound": false,
-      "compound_ingredients": [],
-      "tapering_steps": [],
-      "max_daily_dose": "2000mg",
-      "condition": "Type 2 diabetes",
-      "confidence": 0.92
-    }
-  ],
-  "lab_results": [],
-  "diagnoses": [
-    {
-      "name": "Type 2 Diabetes",
-      "icd_code": "E11",
-      "date": "2024-01-15",
-      "status": "active",
-      "confidence": 0.90
-    }
-  ],
-  "allergies": [],
-  "procedures": [],
-  "referrals": [],
-  "instructions": []
-}
-```
+    /// Standard strategy output for processor tests.
+    fn mock_strategy_output() -> StrategyOutput {
+        let mut entities = ExtractedEntities::default();
+        entities.medications.push(ExtractedMedication {
+            generic_name: Some("Metformin".into()),
+            brand_name: Some("Glucophage".into()),
+            dose: "500mg".into(),
+            frequency: "twice daily".into(),
+            frequency_type: "scheduled".into(),
+            route: "oral".into(),
+            reason: Some("Type 2 diabetes".into()),
+            instructions: vec!["Take with food".into()],
+            is_compound: false,
+            compound_ingredients: vec![],
+            tapering_steps: vec![],
+            max_daily_dose: Some("2000mg".into()),
+            condition: Some("Type 2 diabetes".into()),
+            confidence: 0.92,
+        });
+        entities.diagnoses.push(ExtractedDiagnosis {
+            name: "Type 2 Diabetes".into(),
+            icd_code: Some("E11".into()),
+            date: Some("2024-01-15".into()),
+            status: "active".into(),
+            confidence: 0.90,
+        });
 
-# Prescription — Dr. Chen, GP
-**Date:** January 15, 2024
-
-## Medications
-- **Metformin (Glucophage)** 500mg — twice daily, oral
-  - Take with food
-  - For: Type 2 diabetes"#
-            .to_string()
+        StrategyOutput {
+            entities,
+            markdown: "# Prescription — Dr. Chen, GP\n**Date:** January 15, 2024\n\n## Medications\n- **Metformin (Glucophage)** 500mg — twice daily, oral\n  - Take with food\n  - For: Type 2 diabetes".into(),
+            document_type: Some("prescription".into()),
+            document_date: Some("2024-01-15".into()),
+            professional: Some(ExtractedProfessional {
+                name: "Dr. Chen".into(),
+                specialty: Some("GP".into()),
+                institution: None,
+            }),
+            raw_responses: vec!["mock strategy response".into()],
+        }
     }
 
     fn build_test_processor() -> DocumentProcessor {
@@ -1148,8 +1263,9 @@ mod tests {
         let preprocessor = Box::new(MockImagePreprocessor::new());
         let extractor = Box::new(DocumentExtractor::new(pdf_renderer, vision_ocr, preprocessor));
 
-        let llm = Box::new(MockLlmClient::new(&mock_llm_response()));
-        let structurer = Box::new(DocumentStructurer::new(llm, "medgemma:latest"));
+        let strategy = Box::new(MockExtractionStrategy::with_output(mock_strategy_output()));
+        let llm = Box::new(MockLlmClient::new("unused"));
+        let structurer = Box::new(DocumentStructurer::new(llm, "medgemma:latest", strategy));
 
         DocumentProcessor::new(extractor, structurer)
     }
@@ -1292,6 +1408,7 @@ mod tests {
         let called_clone = called.clone();
         processor.set_between_stages_hook(Box::new(move || {
             called_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
         }));
 
         let tmp = tempfile::tempdir().unwrap();
@@ -2047,17 +2164,15 @@ mod tests {
     // -- R4: Per-page pipeline integration tests (D2) --
 
     #[test]
-    fn per_page_progress_callback() {
+    fn per_page_progress_tracker_atomics() {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
         let mut processor = build_test_processor();
 
-        let progress_calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let progress_clone = progress_calls.clone();
-        processor.set_page_progress(Box::new(move |current, total| {
-            progress_clone.lock().unwrap().push((current, total));
-        }));
+        // §22: ProgressTracker wraps StageTracker + adds page counters
+        let tracker = Arc::new(ProgressTracker::new(STAGE_IMPORTING));
+        processor.set_progress_tracker(tracker.clone());
 
         let tmp = tempfile::tempdir().unwrap();
         let file = create_test_file(
@@ -2069,10 +2184,11 @@ mod tests {
         let output = processor.process_file(&file, &session, &conn).unwrap();
         assert_eq!(output.outcome.import_status, ImportStatus::Staged);
 
-        let calls = progress_calls.lock().unwrap();
-        // Single-page text file → 1 callback call: (1, 1)
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0], (1, 1));
+        // After processing: stage atomic should be at structuring (last stage set)
+        assert_eq!(tracker.stage.load(Ordering::Relaxed), STAGE_STRUCTURING);
+        // Single-page text file → page_current=1, page_total=1
+        assert_eq!(tracker.page_current.load(Ordering::Relaxed), 1);
+        assert_eq!(tracker.page_total.load(Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -2082,7 +2198,6 @@ mod tests {
         // Structurer that fails on every other call
         struct AlternatingStructurer {
             call_count: std::sync::atomic::AtomicUsize,
-            good_response: String,
         }
 
         impl MedicalStructurer for AlternatingStructurer {
@@ -2102,11 +2217,10 @@ mod tests {
                         "Simulated page failure".into(),
                     ));
                 }
-                // Parse the good response for successful calls
-                let structurer = DocumentStructurer::new(
-                    Box::new(MockLlmClient::new(&self.good_response)),
-                    "medgemma:latest",
-                );
+                // Use MockExtractionStrategy for successful calls
+                let strategy = Box::new(MockExtractionStrategy::with_output(mock_strategy_output()));
+                let llm = Box::new(MockLlmClient::new("unused"));
+                let structurer = DocumentStructurer::new(llm, "medgemma:latest", strategy);
                 structurer.structure_document(document_id, text, ocr_confidence, _session)
             }
         }
@@ -2124,7 +2238,6 @@ mod tests {
 
         let structurer = Box::new(AlternatingStructurer {
             call_count: std::sync::atomic::AtomicUsize::new(0),
-            good_response: mock_llm_response(),
         });
 
         let processor = DocumentProcessor::new(extractor, structurer);
@@ -2208,6 +2321,7 @@ mod tests {
                 _staged_path: &Path,
                 _format: &FormatDetection,
                 _session: &ProfileSession,
+                _progress: Option<&ProgressTracker>,
             ) -> Result<ExtractionResult, ExtractionError> {
                 Ok(ExtractionResult {
                     document_id: *document_id,
@@ -2249,8 +2363,9 @@ mod tests {
         let (_dir, session) = test_session();
         let conn = open_database(session.db_path(), Some(session.key_bytes())).unwrap();
 
-        let llm = Box::new(MockLlmClient::new(&mock_llm_response()));
-        let structurer = Box::new(DocumentStructurer::new(llm, "medgemma:latest"));
+        let strategy = Box::new(MockExtractionStrategy::with_output(mock_strategy_output()));
+        let llm = Box::new(MockLlmClient::new("unused"));
+        let structurer = Box::new(DocumentStructurer::new(llm, "medgemma:latest", strategy));
         let processor = DocumentProcessor::new(Box::new(MultiPageExtractor), structurer);
 
         let tmp = tempfile::tempdir().unwrap();

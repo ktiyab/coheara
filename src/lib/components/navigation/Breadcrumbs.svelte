@@ -12,7 +12,6 @@
     'ai-setup': ['settings', 'ai-settings'],
     'privacy': ['settings'],
     'pairing': ['settings'],
-    'import': ['documents'],
     'transfer': ['settings'],
   };
 

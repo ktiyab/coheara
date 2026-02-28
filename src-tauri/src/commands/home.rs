@@ -82,6 +82,32 @@ pub fn get_document_detail(
     fetch_document_detail(&conn, &document_id).map_err(|e| e.to_string())
 }
 
+/// BTL-10 UX GAP-01: Get entity connections for a document.
+#[tauri::command]
+pub fn get_document_connections(
+    document_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<crate::models::entity_connection::EntityConnection>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let uuid = Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
+    state.update_activity();
+    crate::db::get_connections_for_document(&conn, &uuid)
+        .map_err(|e| e.to_string())
+}
+
+/// BTL-10 UX GAP-04: Get processing log for a document.
+#[tauri::command]
+pub fn get_processing_log(
+    document_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<crate::models::entity_connection::ProcessingLogEntry>, String> {
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    let uuid = Uuid::parse_str(&document_id).map_err(|e| format!("Invalid document ID: {e}"))?;
+    state.update_activity();
+    crate::db::get_processing_log_for_document(&conn, &uuid)
+        .map_err(|e| e.to_string())
+}
+
 /// Dismisses a coherence observation with reason.
 /// `alert_type` must be a valid AlertType string (e.g., "conflict", "dose", "critical").
 #[tauri::command]

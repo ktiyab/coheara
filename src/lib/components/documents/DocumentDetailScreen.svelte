@@ -1,15 +1,26 @@
-<!-- E2E-F04: Document detail — read-only view of all extracted entities. -->
+<!--
+  BTL-10 C8: DocumentDetailScreen v2 — handles all pipeline states gracefully.
+  - Confirmed/PendingReview: entity tabs (existing behavior)
+  - Processing (Imported/Extracting/Structuring): spinner with stage label
+  - Failed: error message + retry/delete buttons
+  - Rejected: rejection notice + delete button
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t, locale } from 'svelte-i18n';
-  import { getDocumentDetail } from '$lib/api/documents';
-  import type { DocumentDetail } from '$lib/types/documents';
+  import { getDocumentDetail, getDocumentConnections, getProcessingLog } from '$lib/api/documents';
+  import { deleteDocument, reprocessDocument } from '$lib/api/import';
+  import type { DocumentDetail, EntityConnection, ProcessingLogEntry, RelationshipType, EntityType } from '$lib/types/documents';
+  import type { DocumentLifecycleStatus } from '$lib/types/home';
   import { navigation } from '$lib/stores/navigation.svelte';
+  import { formatElapsed, elapsedSecondsBetween } from '$lib/utils/elapsed-time';
   import BackButton from '$lib/components/ui/BackButton.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
+  import { WarningIcon, RefreshIcon, DeleteIcon, ChevronDownIcon, ClockIcon } from '$lib/components/icons/md';
+  import DeleteConfirmModal from '$lib/components/documents/DeleteConfirmModal.svelte';
 
   interface Props {
     documentId: string;
@@ -20,6 +31,19 @@
   let loading = $state(true);
   let error: string | null = $state(null);
   let activeSection = $state('overview');
+  let retrying = $state(false);
+  let deletingDoc = $state(false);
+  let showDeleteConfirm = $state(false);
+  let connections: EntityConnection[] = $state([]);
+  let processingLog: ProcessingLogEntry[] = $state([]);
+  let provenanceExpanded = $state(false);
+
+  const PROCESSING_STATES: DocumentLifecycleStatus[] = ['Imported', 'Extracting', 'Structuring'];
+
+  let isProcessing = $derived.by(() => detail ? PROCESSING_STATES.includes(detail.status) : false);
+  let isFailed = $derived.by(() => detail?.status === 'Failed');
+  let isRejected = $derived.by(() => detail?.status === 'Rejected');
+  let showEntityTabs = $derived.by(() => detail ? !isProcessing && !isFailed && !isRejected : false);
 
   type Section = { id: string; label: string; count: number };
 
@@ -32,6 +56,7 @@
     if (detail.allergies.length > 0) s.push({ id: 'allergies', label: $t('documents.detail_allergies'), count: detail.allergies.length });
     if (detail.procedures.length > 0) s.push({ id: 'procedures', label: $t('documents.detail_procedures'), count: detail.procedures.length });
     if (detail.referrals.length > 0) s.push({ id: 'referrals', label: $t('documents.detail_referrals'), count: detail.referrals.length });
+    if (connections.length > 0) s.push({ id: 'connections', label: $t('documents.detail_connections'), count: connections.length });
     return s;
   });
 
@@ -45,11 +70,60 @@
     loading = true;
     error = null;
     try {
-      detail = await getDocumentDetail(documentId);
+      const [detailResult, connectionsResult, logResult] = await Promise.allSettled([
+        getDocumentDetail(documentId),
+        getDocumentConnections(documentId),
+        getProcessingLog(documentId),
+      ]);
+      if (detailResult.status === 'fulfilled') {
+        detail = detailResult.value;
+      } else {
+        throw detailResult.reason;
+      }
+      connections = connectionsResult.status === 'fulfilled' ? connectionsResult.value : [];
+      processingLog = logResult.status === 'fulfilled' ? logResult.value : [];
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleRetry() {
+    retrying = true;
+    try {
+      await reprocessDocument(documentId);
+      await loadDetail();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      retrying = false;
+    }
+  }
+
+  async function handleDelete() {
+    deletingDoc = true;
+    try {
+      await deleteDocument(documentId);
+      showDeleteConfirm = false;
+      navigation.goBack();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      deletingDoc = false;
+    }
+  }
+
+  function statusBadgeProps(): { text: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' } {
+    switch (detail?.status) {
+      case 'Confirmed': return { text: $t('documents.status_confirmed'), variant: 'success' };
+      case 'PendingReview': return { text: $t('documents.status_pending_review'), variant: 'warning' };
+      case 'Failed': return { text: $t('documents.status_failed'), variant: 'danger' };
+      case 'Rejected': return { text: $t('documents.status_rejected'), variant: 'danger' };
+      case 'Extracting': return { text: $t('documents.status_extracting'), variant: 'info' };
+      case 'Structuring': return { text: $t('documents.status_structuring'), variant: 'info' };
+      case 'Imported': return { text: $t('documents.status_imported'), variant: 'neutral' };
+      default: return { text: detail?.status ?? '', variant: 'neutral' };
     }
   }
 
@@ -77,6 +151,31 @@
       case 'moderate': return 'text-[var(--color-warning)] bg-[var(--color-warning-50)]';
       default: return 'text-stone-600 dark:text-gray-300 bg-stone-100 dark:bg-gray-800';
     }
+  }
+
+  function resolveEntityName(type: EntityType, id: string): string {
+    if (!detail) return id;
+    switch (type) {
+      case 'Medication': return detail.medications.find(m => m.id === id)?.generic_name ?? id;
+      case 'LabResult': return detail.lab_results.find(l => l.id === id)?.test_name ?? id;
+      case 'Diagnosis': return detail.diagnoses.find(d => d.id === id)?.name ?? id;
+      case 'Allergy': return detail.allergies.find(a => a.id === id)?.allergen ?? id;
+      case 'Procedure': return detail.procedures.find(p => p.id === id)?.name ?? id;
+      case 'Referral': return detail.referrals.find(r => r.id === id)?.reason ?? id;
+    }
+  }
+
+  const RELATIONSHIP_KEYS: Record<RelationshipType, string> = {
+    PrescribedFor: 'documents.connection_prescribed_for',
+    EvidencesFor: 'documents.connection_evidences_for',
+    MonitorsFor: 'documents.connection_monitors_for',
+    ContraindicatedBy: 'documents.connection_contraindicated_by',
+    FollowUpTo: 'documents.connection_follow_up_to',
+    ReplacedBy: 'documents.connection_replaced_by',
+  };
+
+  function computeDuration(start: string, end: string): string {
+    return formatElapsed(elapsedSecondsBetween(start, end));
   }
 
   onMount(() => { loadDetail(); });
@@ -116,8 +215,65 @@
       retryLabel={$t('documents.detail_try_again')}
     />
 
+  {:else if detail && isProcessing}
+    <!-- Processing state: spinner + stage label -->
+    <div class="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
+      <div class="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-500 animate-spin mb-6"></div>
+      <h2 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
+        {$t('documents.detail_processing_heading')}
+      </h2>
+      <p class="text-sm text-stone-500 dark:text-gray-400 mb-4">
+        {$t('documents.detail_processing_note')}
+      </p>
+      <Badge variant="info" size="md">
+        {statusBadgeProps().text}
+      </Badge>
+    </div>
+
+  {:else if detail && isFailed}
+    <!-- Failed state: error + retry + delete -->
+    <div class="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
+      <WarningIcon class="w-16 h-16 text-red-400 mb-6" />
+      <h2 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
+        {$t('documents.detail_failed_heading')}
+      </h2>
+      {#if detail.error_message}
+        <p class="text-sm text-red-500 dark:text-red-400 mb-6 max-w-md">
+          {detail.error_message}
+        </p>
+      {/if}
+      <div class="flex gap-3">
+        <Button variant="primary" loading={retrying} onclick={handleRetry}>
+          <RefreshIcon class="w-4 h-4" />
+          {$t('common.retry')}
+        </Button>
+        <Button variant="danger" onclick={() => { showDeleteConfirm = true; }}>
+          <DeleteIcon class="w-4 h-4" />
+          {$t('documents.delete_confirm_action')}
+        </Button>
+      </div>
+    </div>
+
+  {:else if detail && isRejected}
+    <!-- Rejected state: notice + delete -->
+    <div class="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
+      <WarningIcon class="w-16 h-16 text-red-400 mb-6" />
+      <h2 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
+        {$t('documents.detail_rejected_heading')}
+      </h2>
+      {#if detail.error_message}
+        <p class="text-sm text-stone-500 dark:text-gray-400 mb-6 max-w-md">
+          {detail.error_message}
+        </p>
+      {/if}
+      <Button variant="danger" onclick={() => { showDeleteConfirm = true; }}>
+        <DeleteIcon class="w-4 h-4" />
+        {$t('documents.delete_confirm_action')}
+      </Button>
+    </div>
+
   {:else if detail}
-    <!-- Section tabs -->
+    <!-- Section tabs (Confirmed / PendingReview — entity view) -->
     <div class="flex bg-stone-50 dark:bg-gray-950 overflow-x-auto shrink-0">
       {#each sections as section}
         <button
@@ -161,8 +317,8 @@
             <div class="flex justify-between">
               <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_status')}</dt>
               <dd class="text-sm">
-                <Badge variant={detail.status === 'Confirmed' ? 'success' : 'warning'} size="sm">
-                  {detail.status === 'Confirmed' ? $t('documents.detail_confirmed') : $t('documents.detail_pending')}
+                <Badge variant={statusBadgeProps().variant} size="sm">
+                  {statusBadgeProps().text}
                 </Badge>
               </dd>
             </div>
@@ -172,12 +328,64 @@
                 <dd class="text-sm text-stone-800 dark:text-gray-100">{Math.round(detail.ocr_confidence * 100)}%</dd>
               </div>
             {/if}
+            {#if detail.page_count !== null}
+              <div class="flex justify-between">
+                <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_pages')}</dt>
+                <dd class="text-sm text-stone-800 dark:text-gray-100">{detail.page_count}</dd>
+              </div>
+            {/if}
             <div class="flex justify-between">
               <dt class="text-sm text-stone-500 dark:text-gray-400">{$t('documents.detail_entities_found')}</dt>
               <dd class="text-sm font-medium text-stone-800 dark:text-gray-100">{totalEntities}</dd>
             </div>
           </dl>
         </div>
+
+        {#if processingLog.length > 0}
+          <div class="bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 mb-4">
+            <button
+              class="w-full flex items-center justify-between p-4 text-left min-h-[44px]"
+              onclick={() => { provenanceExpanded = !provenanceExpanded; }}
+              aria-expanded={provenanceExpanded}
+            >
+              <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
+                {$t('documents.detail_processing_details')}
+              </span>
+              <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 transition-transform
+                                       {provenanceExpanded ? 'rotate-180' : ''}" />
+            </button>
+            {#if provenanceExpanded}
+              <div class="px-4 pb-4 space-y-3">
+                {#each processingLog as entry (entry.id)}
+                  <div class="flex items-start gap-3 text-sm">
+                    <ClockIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-stone-800 dark:text-gray-100">
+                        {entry.processing_stage === 'Extraction'
+                          ? $t('documents.provenance_extraction')
+                          : $t('documents.provenance_structuring')}
+                      </p>
+                      <p class="text-xs text-stone-500 dark:text-gray-400">
+                        {entry.model_name}{#if entry.model_variant} ({entry.model_variant}){/if}
+                      </p>
+                      {#if entry.completed_at && entry.started_at}
+                        <p class="text-xs text-stone-400 dark:text-gray-500">
+                          {computeDuration(entry.started_at, entry.completed_at)}
+                        </p>
+                      {/if}
+                      {#if !entry.success && entry.error_message}
+                        <p class="text-xs text-red-500 dark:text-red-400 mt-0.5">{entry.error_message}</p>
+                      {/if}
+                    </div>
+                    <Badge variant={entry.success ? 'success' : 'danger'} size="sm">
+                      {entry.success ? $t('documents.provenance_success') : $t('documents.provenance_failed')}
+                    </Badge>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         {#if detail.notes}
           <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
@@ -324,7 +532,46 @@
             </div>
           {/each}
         </div>
+
+      {:else if activeSection === 'connections'}
+        <div class="space-y-3">
+          {#each connections as conn (conn.id)}
+            <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-stone-100 dark:border-gray-800">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-medium text-stone-800 dark:text-gray-100">
+                  {resolveEntityName(conn.source_type, conn.source_id)}
+                </span>
+                <span class="text-xs text-stone-400 dark:text-gray-500">&rarr;</span>
+                <span class="text-xs italic text-stone-500 dark:text-gray-400">
+                  {$t(RELATIONSHIP_KEYS[conn.relationship_type])}
+                </span>
+                <span class="text-xs text-stone-400 dark:text-gray-500">&rarr;</span>
+                <span class="text-sm font-medium text-stone-800 dark:text-gray-100">
+                  {resolveEntityName(conn.target_type, conn.target_id)}
+                </span>
+              </div>
+              <div class="flex items-center gap-2 mt-1">
+                <Badge variant="info" size="sm">{Math.round(conn.confidence * 100)}%</Badge>
+                <span class="text-xs text-stone-400 dark:text-gray-500">{conn.source_type} &rarr; {conn.target_type}</span>
+              </div>
+            </div>
+          {/each}
+          {#if connections.length === 0}
+            <p class="text-sm text-stone-500 dark:text-gray-400 text-center py-8">
+              {$t('documents.detail_connections_empty')}
+            </p>
+          {/if}
+        </div>
       {/if}
     </div>
   {/if}
 </div>
+
+<!-- Delete confirmation modal -->
+<DeleteConfirmModal
+  open={showDeleteConfirm}
+  filename={detail?.source_filename ?? detail?.document_type ?? ''}
+  loading={deletingDoc}
+  onconfirm={handleDelete}
+  onclose={() => { showDeleteConfirm = false; }}
+/>

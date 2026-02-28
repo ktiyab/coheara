@@ -104,11 +104,18 @@ impl DocumentExtractor {
         pdf_bytes: &[u8],
         dpi: u32,
         dump_dir: &Option<std::path::PathBuf>,
+        progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
         let num_pages = self.pdf_renderer.page_count(pdf_bytes)?;
 
         if num_pages == 0 {
             return Err(ExtractionError::EmptyDocument);
+        }
+
+        // §22: Set page total for work-based extraction progress
+        if let Some(tracker) = progress {
+            tracker.page_total.store(num_pages.min(255) as u8, std::sync::atomic::Ordering::Relaxed);
+            tracker.page_current.store(0, std::sync::atomic::Ordering::Relaxed);
         }
 
         let mut pages = Vec::with_capacity(num_pages);
@@ -174,6 +181,11 @@ impl DocumentExtractor {
                 warnings: prepared.warnings,
                 content_type: Some(content_type),
             });
+
+            // §22: Update extraction page progress
+            if let Some(tracker) = progress {
+                tracker.page_current.store((page_idx + 1).min(255) as u8, std::sync::atomic::Ordering::Relaxed);
+            }
         }
 
         Ok((ExtractionMethod::VisionOcr, pages))
@@ -184,6 +196,7 @@ impl DocumentExtractor {
         &self,
         image_bytes: &[u8],
         dump_dir: &Option<std::path::PathBuf>,
+        progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<(ExtractionMethod, Vec<PageExtraction>), ExtractionError> {
         if let Some(ref dir) = dump_dir {
             diagnostic::dump_binary(dir, "01-raw-image-0.bin", image_bytes);
@@ -242,6 +255,12 @@ impl DocumentExtractor {
             content_type: Some(content_type),
         };
 
+        // §22: Single-page image — set progress as complete
+        if let Some(tracker) = progress {
+            tracker.page_total.store(1, std::sync::atomic::Ordering::Relaxed);
+            tracker.page_current.store(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
         Ok((ExtractionMethod::VisionOcr, vec![page]))
     }
 
@@ -295,6 +314,7 @@ impl TextExtractor for DocumentExtractor {
         staged_path: &Path,
         format: &FormatDetection,
         session: &ProfileSession,
+        progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<ExtractionResult, ExtractionError> {
         tracing::info!(
             document_id = %document_id,
@@ -325,10 +345,10 @@ impl TextExtractor for DocumentExtractor {
         let (method, mut pages) = match &format.category {
             // All PDFs → pdfium render → vision OCR (adaptive DPI per format)
             FileCategory::DigitalPdf | FileCategory::ScannedPdf => {
-                self.extract_pdf(&decrypted_bytes, dpi, &dump_dir)?
+                self.extract_pdf(&decrypted_bytes, dpi, &dump_dir, progress)?
             }
             // Images → vision OCR directly
-            FileCategory::Image => self.extract_image(&decrypted_bytes, &dump_dir)?,
+            FileCategory::Image => self.extract_image(&decrypted_bytes, &dump_dir, progress)?,
             // Plain text → UTF-8 read (no model needed)
             FileCategory::PlainText => {
                 let text = String::from_utf8(decrypted_bytes)
@@ -470,7 +490,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(result.method, ExtractionMethod::PlainTextRead);
@@ -495,7 +515,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert!((result.overall_confidence - 0.99).abs() < 0.01);
@@ -525,7 +545,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(result.method, ExtractionMethod::VisionOcr);
@@ -551,7 +571,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(result.method, ExtractionMethod::VisionOcr);
@@ -580,7 +600,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         // R3: Both DigitalPdf and ScannedPdf use the same VisionOcr path
@@ -604,7 +624,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert!(
@@ -629,7 +649,7 @@ mod tests {
             file_size_bytes: 100,
         };
 
-        let result = extractor.extract(&doc_id, &staged_path, &format, &session);
+        let result = extractor.extract(&doc_id, &staged_path, &format, &session, None);
         assert!(matches!(result, Err(ExtractionError::UnsupportedFormat)));
     }
 
@@ -651,7 +671,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert!(!result.full_text.contains('\x00'));
@@ -676,7 +696,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(result.document_id, doc_id);
@@ -699,7 +719,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         // VisionOcr confidence uses weighted average — both pages have same text/confidence
@@ -729,7 +749,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert!(result.full_text.contains("Résultats"));
@@ -756,7 +776,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert!(
@@ -836,7 +856,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(
@@ -880,7 +900,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         // Interpreter findings replace OCR text
@@ -932,7 +952,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         // Falls back to OCR text
@@ -962,7 +982,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         assert_eq!(result.pages[0].content_type, None);
@@ -983,7 +1003,7 @@ mod tests {
         };
 
         let result = extractor
-            .extract(&doc_id, &staged_path, &format, &session)
+            .extract(&doc_id, &staged_path, &format, &session, None)
             .unwrap();
 
         for page in &result.pages {

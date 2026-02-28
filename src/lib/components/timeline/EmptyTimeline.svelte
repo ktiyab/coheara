@@ -13,7 +13,7 @@
     title={$t('timeline.empty_title')}
     description={$t('timeline.empty_description')}
     actionLabel={$t('timeline.empty_load_document')}
-    onaction={() => navigation.navigate('import')}
+    onaction={() => navigation.navigate('documents')}
   />
   <Button variant="ghost" size="sm" onclick={() => navigation.navigate('chat')}>
     {$t('timeline.empty_tell_chat')}

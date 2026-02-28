@@ -186,8 +186,8 @@ pub async fn trigger_extraction_batch(
             config.clone(),
         );
 
-        // Acquire exclusive Ollama access for batch extraction
-        let _ollama_guard = state.ollama().acquire(
+        // BTL-07: Acquire via Butler (tracks model state)
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::BatchExtraction,
             &config.model_name,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;

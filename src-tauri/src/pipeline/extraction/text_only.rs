@@ -36,6 +36,7 @@ impl TextExtractor for PlainTextExtractor {
         staged_path: &Path,
         format: &FormatDetection,
         session: &ProfileSession,
+        _progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<ExtractionResult, ExtractionError> {
         tracing::info!(
             document_id = %document_id,
@@ -192,7 +193,7 @@ mod tests {
             file_size_bytes: content.len() as u64,
         };
 
-        let result = extractor.extract(&doc_id, &staged_path, &format, &session).unwrap();
+        let result = extractor.extract(&doc_id, &staged_path, &format, &session, None).unwrap();
 
         assert_eq!(result.method, ExtractionMethod::PlainTextRead);
         assert!(result.full_text.contains("Potassium"));
@@ -213,7 +214,7 @@ mod tests {
             file_size_bytes: 100,
         };
 
-        let result = extractor.extract(&doc_id, &staged_path, &format, &session);
+        let result = extractor.extract(&doc_id, &staged_path, &format, &session, None);
         assert!(matches!(result, Err(ExtractionError::UnsupportedFormat)));
     }
 
@@ -230,7 +231,7 @@ mod tests {
             file_size_bytes: 100,
         };
 
-        let result = extractor.extract(&doc_id, &staged_path, &format, &session);
+        let result = extractor.extract(&doc_id, &staged_path, &format, &session, None);
         assert!(matches!(result, Err(ExtractionError::UnsupportedFormat)));
     }
 
@@ -248,7 +249,7 @@ mod tests {
             file_size_bytes: content.len() as u64,
         };
 
-        let result = extractor.extract(&doc_id, &staged_path, &format, &session).unwrap();
+        let result = extractor.extract(&doc_id, &staged_path, &format, &session, None).unwrap();
 
         assert!(!result.full_text.contains('\x00'));
         assert!(!result.full_text.contains('\x01'));

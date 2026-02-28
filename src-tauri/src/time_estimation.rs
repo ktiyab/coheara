@@ -79,8 +79,7 @@ mod tests {
         PipelineConfig {
             keep_alive_vision: "30m".into(),
             keep_alive_llm: "30m".into(),
-            num_ctx_vision: 2048,
-            num_ctx_structuring: 4096,
+            num_ctx: 4096,
             warm_strategy: WarmStrategy::WarmBoth,
             estimated_tok_per_sec: 30.0,
             estimated_model_load_secs: 2.0,
@@ -91,8 +90,7 @@ mod tests {
         PipelineConfig {
             keep_alive_vision: "0".into(),
             keep_alive_llm: "10m".into(),
-            num_ctx_vision: 1024,
-            num_ctx_structuring: 2048,
+            num_ctx: 4096,
             warm_strategy: WarmStrategy::SwapBetweenStages,
             estimated_tok_per_sec: 3.2,
             estimated_model_load_secs: 30.0,

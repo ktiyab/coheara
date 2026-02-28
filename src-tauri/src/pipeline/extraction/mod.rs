@@ -69,6 +69,14 @@ pub enum ExtractionError {
     #[error("Document appears empty — no text could be extracted")]
     EmptyDocument,
 
+    /// SGV-01: Vision model degenerated during OCR (repetition loop detected).
+    #[error("Vision OCR degenerated ({pattern}) after {tokens_before_abort} tokens")]
+    VisionDegeneration {
+        pattern: String,
+        tokens_before_abort: usize,
+        partial_output: String,
+    },
+
     // ── Cross-cutting errors ──
 
     #[error("Encryption error: {0}")]

@@ -5,10 +5,12 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use super::StorageError;
+use super::connection_extractor::{self, StoredEntity};
 use super::types::{EntitiesStoredCount, StorageWarning};
 use crate::db::repository;
 use crate::models::*;
 use crate::models::enums::*;
+use crate::models::entity_connection::EntityType;
 use crate::pipeline::structuring::types::{ExtractedProfessional, StructuringResult};
 
 /// Store extracted entities into SQLite, returning counts and warnings.
@@ -24,6 +26,7 @@ pub fn store_entities(
 
     let mut counts = EntitiesStoredCount::default();
     let mut warnings = Vec::new();
+    let mut stored_entities: Vec<StoredEntity> = Vec::new();
 
     let professional_id = match &result.professional {
         Some(prof) => match resolve_professional(conn, prof) {
@@ -44,6 +47,7 @@ pub fn store_entities(
         &result.document_id,
         professional_id,
         &mut warnings,
+        &mut stored_entities,
     )?;
 
     counts.lab_results = store_lab_results(
@@ -52,6 +56,7 @@ pub fn store_entities(
         &result.document_id,
         professional_id,
         &mut warnings,
+        &mut stored_entities,
     )?;
 
     counts.diagnoses = store_diagnoses(
@@ -59,12 +64,14 @@ pub fn store_entities(
         &result.extracted_entities.diagnoses,
         &result.document_id,
         professional_id,
+        &mut stored_entities,
     )?;
 
     counts.allergies = store_allergies(
         conn,
         &result.extracted_entities.allergies,
         &result.document_id,
+        &mut stored_entities,
     )?;
 
     counts.procedures = store_procedures(
@@ -79,6 +86,7 @@ pub fn store_entities(
         &result.extracted_entities.referrals,
         &result.document_id,
         professional_id,
+        &mut stored_entities,
     )?;
 
     counts.instructions = store_instructions(
@@ -86,6 +94,20 @@ pub fn store_entities(
         &result.extracted_entities.instructions,
         &result.document_id,
     )?;
+
+    // C9: Extract and store connections between entities in this document.
+    let connections = connection_extractor::extract_connections(
+        conn,
+        &result.document_id,
+        &stored_entities,
+    )?;
+    if connections > 0 {
+        tracing::info!(
+            document_id = %result.document_id,
+            connections,
+            "Extracted entity connections"
+        );
+    }
 
     Ok((counts, warnings))
 }
@@ -108,6 +130,7 @@ fn store_medications(
     document_id: &Uuid,
     professional_id: Option<Uuid>,
     warnings: &mut Vec<StorageWarning>,
+    stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
 
@@ -152,6 +175,14 @@ fn store_medications(
             tracing::warn!(medication_id = %med_id, "Failed to insert medication: {e}");
             continue;
         }
+
+        stored_entities.push(StoredEntity {
+            entity_type: EntityType::Medication,
+            id: med_id,
+            name: med.generic_name.clone(),
+            reason: extracted.reason.clone(),
+            is_abnormal: false,
+        });
 
         // Store compound ingredients
         for ingredient in &extracted.compound_ingredients {
@@ -223,6 +254,7 @@ fn store_lab_results(
     document_id: &Uuid,
     professional_id: Option<Uuid>,
     warnings: &mut Vec<StorageWarning>,
+    stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
 
@@ -248,6 +280,8 @@ fn store_lab_results(
             }
         }
 
+        let is_abnormal = abnormal_flag != AbnormalFlag::Normal;
+
         let lab = LabResult {
             id: Uuid::new_v4(),
             test_name: extracted.test_name.clone(),
@@ -263,6 +297,13 @@ fn store_lab_results(
             ordering_physician_id: professional_id,
             document_id: *document_id,
         };
+        stored_entities.push(StoredEntity {
+            entity_type: EntityType::LabResult,
+            id: lab.id,
+            name: lab.test_name.clone(),
+            reason: None,
+            is_abnormal,
+        });
 
         repository::insert_lab_result(conn, &lab)?;
         count += 1;
@@ -276,6 +317,7 @@ fn store_diagnoses(
     diagnoses: &[crate::pipeline::structuring::types::ExtractedDiagnosis],
     document_id: &Uuid,
     professional_id: Option<Uuid>,
+    stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
 
@@ -298,6 +340,14 @@ fn store_diagnoses(
             document_id: *document_id,
         };
 
+        stored_entities.push(StoredEntity {
+            entity_type: EntityType::Diagnosis,
+            id: diag.id,
+            name: diag.name.clone(),
+            reason: None,
+            is_abnormal: false,
+        });
+
         repository::insert_diagnosis(conn, &diag)?;
         count += 1;
     }
@@ -309,6 +359,7 @@ fn store_allergies(
     conn: &Connection,
     allergies: &[crate::pipeline::structuring::types::ExtractedAllergy],
     document_id: &Uuid,
+    stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
 
@@ -329,6 +380,14 @@ fn store_allergies(
             document_id: Some(*document_id),
             verified: false,
         };
+
+        stored_entities.push(StoredEntity {
+            entity_type: EntityType::Allergy,
+            id: allergy.id,
+            name: allergy.allergen.clone(),
+            reason: None,
+            is_abnormal: false,
+        });
 
         repository::insert_allergy(conn, &allergy)?;
         count += 1;
@@ -380,6 +439,7 @@ fn store_referrals(
     referrals: &[crate::pipeline::structuring::types::ExtractedReferral],
     document_id: &Uuid,
     referring_professional_id: Option<Uuid>,
+    stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
 
@@ -402,6 +462,14 @@ fn store_referrals(
             status: ReferralStatus::Pending,
             document_id: Some(*document_id),
         };
+
+        stored_entities.push(StoredEntity {
+            entity_type: EntityType::Referral,
+            id: referral.id,
+            name: extracted.referred_to.clone(),
+            reason: extracted.reason.clone(),
+            is_abnormal: false,
+        });
 
         repository::insert_referral(conn, &referral)?;
         count += 1;

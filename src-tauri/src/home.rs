@@ -7,17 +7,42 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+use uuid::Uuid;
+
 use crate::db::DatabaseError;
+use crate::db::repository::get_last_processing_error;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/// Document review status derived from `documents.verified` column.
+/// Document lifecycle status derived from `documents.pipeline_status` column.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DocumentStatus {
+    Imported,
+    Extracting,
+    Structuring,
     PendingReview,
     Confirmed,
+    Failed,
+    Rejected,
+}
+
+impl DocumentStatus {
+    /// Parse a pipeline_status string from the database into a DocumentStatus.
+    /// Falls back to Imported for NULL or unrecognized values.
+    pub fn from_pipeline_status(s: Option<&str>) -> Self {
+        match s {
+            Some("imported") => Self::Imported,
+            Some("extracting") => Self::Extracting,
+            Some("structuring") => Self::Structuring,
+            Some("pending_review") => Self::PendingReview,
+            Some("confirmed") => Self::Confirmed,
+            Some("failed") => Self::Failed,
+            Some("rejected") => Self::Rejected,
+            _ => Self::Imported,
+        }
+    }
 }
 
 /// A document card for the home feed.
@@ -31,6 +56,7 @@ pub struct DocumentCard {
     pub document_date: Option<String>,
     pub imported_at: String,
     pub status: DocumentStatus,
+    pub error_message: Option<String>,
     pub entity_summary: EntitySummary,
 }
 
@@ -142,7 +168,7 @@ pub fn fetch_recent_documents(
 ) -> Result<Vec<DocumentCard>, DatabaseError> {
     let mut stmt = conn.prepare(
         "SELECT d.id, d.type, d.source_file, d.document_date, d.ingestion_date,
-                d.verified,
+                d.pipeline_status,
                 p.name AS prof_name, p.specialty AS prof_specialty
          FROM documents d
          LEFT JOIN professionals p ON d.professional_id = p.id
@@ -156,7 +182,7 @@ pub fn fetch_recent_documents(
         let source_file: String = row.get(2)?;
         let document_date: Option<String> = row.get(3)?;
         let ingestion_date: String = row.get(4)?;
-        let verified: bool = row.get(5)?;
+        let pipeline_status: Option<String> = row.get(5)?;
         let prof_name: Option<String> = row.get(6)?;
         let prof_specialty: Option<String> = row.get(7)?;
 
@@ -168,11 +194,8 @@ pub fn fetch_recent_documents(
             professional_specialty: prof_specialty,
             document_date,
             imported_at: ingestion_date,
-            status: if verified {
-                DocumentStatus::Confirmed
-            } else {
-                DocumentStatus::PendingReview
-            },
+            status: DocumentStatus::from_pipeline_status(pipeline_status.as_deref()),
+            error_message: None,
             entity_summary: EntitySummary::default(),
         })
     })?;
@@ -182,6 +205,12 @@ pub fn fetch_recent_documents(
         let mut card = row?;
         let doc_id = card.id.clone();
         card.entity_summary = fetch_entity_counts(conn, &doc_id)?;
+        // Populate error_message for failed documents from processing_log
+        if card.status == DocumentStatus::Failed {
+            if let Ok(uuid) = Uuid::parse_str(&doc_id) {
+                card.error_message = get_last_processing_error(conn, &uuid).unwrap_or(None);
+            }
+        }
         cards.push(card);
     }
     Ok(cards)
@@ -583,7 +612,9 @@ pub struct DocumentDetail {
     pub document_date: Option<String>,
     pub imported_at: String,
     pub status: DocumentStatus,
+    pub error_message: Option<String>,
     pub ocr_confidence: Option<f64>,
+    pub page_count: Option<u32>,
     pub notes: Option<String>,
     pub medications: Vec<MedicationEntry>,
     pub lab_results: Vec<LabResultEntry>,
@@ -660,8 +691,10 @@ pub fn fetch_document_detail(
 ) -> Result<DocumentDetail, DatabaseError> {
     let row = conn.query_row(
         "SELECT d.id, d.type, d.title, d.source_file, d.document_date, d.ingestion_date,
-                d.verified, d.ocr_confidence, d.notes,
-                p.name AS prof_name, p.specialty AS prof_specialty
+                d.pipeline_status,
+                d.ocr_confidence, d.notes,
+                p.name AS prof_name, p.specialty AS prof_specialty,
+                d.page_count
          FROM documents d
          LEFT JOIN professionals p ON d.professional_id = p.id
          WHERE d.id = ?1",
@@ -674,11 +707,12 @@ pub fn fetch_document_detail(
                 row.get::<_, String>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, String>(5)?,
-                row.get::<_, bool>(6)?,
+                row.get::<_, Option<String>>(6)?,
                 row.get::<_, Option<f64>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<u32>>(11)?,
             ))
         },
     )
@@ -689,7 +723,7 @@ pub fn fetch_document_detail(
         other => DatabaseError::Sqlite(other),
     })?;
 
-    let (id, doc_type, title, source_file, document_date, ingestion_date, verified, ocr_confidence, notes, prof_name, prof_specialty) = row;
+    let (id, doc_type, title, source_file, document_date, ingestion_date, pipeline_status, ocr_confidence, notes, prof_name, prof_specialty, page_count) = row;
 
     let medications = fetch_medications(conn, document_id)?;
     let lab_results = fetch_lab_results(conn, document_id)?;
@@ -707,12 +741,10 @@ pub fn fetch_document_detail(
         professional_specialty: prof_specialty,
         document_date,
         imported_at: ingestion_date,
-        status: if verified {
-            DocumentStatus::Confirmed
-        } else {
-            DocumentStatus::PendingReview
-        },
+        status: DocumentStatus::from_pipeline_status(pipeline_status.as_deref()),
+        error_message: None,
         ocr_confidence,
+        page_count,
         notes,
         medications,
         lab_results,
@@ -880,6 +912,59 @@ mod tests {
     use crate::db::sqlite::open_memory_database;
     use uuid::Uuid;
 
+    // -----------------------------------------------------------------------
+    // DocumentStatus
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn document_status_from_pipeline_status() {
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("imported")), DocumentStatus::Imported);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("extracting")), DocumentStatus::Extracting);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("structuring")), DocumentStatus::Structuring);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("pending_review")), DocumentStatus::PendingReview);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("confirmed")), DocumentStatus::Confirmed);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("failed")), DocumentStatus::Failed);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("rejected")), DocumentStatus::Rejected);
+    }
+
+    #[test]
+    fn document_status_from_pipeline_status_fallback() {
+        assert_eq!(DocumentStatus::from_pipeline_status(None), DocumentStatus::Imported);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("unknown")), DocumentStatus::Imported);
+        assert_eq!(DocumentStatus::from_pipeline_status(Some("")), DocumentStatus::Imported);
+    }
+
+    #[test]
+    fn document_status_serializes_correctly() {
+        let json = serde_json::to_string(&DocumentStatus::PendingReview).unwrap();
+        assert_eq!(json, "\"PendingReview\"");
+        let json = serde_json::to_string(&DocumentStatus::Failed).unwrap();
+        assert_eq!(json, "\"Failed\"");
+    }
+
+    #[test]
+    fn document_card_error_message_serializes() {
+        let card = DocumentCard {
+            id: "test".into(),
+            document_type: "Prescription".into(),
+            source_filename: "rx.pdf".into(),
+            professional_name: None,
+            professional_specialty: None,
+            document_date: None,
+            imported_at: "2026-01-01".into(),
+            status: DocumentStatus::Failed,
+            error_message: Some("Vision OCR timed out".into()),
+            entity_summary: EntitySummary::default(),
+        };
+        let json = serde_json::to_string(&card).unwrap();
+        assert!(json.contains("\"error_message\":\"Vision OCR timed out\""));
+        assert!(json.contains("\"status\":\"Failed\""));
+    }
+
+    // -----------------------------------------------------------------------
+    // Test helpers
+    // -----------------------------------------------------------------------
+
     /// Insert a test document.
     fn insert_test_document(
         conn: &Connection,
@@ -888,10 +973,11 @@ mod tests {
         verified: bool,
         source_file: &str,
     ) {
+        let pipeline_status = if verified { "confirmed" } else { "imported" };
         conn.execute(
-            "INSERT INTO documents (id, type, title, ingestion_date, source_file, verified)
-             VALUES (?1, ?2, ?3, datetime('now'), ?4, ?5)",
-            params![id, doc_type, "Test Doc", source_file, verified],
+            "INSERT INTO documents (id, type, title, ingestion_date, source_file, verified, pipeline_status)
+             VALUES (?1, ?2, ?3, datetime('now'), ?4, ?5, ?6)",
+            params![id, doc_type, "Test Doc", source_file, verified, pipeline_status],
         )
         .unwrap();
     }
@@ -1008,11 +1094,38 @@ mod tests {
         insert_test_document(&conn, &id2, "lab_result", true, "/tmp/b.pdf");
 
         let docs = fetch_recent_documents(&conn, 20, 0).unwrap();
-        let pending = docs.iter().find(|d| d.id == id1).unwrap();
+        let unverified = docs.iter().find(|d| d.id == id1).unwrap();
         let confirmed = docs.iter().find(|d| d.id == id2).unwrap();
 
-        assert_eq!(pending.status, DocumentStatus::PendingReview);
+        assert_eq!(unverified.status, DocumentStatus::Imported);
         assert_eq!(confirmed.status, DocumentStatus::Confirmed);
+    }
+
+    #[test]
+    fn fetch_recent_documents_pipeline_status_variants() {
+        let conn = open_memory_database().unwrap();
+
+        let statuses = [
+            ("extracting", DocumentStatus::Extracting),
+            ("structuring", DocumentStatus::Structuring),
+            ("pending_review", DocumentStatus::PendingReview),
+            ("failed", DocumentStatus::Failed),
+            ("rejected", DocumentStatus::Rejected),
+        ];
+
+        for (status_str, expected) in &statuses {
+            let id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO documents (id, type, title, ingestion_date, source_file, verified, pipeline_status)
+                 VALUES (?1, 'prescription', 'Test', datetime('now'), '/tmp/a.pdf', 0, ?2)",
+                params![id, status_str],
+            )
+            .unwrap();
+
+            let docs = fetch_recent_documents(&conn, 100, 0).unwrap();
+            let card = docs.iter().find(|d| d.id == id).unwrap();
+            assert_eq!(&card.status, expected, "pipeline_status '{status_str}' should map to {expected:?}");
+        }
     }
 
     #[test]
@@ -1519,5 +1632,93 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // BTL-10 C1: processing_log + entity_connections migration
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn migration_019_processing_log_table_exists() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+
+        let log_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO processing_log (id, document_id, model_name, model_variant, processing_stage, started_at, success)
+             VALUES (?1, ?2, 'medgemma-4b', 'q8_0', 'extraction', datetime('now'), 1)",
+            params![log_id, doc_id],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM processing_log WHERE document_id = ?1", params![doc_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_019_entity_connections_table_exists() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+
+        let conn_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO entity_connections (id, source_type, source_id, target_type, target_id, relationship_type, confidence, document_id)
+             VALUES (?1, 'Medication', 'med-1', 'Diagnosis', 'dx-1', 'PrescribedFor', 1.0, ?2)",
+            params![conn_id, doc_id],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM entity_connections WHERE document_id = ?1", params![doc_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_019_cascade_delete_processing_log() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+
+        let log_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO processing_log (id, document_id, model_name, processing_stage, started_at, success)
+             VALUES (?1, ?2, 'medgemma-4b', 'extraction', datetime('now'), 1)",
+            params![log_id, doc_id],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM documents WHERE id = ?1", params![doc_id]).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM processing_log WHERE document_id = ?1", params![doc_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "processing_log should cascade delete with document");
+    }
+
+    #[test]
+    fn migration_019_cascade_delete_entity_connections() {
+        let conn = open_memory_database().unwrap();
+        let doc_id = Uuid::new_v4().to_string();
+        insert_test_document(&conn, &doc_id, "prescription", false, "/tmp/a.pdf");
+
+        let conn_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO entity_connections (id, source_type, source_id, target_type, target_id, relationship_type, confidence, document_id)
+             VALUES (?1, 'Medication', 'med-1', 'Diagnosis', 'dx-1', 'PrescribedFor', 1.0, ?2)",
+            params![conn_id, doc_id],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM documents WHERE id = ?1", params![doc_id]).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM entity_connections WHERE document_id = ?1", params![doc_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "entity_connections should cascade delete with document");
     }
 }

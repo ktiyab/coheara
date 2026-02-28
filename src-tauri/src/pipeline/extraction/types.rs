@@ -170,11 +170,17 @@ pub trait MedicalImageInterpreter: Send + Sync {
 
 /// Main extraction orchestrator trait
 pub trait TextExtractor: Send + Sync {
+    /// Extract text from a document file.
+    ///
+    /// `progress`: §22 optional page-level progress tracker. When provided,
+    /// implementations update `page_total` before the loop and `page_current`
+    /// after each page completes. Pass `None` for callers that don't track pages.
     fn extract(
         &self,
         document_id: &Uuid,
         staged_path: &std::path::Path,
         format: &FormatDetection,
         session: &ProfileSession,
+        progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<ExtractionResult, ExtractionError>;
 }

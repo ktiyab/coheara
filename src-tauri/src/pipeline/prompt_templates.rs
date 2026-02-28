@@ -1,24 +1,24 @@
 //! L6-08: Prompt Template Registry — strategy-aware prompt templates.
 //!
-//! Replaces the hardcoded ~300-token JSON schema prompt with strategy-aware
-//! templates calibrated from BM-05/06 benchmarks:
+//! Element-focused extraction templates calibrated from BM-05/06 benchmarks:
 //! - MarkdownList: ~25-token single-domain prompts (0% degen on all configs)
 //! - IterativeDrill: ~15-token enumerate + ~12-token drill (0-4% degen)
-//! - LegacyJson: delegates to existing prompt.rs (safe on CPU Q8+ only)
 //!
+//! STR-01: LegacyJson eliminated — SLM does ONE thing per call, code orchestrates.
 //! Evidence: BM-05 (markdown list), BM-06 (iterative drill), MF-37/44.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::pipeline::structuring::prompt;
-
 // ═══════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════
 
-/// Prompt strategy kinds from BM-05/06 benchmarks.
+/// Prompt strategy kinds — element-focused extraction (BM-05/06).
+///
+/// Both strategies have 0% degeneration on all configurations.
+/// The SLM does ONE thing per call. The CODE orchestrates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptStrategyKind {
@@ -26,8 +26,6 @@ pub enum PromptStrategyKind {
     MarkdownList,
     /// Two-phase: enumerate items + drill each field (~15 tokens each).
     IterativeDrill,
-    /// Legacy ~300-token all-domains JSON schema (safe on CPU Q8+ only).
-    LegacyJson,
 }
 
 impl fmt::Display for PromptStrategyKind {
@@ -35,7 +33,6 @@ impl fmt::Display for PromptStrategyKind {
         match self {
             Self::MarkdownList => write!(f, "markdown_list"),
             Self::IterativeDrill => write!(f, "iterative_drill"),
-            Self::LegacyJson => write!(f, "legacy_json"),
         }
     }
 }
@@ -109,7 +106,6 @@ pub fn system_prompt(kind: PromptStrategyKind) -> &'static str {
     match kind {
         PromptStrategyKind::MarkdownList => MARKDOWN_LIST_SYSTEM,
         PromptStrategyKind::IterativeDrill => ITERATIVE_DRILL_SYSTEM,
-        PromptStrategyKind::LegacyJson => prompt::STRUCTURING_SYSTEM_PROMPT,
     }
 }
 
@@ -233,17 +229,6 @@ pub fn drill_prompt(domain: DocumentDomain, item_name: &str, field: &str) -> Str
 }
 
 // ═══════════════════════════════════════════════════════════
-// Legacy JSON (delegates to prompt.rs)
-// ═══════════════════════════════════════════════════════════
-
-/// Build legacy JSON prompt (delegates to existing `prompt.rs`).
-///
-/// Preserved for backward compatibility — safe on CPU Q8+ only.
-pub fn legacy_json_prompt(document_text: &str, confidence: f32) -> String {
-    prompt::build_structuring_prompt(document_text, confidence)
-}
-
-// ═══════════════════════════════════════════════════════════
 // Domain and field catalogs
 // ═══════════════════════════════════════════════════════════
 
@@ -305,29 +290,29 @@ mod tests {
     // ── System prompts ───────────────────────────────────
 
     #[test]
-    fn markdown_list_system_prompt_concise() {
+    fn markdown_list_system_prompt_correct() {
         let sp = system_prompt(PromptStrategyKind::MarkdownList);
         assert!(sp.contains("medical document"));
         assert!(sp.contains("ONLY"));
         assert!(sp.contains("markdown list"));
         assert!(sp.contains("original language"));
-        // Much shorter than legacy JSON
-        assert!(sp.len() < prompt::STRUCTURING_SYSTEM_PROMPT.len());
     }
 
     #[test]
-    fn iterative_drill_system_prompt_concise() {
+    fn iterative_drill_system_prompt_correct() {
         let sp = system_prompt(PromptStrategyKind::IterativeDrill);
         assert!(sp.contains("Answer questions"));
         assert!(sp.contains("ONLY"));
         assert!(sp.contains("original language"));
-        assert!(sp.len() < prompt::STRUCTURING_SYSTEM_PROMPT.len());
     }
 
     #[test]
-    fn legacy_json_system_prompt_is_existing() {
-        let sp = system_prompt(PromptStrategyKind::LegacyJson);
-        assert_eq!(sp, prompt::STRUCTURING_SYSTEM_PROMPT);
+    fn system_prompts_are_concise() {
+        // Element-focused system prompts should be short
+        for kind in [PromptStrategyKind::MarkdownList, PromptStrategyKind::IterativeDrill] {
+            let sp = system_prompt(kind);
+            assert!(sp.len() < 500, "System prompt for {kind} too long: {} chars", sp.len());
+        }
     }
 
     // ── MarkdownList prompts ─────────────────────────────
@@ -446,15 +431,6 @@ mod tests {
         assert!(fields.contains(&"unit"));
         assert!(fields.contains(&"reference_range"));
         assert!(fields.contains(&"abnormal_flag"));
-    }
-
-    // ── Legacy JSON ──────────────────────────────────────
-
-    #[test]
-    fn legacy_json_matches_existing() {
-        let legacy = legacy_json_prompt("test text", 0.90);
-        let existing = prompt::build_structuring_prompt("test text", 0.90);
-        assert_eq!(legacy, existing);
     }
 
     // ── Edge cases ───────────────────────────────────────

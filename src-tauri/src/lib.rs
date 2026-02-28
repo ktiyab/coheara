@@ -29,6 +29,9 @@ pub mod hardware; // GPU/CPU hardware detection via Ollama /api/ps
 pub mod pipeline_config; // Hardware-tiered pipeline configuration
 pub mod time_estimation; // Hardware-aware processing time estimates
 pub mod ollama_service; // Centralized SLM access controller
+pub mod butler_service; // BTL-04: SLM lifecycle orchestrator
+pub mod import_queue; // BTL-10: Document import queue service
+pub mod import_queue_worker; // BTL-10 C4: Import queue background worker
 
 
 use std::sync::Arc;
@@ -62,6 +65,10 @@ pub fn run() {
                     app.handle().clone(),
                 );
             app.manage(scheduler_handle);
+
+            // BTL-10 C4: Start import queue worker (processes queued jobs sequentially)
+            import_queue_worker::start_import_queue_worker(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +76,12 @@ pub fn run() {
             commands::check_ai_status,
             commands::verify_ai_status,
             commands::ollama_current_operation,
+            commands::get_butler_status,
+            commands::import_queue::enqueue_imports,
+            commands::import_queue::get_import_queue,
+            commands::import_queue::cancel_import,
+            commands::import_queue::retry_import,
+            commands::import_queue::delete_import,
             commands::profile::list_profiles,
             commands::profile::create_profile,
             commands::profile::unlock_profile,
@@ -85,6 +98,8 @@ pub fn run() {
             commands::home::get_home_data,
             commands::home::get_more_documents,
             commands::home::get_document_detail,
+            commands::home::get_document_connections,
+            commands::home::get_processing_log,
             commands::home::dismiss_alert,
             commands::home::search_documents,
             commands::home::get_recent_symptoms,

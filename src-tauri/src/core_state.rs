@@ -17,6 +17,8 @@ use crate::crypto::profile::ProfileSession;
 use crate::db;
 use crate::device_manager::DeviceManager;
 use crate::distribution::DistributionServer;
+use crate::butler_service::ButlerService;
+use crate::import_queue::ImportQueueService;
 use crate::ollama_service::OllamaService;
 use crate::pairing::PairingManager;
 use crate::pipeline::structuring::preferences::ActiveModelResolver;
@@ -65,11 +67,14 @@ pub struct CoreState {
     audit: AuditLogger,
     /// L6-04: Model preference resolver (singleton, shared cache).
     model_resolver: ActiveModelResolver,
-    /// Centralized Ollama access — exclusive lock + operation tracking.
-    ollama_service: OllamaService,
+    /// BTL-04: Butler Service — SLM lifecycle orchestrator.
+    /// Wraps OllamaService with model state tracking and hardware caching.
+    butler: ButlerService,
     /// S.1: Whether AI generation has been verified since last check.
     /// Set to true by `verify_ai_status`, cleared on degraded/error events.
     ai_verified: AtomicBool,
+    /// BTL-10: Import queue service — document import lifecycle manager.
+    import_queue: ImportQueueService,
 }
 
 impl CoreState {
@@ -88,8 +93,9 @@ impl CoreState {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
-            ollama_service: OllamaService::new(),
+            butler: ButlerService::new(),
             ai_verified: AtomicBool::new(false),
+            import_queue: ImportQueueService::new(),
         }
     }
 
@@ -391,11 +397,24 @@ impl CoreState {
         &self.model_resolver
     }
 
-    // ── Ollama service ────────────────────────────────────
+    // ── Butler / Ollama service ──────────────────────────
+
+    /// BTL-04: Access the Butler Service (SLM lifecycle orchestrator).
+    pub fn butler(&self) -> &ButlerService {
+        &self.butler
+    }
 
     /// Access the centralized Ollama service for exclusive SLM access.
+    ///
+    /// Backward compat — delegates to `butler.inner()`.
+    /// New code should use `butler()` directly (BTL-07 migration).
     pub fn ollama(&self) -> &OllamaService {
-        &self.ollama_service
+        self.butler.inner()
+    }
+
+    /// BTL-10: Access the import queue service.
+    pub fn import_queue(&self) -> &ImportQueueService {
+        &self.import_queue
     }
 
     /// S.1: Check if AI generation has been verified.
@@ -634,8 +653,9 @@ mod tests {
             pairing: Mutex::new(PairingManager::new()),
             audit: AuditLogger::new(),
             model_resolver: ActiveModelResolver::new(),
-            ollama_service: OllamaService::new(),
+            butler: ButlerService::new(),
             ai_verified: AtomicBool::new(false),
+            import_queue: ImportQueueService::new(),
         };
         assert!(state.check_timeout());
     }

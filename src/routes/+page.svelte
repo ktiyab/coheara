@@ -10,6 +10,7 @@
   import { profiles } from '$lib/stores/profiles.svelte';
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { importQueue } from '$lib/stores/importQueue.svelte';
   import { isTauriEnv } from '$lib/utils/tauri';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import AppShell from '$lib/components/navigation/AppShell.svelte';
@@ -19,7 +20,6 @@
   import ReviewScreen from '$lib/components/review/ReviewScreen.svelte';
   import TimelineScreen from '$lib/components/timeline/TimelineScreen.svelte';
   import TransferScreen from '$lib/components/transfer/TransferScreen.svelte';
-  import ImportScreen from '$lib/components/import/ImportScreen.svelte';
   import DocumentListScreen from '$lib/components/documents/DocumentListScreen.svelte';
   import DocumentDetailScreen from '$lib/components/documents/DocumentDetailScreen.svelte';
   import SettingsScreen from '$lib/components/settings/SettingsScreen.svelte';
@@ -63,6 +63,10 @@
     extraction.startListening();
     extraction.updateCount().catch(() => {});
 
+    // BTL-10: Listen for import queue events (app-level, persists across navigation)
+    importQueue.startListening();
+    importQueue.refresh().catch(() => {});
+
     // S.2+S.5: One-shot AI status check (immediate baseline + 30s verify)
     if (isTauriEnv()) {
       ai.startupCheck(
@@ -83,6 +87,7 @@
   onDestroy(() => {
     ai.cleanup();
     extraction.stopListening();
+    importQueue.stopListening();
   });
 </script>
 
@@ -167,10 +172,8 @@
         />
       {/if}
     </div>
-  {:else if navigation.activeScreen === 'import'}
-    <ImportScreen droppedFiles={navigation.screenParams.droppedFiles} />
   {:else if navigation.activeScreen === 'documents'}
-    <DocumentListScreen />
+    <DocumentListScreen droppedFiles={navigation.screenParams.droppedFiles ? JSON.parse(navigation.screenParams.droppedFiles) : undefined} />
   {:else if navigation.activeScreen === 'document-detail' && navigation.screenParams.documentId}
     <DocumentDetailScreen
       documentId={navigation.screenParams.documentId}

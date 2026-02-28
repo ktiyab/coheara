@@ -17,9 +17,41 @@ use crate::pipeline_config::PipelineConfig;
 /// Detect hardware and derive pipeline configuration.
 ///
 /// Falls back to CPU-only config if detection fails (conservative).
-fn detect_pipeline_config(ollama: &crate::pipeline::structuring::ollama::OllamaClient) -> PipelineConfig {
+pub(crate) fn detect_pipeline_config(ollama: &crate::pipeline::structuring::ollama::OllamaClient) -> PipelineConfig {
     let profile = crate::hardware::detect_hardware(ollama);
     crate::pipeline_config::derive_config(&profile)
+}
+
+/// BTL-07: Smart warm for pipeline assignment — correct endpoint per model.
+///
+/// Vision OCR uses `/api/chat` → warm via Chat endpoint.
+/// Structuring uses `/api/generate` → warm via Generate endpoint.
+pub(crate) fn warm_assignment_models(
+    butler: &crate::butler_service::ButlerService,
+    client: &crate::pipeline::structuring::ollama::OllamaClient,
+    assignment: &crate::pipeline::model_router::PipelineAssignment,
+) {
+    use crate::butler_service::WarmEndpoint;
+
+    if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
+        // Vision model → Chat endpoint (chat_with_images)
+        if let Err(e) = butler.ensure_ready(client, model, WarmEndpoint::Chat) {
+            tracing::warn!(model = %model, error = %e, "Vision model warm failed");
+        }
+        // Structuring model → Generate endpoint (if different model)
+        if crate::pipeline::structuring::ollama_types::normalize_model_identity(model)
+            != crate::pipeline::structuring::ollama_types::normalize_model_identity(&assignment.structuring_model)
+        {
+            if let Err(e) = butler.ensure_ready(client, &assignment.structuring_model, WarmEndpoint::Generate) {
+                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model warm failed");
+            }
+        }
+    } else {
+        // No vision — structuring model only → Generate endpoint
+        if let Err(e) = butler.ensure_ready(client, &assignment.structuring_model, WarmEndpoint::Generate) {
+            tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model warm failed");
+        }
+    }
 }
 
 /// Import a document from a local file path.
@@ -354,42 +386,40 @@ pub async fn process_document(
             .map_err(|e| format!("Database error: {e}"))?;
 
         // CT-01: Detect file format → resolve pipeline via model tags → build processor
-        let ollama = crate::ollama_service::OllamaService::client();
+        let mut ollama = crate::ollama_service::OllamaService::client();
         let file_category = crate::pipeline::import::format::detect_format(path)
             .map(|f| f.category)
             .unwrap_or(crate::pipeline::import::format::FileCategory::DigitalPdf);
-        let assignment = crate::pipeline::model_router::resolve_pipeline(
+        let mut assignment = crate::pipeline::model_router::resolve_pipeline(
             &conn, state.resolver(), &ollama, &file_category,
         ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access based on assignment
+        // STR-01: Resolve extraction strategy from context + model variant
+        let variant = crate::pipeline::strategy::detect_model_variant(&assignment.structuring_model);
+        assignment.prompt_strategy = Some(crate::pipeline::strategy::resolve_strategy(
+            crate::pipeline::strategy::ContextType::DocumentExtraction,
+            variant,
+        ));
+
+        // BTL-07: Acquire via Butler (tracks model state)
         let primary_model = match &assignment.extraction {
             crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
             _ => assignment.structuring_model.clone(),
         };
-        let _ollama_guard = state.ollama().acquire(
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
             &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm models based on assignment
-        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
-            if let Err(e) = ollama.warm_model(model) {
-                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
-            }
-            if *model != assignment.structuring_model {
-                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
-                }
-            }
-        } else {
-            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
-            }
-        }
-
-        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        // Detect hardware → derive pipeline config BEFORE warm.
+        // The warm client needs num_ctx so Ollama loads with the correct KvSize.
+        // Without this, warm loads model default (8192) and inference with 4096
+        // triggers a full model reload (~8s penalty + connection disruption).
         let pipeline_config = detect_pipeline_config(&ollama);
+        ollama.set_vision_num_ctx(pipeline_config.num_ctx);
+
+        // BTL-06: Smart warm — skips if already hot, uses correct endpoint
+        warm_assignment_models(state.butler(), &ollama, &assignment);
 
         // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
@@ -405,8 +435,11 @@ pub async fn process_document(
                 processor.set_between_stages_hook(Box::new(move || {
                     let client = crate::ollama_service::OllamaService::client();
                     tracing::info!("CPU swap: unloading vision model, warming LLM");
-                    let _ = client.unload_model(&swap_vision);
-                    let _ = client.warm_model(&swap_llm);
+                    client.unload_model(&swap_vision)
+                        .map_err(|e| format!("Unload vision model failed: {e}"))?;
+                    client.warm_model(&swap_llm)
+                        .map_err(|e| format!("Warm LLM model failed: {e}"))?;
+                    Ok(())
                 }));
             }
         }
@@ -544,40 +577,38 @@ pub async fn process_documents_batch(
             .map_err(|e| format!("Database error: {e}"))?;
 
         // CT-01: Resolve pipeline via model tags (batch uses DigitalPdf as safe default)
-        let ollama = crate::ollama_service::OllamaService::client();
-        let assignment = crate::pipeline::model_router::resolve_pipeline(
+        let mut ollama = crate::ollama_service::OllamaService::client();
+        let mut assignment = crate::pipeline::model_router::resolve_pipeline(
             &conn, state.resolver(), &ollama,
             &crate::pipeline::import::format::FileCategory::DigitalPdf,
         ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access based on assignment
+        // STR-01: Resolve extraction strategy from context + model variant
+        let variant = crate::pipeline::strategy::detect_model_variant(&assignment.structuring_model);
+        assignment.prompt_strategy = Some(crate::pipeline::strategy::resolve_strategy(
+            crate::pipeline::strategy::ContextType::DocumentExtraction,
+            variant,
+        ));
+
+        // BTL-07: Acquire via Butler (tracks model state)
         let primary_model = match &assignment.extraction {
             crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
             _ => assignment.structuring_model.clone(),
         };
-        let _ollama_guard = state.ollama().acquire(
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
             &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm models based on assignment
-        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
-            if let Err(e) = ollama.warm_model(model) {
-                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
-            }
-            if *model != assignment.structuring_model {
-                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
-                }
-            }
-        } else {
-            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
-            }
-        }
-
-        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        // Detect hardware → derive pipeline config BEFORE warm.
+        // The warm client needs num_ctx so Ollama loads with the correct KvSize.
+        // Without this, warm loads model default (8192) and inference with 4096
+        // triggers a full model reload (~8s penalty + connection disruption).
         let pipeline_config = detect_pipeline_config(&ollama);
+        ollama.set_vision_num_ctx(pipeline_config.num_ctx);
+
+        // BTL-06: Smart warm — skips if already hot, uses correct endpoint
+        warm_assignment_models(state.butler(), &ollama, &assignment);
 
         // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
@@ -593,8 +624,11 @@ pub async fn process_documents_batch(
                 processor.set_between_stages_hook(Box::new(move || {
                     let client = crate::ollama_service::OllamaService::client();
                     tracing::info!("CPU swap: unloading vision model, warming LLM");
-                    let _ = client.unload_model(&swap_vision);
-                    let _ = client.warm_model(&swap_llm);
+                    client.unload_model(&swap_vision)
+                        .map_err(|e| format!("Unload vision model failed: {e}"))?;
+                    client.warm_model(&swap_llm)
+                        .map_err(|e| format!("Warm LLM model failed: {e}"))?;
+                    Ok(())
                 }));
             }
         }
@@ -821,40 +855,38 @@ pub async fn reprocess_document(
         };
 
         // CT-01: Resolve pipeline via model tags (DigitalPdf default for reprocess)
-        let ollama = crate::ollama_service::OllamaService::client();
-        let assignment = crate::pipeline::model_router::resolve_pipeline(
+        let mut ollama = crate::ollama_service::OllamaService::client();
+        let mut assignment = crate::pipeline::model_router::resolve_pipeline(
             &conn, state.resolver(), &ollama,
             &crate::pipeline::import::format::FileCategory::DigitalPdf,
         ).map_err(|e| format!("No AI model available: {e}"))?;
 
-        // Acquire exclusive Ollama access based on assignment
+        // STR-01: Resolve extraction strategy from context + model variant
+        let variant = crate::pipeline::strategy::detect_model_variant(&assignment.structuring_model);
+        assignment.prompt_strategy = Some(crate::pipeline::strategy::resolve_strategy(
+            crate::pipeline::strategy::ContextType::DocumentExtraction,
+            variant,
+        ));
+
+        // BTL-07: Acquire via Butler (tracks model state)
         let primary_model = match &assignment.extraction {
             crate::pipeline::model_router::ExtractionStrategy::VisionOcr { model } => model.clone(),
             _ => assignment.structuring_model.clone(),
         };
-        let _ollama_guard = state.ollama().acquire(
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::DocumentOcr,
             &primary_model,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
-        // Pre-warm models based on assignment
-        if let crate::pipeline::model_router::ExtractionStrategy::VisionOcr { ref model } = assignment.extraction {
-            if let Err(e) = ollama.warm_model(model) {
-                tracing::warn!(model = %model, error = %e, "Vision model pre-warm failed");
-            }
-            if *model != assignment.structuring_model {
-                if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                    tracing::warn!(model = %assignment.structuring_model, error = %e, "LLM model pre-warm failed");
-                }
-            }
-        } else {
-            if let Err(e) = ollama.warm_model(&assignment.structuring_model) {
-                tracing::warn!(model = %assignment.structuring_model, error = %e, "Structuring model pre-warm failed");
-            }
-        }
-
-        // Detect hardware → derive pipeline config (context windows, warm strategy)
+        // Detect hardware → derive pipeline config BEFORE warm.
+        // The warm client needs num_ctx so Ollama loads with the correct KvSize.
+        // Without this, warm loads model default (8192) and inference with 4096
+        // triggers a full model reload (~8s penalty + connection disruption).
         let pipeline_config = detect_pipeline_config(&ollama);
+        ollama.set_vision_num_ctx(pipeline_config.num_ctx);
+
+        // BTL-06: Smart warm — skips if already hot, uses correct endpoint
+        warm_assignment_models(state.butler(), &ollama, &assignment);
 
         // Build processor from CT-01 PipelineAssignment
         let lang = state.get_profile_language();
@@ -870,8 +902,11 @@ pub async fn reprocess_document(
                 processor.set_between_stages_hook(Box::new(move || {
                     let client = crate::ollama_service::OllamaService::client();
                     tracing::info!("CPU swap: unloading vision model, warming LLM");
-                    let _ = client.unload_model(&swap_vision);
-                    let _ = client.warm_model(&swap_llm);
+                    client.unload_model(&swap_vision)
+                        .map_err(|e| format!("Unload vision model failed: {e}"))?;
+                    client.warm_model(&swap_llm)
+                        .map_err(|e| format!("Warm LLM model failed: {e}"))?;
+                    Ok(())
                 }));
             }
         }

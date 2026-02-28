@@ -9,6 +9,10 @@ pub mod ollama;
 pub mod ollama_types;
 pub mod orchestrator;
 pub mod preferences;
+pub mod extraction_strategy;
+pub mod markdown_parser;
+pub mod strategy_markdown_list;
+pub mod strategy_iterative_drill;
 
 pub use types::*;
 pub use prompt::*;
@@ -21,6 +25,7 @@ pub use ollama::*;
 pub use ollama_types::*;
 pub use orchestrator::*;
 pub use preferences::*;
+pub use extraction_strategy::*;
 
 #[cfg(test)]
 mod security_tests;

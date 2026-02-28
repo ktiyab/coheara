@@ -23,4 +23,7 @@ pub enum DatabaseError {
 
     #[error("Constraint violated: {0}")]
     ConstraintViolation(String),
+
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
 }

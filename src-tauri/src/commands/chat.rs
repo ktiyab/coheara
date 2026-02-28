@@ -108,9 +108,9 @@ pub async fn send_chat_message(
             .map(|r| r.name);
         let db_key = state.db_key().ok();
 
-        // Acquire exclusive Ollama access for chat generation
+        // BTL-07: Acquire via Butler (tracks model state)
         let model_for_guard = resolved_model.as_deref().unwrap_or("unknown");
-        let _ollama_guard = state.ollama().acquire(
+        let _butler_guard = state.butler().acquire(
             crate::ollama_service::OperationKind::ChatGeneration,
             model_for_guard,
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;

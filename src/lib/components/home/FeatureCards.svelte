@@ -30,7 +30,7 @@
       titleKey: 'home.feature_documents_title',
       bodyKey: 'home.feature_documents_body',
       ctaKey: 'home.feature_documents_cta',
-      action: 'import',
+      action: 'documents',
       primary: true,
       statusKey: 'home.feature_documents_status',
     },

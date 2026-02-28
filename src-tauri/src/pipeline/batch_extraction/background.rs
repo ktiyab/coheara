@@ -137,8 +137,8 @@ fn try_run_batch(app: &AppHandle) -> Result<(), String> {
         run_config.clone(),
     );
 
-    // Acquire exclusive Ollama access for batch extraction
-    let _ollama_guard = state.ollama().acquire(
+    // BTL-07: Acquire via Butler (tracks model state)
+    let _butler_guard = state.butler().acquire(
         crate::ollama_service::OperationKind::BatchExtraction,
         &run_config.model_name,
     ).map_err(|e| format!("Ollama busy: {e}"))?;

@@ -1,5 +1,36 @@
 /** E2E-F04: Document detail types. */
 
+import type { DocumentLifecycleStatus } from './home';
+
+// BTL-10 UX: Entity connection types (GAP-01)
+export type EntityType = 'Medication' | 'LabResult' | 'Diagnosis' | 'Allergy' | 'Procedure' | 'Referral';
+export type RelationshipType = 'PrescribedFor' | 'EvidencesFor' | 'MonitorsFor' | 'ContraindicatedBy' | 'FollowUpTo' | 'ReplacedBy';
+
+export interface EntityConnection {
+  id: string;
+  source_type: EntityType;
+  source_id: string;
+  target_type: EntityType;
+  target_id: string;
+  relationship_type: RelationshipType;
+  confidence: number;
+  document_id: string;
+  created_at: string;
+}
+
+// BTL-10 UX: Processing log types (GAP-04)
+export interface ProcessingLogEntry {
+  id: string;
+  document_id: string;
+  model_name: string;
+  model_variant: string | null;
+  processing_stage: 'Extraction' | 'Structuring';
+  started_at: string;
+  completed_at: string | null;
+  success: boolean;
+  error_message: string | null;
+}
+
 export interface DocumentDetail {
   id: string;
   document_type: string;
@@ -9,8 +40,10 @@ export interface DocumentDetail {
   professional_specialty: string | null;
   document_date: string | null;
   imported_at: string;
-  status: 'PendingReview' | 'Confirmed';
+  status: DocumentLifecycleStatus;
+  error_message: string | null;
   ocr_confidence: number | null;
+  page_count: number | null;
   notes: string | null;
   medications: MedicationEntry[];
   lab_results: LabResultEntry[];

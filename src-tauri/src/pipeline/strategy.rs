@@ -9,6 +9,11 @@
 //!
 //! Amendment (2026-02-27): LiveChat renamed to HealthQuery, temperature 0.1
 //! for all contexts, max_tokens 4096 for HealthQuery. See [RM-ZE-QJ], [YL-LM-XJ].
+//!
+//! STR-01 (2026-02-27): LegacyJson eliminated from decision matrix.
+//! Principle: SLM does ONE thing per call, code orchestrates. Context alone
+//! determines strategy — variant no longer affects strategy choice.
+//! All contexts use element-focused extraction (MarkdownList or IterativeDrill).
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -96,62 +101,40 @@ pub fn resolve_strategy_with_gpu(
     }
 }
 
-/// Check if a strategy kind is safe for the given variant + GPU.
-///
-/// "Safe" = 0% degeneration rate in benchmark data.
-pub fn is_strategy_safe(kind: PromptStrategyKind, variant: ModelVariant, gpu: bool) -> bool {
-    match kind {
-        PromptStrategyKind::MarkdownList => true, // 0% degen on all configs (BM-05)
-        PromptStrategyKind::IterativeDrill => {
-            // 0% on Q4_K_M+. Only Q4_K_S had 25% (excluded from ModelVariant).
-            true
-        }
-        PromptStrategyKind::LegacyJson => {
-            // Safe only on CPU Q8+ (BM-04: 0% degen on CPU Q8, 36% on Q4, 45% on GPU)
-            matches!(variant, ModelVariant::Q8 | ModelVariant::F16) && !gpu
-        }
-    }
-}
-
 // ═══════════════════════════════════════════════════════════
 // Decision matrix
 // ═══════════════════════════════════════════════════════════
 
 /// Resolve the prompt strategy kind from the decision matrix.
-fn resolve_kind(context: ContextType, variant: ModelVariant, gpu: bool) -> PromptStrategyKind {
+///
+/// STR-01: Context alone determines strategy. Variant and GPU no longer
+/// affect strategy choice — both MarkdownList and IterativeDrill have
+/// 0% degeneration on all configurations (BM-05/06).
+fn resolve_kind(context: ContextType, _variant: ModelVariant, _gpu: bool) -> PromptStrategyKind {
     match context {
-        // HealthQuery: always MarkdownList (accurate, 0% degen)
+        // HealthQuery: MarkdownList — fast, 0% degen, real-time
         ContextType::HealthQuery => PromptStrategyKind::MarkdownList,
 
-        // NightBatch: always IterativeDrill (thorough, runs during idle)
+        // NightBatch: IterativeDrill — thorough (12/12 lab tests), runs during idle
         ContextType::NightBatch => PromptStrategyKind::IterativeDrill,
 
-        // VisionOcr: always MarkdownList (simple prompts for vision)
+        // VisionOcr: MarkdownList — vision text noisy, keep extraction simple
         ContextType::VisionOcr => PromptStrategyKind::MarkdownList,
 
-        // DocumentExtraction: variant + GPU dependent
-        ContextType::DocumentExtraction => match variant {
-            ModelVariant::Q4 => PromptStrategyKind::MarkdownList, // JSON degens 36% on Q4
-            ModelVariant::Q8 | ModelVariant::F16 => {
-                if gpu {
-                    PromptStrategyKind::MarkdownList // GPU: 45% degen on JSON (MF-23)
-                } else {
-                    PromptStrategyKind::LegacyJson // CPU Q8+: 0% degen on JSON (BM-04)
-                }
-            }
-        },
+        // DocumentExtraction: MarkdownList — fast, 0% degen on all configs
+        ContextType::DocumentExtraction => PromptStrategyKind::MarkdownList,
     }
 }
 
 /// Resolve max tokens from context + strategy kind.
 fn resolve_max_tokens(context: ContextType, kind: PromptStrategyKind) -> i32 {
     match context {
-        ContextType::HealthQuery => 4096, // Thorough medical research findings
+        ContextType::HealthQuery => 4096,
         ContextType::VisionOcr => 4096,
         ContextType::DocumentExtraction => 4096,
         ContextType::NightBatch => match kind {
-            PromptStrategyKind::IterativeDrill => 1024, // Enumerate phase
-            _ => 4096,
+            PromptStrategyKind::IterativeDrill => 1024, // Enumerate phase: short responses
+            PromptStrategyKind::MarkdownList => 4096,
         },
     }
 }
@@ -159,9 +142,24 @@ fn resolve_max_tokens(context: ContextType, kind: PromptStrategyKind) -> i32 {
 /// Resolve max retries from strategy kind.
 fn resolve_max_retries(kind: PromptStrategyKind) -> u32 {
     match kind {
-        PromptStrategyKind::MarkdownList => 1,    // Simple format, 1 retry enough
-        PromptStrategyKind::IterativeDrill => 1,   // Simple Q&A, 1 retry enough
-        PromptStrategyKind::LegacyJson => 2,       // Complex format, keep existing 2 retries
+        // Element-focused strategies use simple prompts — 1 retry is sufficient
+        PromptStrategyKind::MarkdownList => 1,
+        PromptStrategyKind::IterativeDrill => 1,
+    }
+}
+
+/// Detect model variant from model name string.
+///
+/// Pattern matches on name suffix: `-q4`/`:q4` → Q4, `-f16`/`:f16` → F16,
+/// default → Q8.
+pub fn detect_model_variant(model_name: &str) -> ModelVariant {
+    let lower = model_name.to_lowercase();
+    if lower.contains("-q4") || lower.contains(":q4") || lower.contains("_q4") {
+        ModelVariant::Q4
+    } else if lower.contains("-f16") || lower.contains(":f16") || lower.contains("_f16") {
+        ModelVariant::F16
+    } else {
+        ModelVariant::Q8 // Default assumption
     }
 }
 
@@ -207,7 +205,7 @@ mod tests {
         assert_eq!(s.kind, PromptStrategyKind::IterativeDrill);
     }
 
-    // ── DocumentExtraction: variant + GPU dependent ─────
+    // ── DocumentExtraction: always MarkdownList (STR-01) ─
 
     #[test]
     fn doc_extraction_q4_markdown_list() {
@@ -216,19 +214,18 @@ mod tests {
     }
 
     #[test]
-    fn doc_extraction_cpu_q8_legacy_json() {
-        // CPU Q8: LegacyJson safe (0% degen in BM-04)
+    fn doc_extraction_cpu_q8_markdown_list() {
+        // STR-01: CPU Q8 now uses MarkdownList (LegacyJson eliminated)
         let s = resolve_strategy_with_gpu(
             ContextType::DocumentExtraction,
             ModelVariant::Q8,
             false,
         );
-        assert_eq!(s.kind, PromptStrategyKind::LegacyJson);
+        assert_eq!(s.kind, PromptStrategyKind::MarkdownList);
     }
 
     #[test]
     fn doc_extraction_gpu_q8_markdown_list() {
-        // GPU Q8: MarkdownList (45% degen on JSON, MF-23)
         let s = resolve_strategy_with_gpu(
             ContextType::DocumentExtraction,
             ModelVariant::Q8,
@@ -238,13 +235,33 @@ mod tests {
     }
 
     #[test]
-    fn doc_extraction_cpu_f16_legacy_json() {
+    fn doc_extraction_cpu_f16_markdown_list() {
+        // STR-01: CPU F16 now uses MarkdownList (LegacyJson eliminated)
         let s = resolve_strategy_with_gpu(
             ContextType::DocumentExtraction,
             ModelVariant::F16,
             false,
         );
-        assert_eq!(s.kind, PromptStrategyKind::LegacyJson);
+        assert_eq!(s.kind, PromptStrategyKind::MarkdownList);
+    }
+
+    #[test]
+    fn doc_extraction_all_variants_markdown_list() {
+        // STR-01: Context alone determines strategy — variant doesn't matter
+        for variant in [ModelVariant::Q4, ModelVariant::Q8, ModelVariant::F16] {
+            for gpu in [true, false] {
+                let s = resolve_strategy_with_gpu(
+                    ContextType::DocumentExtraction,
+                    variant,
+                    gpu,
+                );
+                assert_eq!(
+                    s.kind,
+                    PromptStrategyKind::MarkdownList,
+                    "DocExtraction should be MarkdownList for {variant:?} gpu={gpu}",
+                );
+            }
+        }
     }
 
     // ── VisionOcr: always MarkdownList ──────────────────
@@ -291,50 +308,25 @@ mod tests {
         }
     }
 
-    // ── Safety checks ───────────────────────────────────
+    // ── detect_model_variant ────────────────────────────
 
     #[test]
-    fn legacy_json_unsafe_on_q4() {
-        assert!(!is_strategy_safe(
-            PromptStrategyKind::LegacyJson,
-            ModelVariant::Q4,
-            false,
-        ));
+    fn detect_variant_q4() {
+        assert_eq!(detect_model_variant("coheara-medgemma-4b-q4"), ModelVariant::Q4);
+        assert_eq!(detect_model_variant("model:q4_k_m"), ModelVariant::Q4);
     }
 
     #[test]
-    fn legacy_json_unsafe_on_gpu() {
-        assert!(!is_strategy_safe(
-            PromptStrategyKind::LegacyJson,
-            ModelVariant::Q8,
-            true,
-        ));
+    fn detect_variant_f16() {
+        assert_eq!(detect_model_variant("coheara-medgemma-4b-f16"), ModelVariant::F16);
+        assert_eq!(detect_model_variant("model:f16"), ModelVariant::F16);
     }
 
     #[test]
-    fn legacy_json_safe_on_cpu_q8() {
-        assert!(is_strategy_safe(
-            PromptStrategyKind::LegacyJson,
-            ModelVariant::Q8,
-            false,
-        ));
-    }
-
-    #[test]
-    fn markdown_list_always_safe() {
-        for variant in [ModelVariant::Q4, ModelVariant::Q8, ModelVariant::F16] {
-            for gpu in [true, false] {
-                assert!(is_strategy_safe(PromptStrategyKind::MarkdownList, variant, gpu));
-            }
-        }
-    }
-
-    #[test]
-    fn iterative_drill_always_safe() {
-        // Q4_K_S excluded from ModelVariant, so IterativeDrill safe on all remaining
-        for variant in [ModelVariant::Q4, ModelVariant::Q8, ModelVariant::F16] {
-            assert!(is_strategy_safe(PromptStrategyKind::IterativeDrill, variant, false));
-        }
+    fn detect_variant_q8_default() {
+        assert_eq!(detect_model_variant("medgemma:latest"), ModelVariant::Q8);
+        assert_eq!(detect_model_variant("coheara-medgemma-4b-q8"), ModelVariant::Q8);
+        assert_eq!(detect_model_variant("unknown-model"), ModelVariant::Q8);
     }
 
     // ── Max tokens ──────────────────────────────────────

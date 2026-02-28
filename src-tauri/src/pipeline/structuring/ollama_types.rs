@@ -196,27 +196,9 @@ pub struct VisionChatMessage {
     pub images: Option<Vec<String>>,
 }
 
-/// Known vision-capable model name prefixes.
-///
-/// Used by `detect_capability()` as a fast heuristic before `/api/show`.
-pub const VISION_MODEL_PREFIXES: &[&str] = &[
-    "llava",
-    "moondream",
-    "cogvlm",
-    "bakllava",
-    "medgemma",  // MedGemma 1.5 is multimodal
-];
-
-/// Check if a model is vision-capable using the name prefix heuristic.
-///
-/// R3: Pure function — no network call. Uses `extract_model_component()`
-/// to strip namespace before matching against `VISION_MODEL_PREFIXES`.
-pub fn is_vision_model(model_name: &str) -> bool {
-    let component = extract_model_component(model_name);
-    VISION_MODEL_PREFIXES
-        .iter()
-        .any(|prefix| component.starts_with(prefix))
-}
+// BTL-02: VISION_MODEL_PREFIXES and is_vision_model() removed.
+// CT-01 capability tags are the sole authority for model capability routing.
+// See suggest_auto_tags() in db/repository/preference.rs for tag suggestions.
 
 // ──────────────────────────────────────────────
 // Health & Operations types
@@ -243,6 +225,10 @@ pub struct RunningModelInfo {
     pub size_vram: u64,
     /// Processor label from Ollama (e.g., "100% GPU", "CPU").
     pub processor: String,
+    /// OLM-C3: When the model will be unloaded from memory (ISO 8601).
+    /// Ollama's scheduler sets this based on `keep_alive`.
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// Progress event from model pull (NDJSON from POST `/api/pull`).
@@ -276,6 +262,10 @@ pub struct ModelDetail {
     /// Model details (family, params, quant).
     #[serde(default)]
     pub details: ModelDetails,
+    /// OLM-C2: Model capabilities (e.g., `["completion", "vision"]`).
+    /// Present in Ollama >= 0.6. Empty for older versions.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 /// Model preference input for `resolve_model()`.
@@ -389,6 +379,35 @@ pub enum OllamaError {
     /// R3: Image exceeds maximum allowed size (20MB base64).
     #[error("Image too large ({0} bytes) — maximum is 20 MB")]
     ImageTooLarge(usize),
+
+    /// BTL-05: Model is cold-loading — read timeout during initial load.
+    ///
+    /// Distinct from `NotReachable` (connect failure = Ollama not running).
+    /// This means Ollama IS running but the model hasn't finished loading yet.
+    #[error("Model is loading — first request takes longer while the model warms up ({0}s elapsed)")]
+    ModelLoading(u64),
+
+    /// SGV-01: Vision model output degenerated (repetition loop detected by StreamGuard).
+    ///
+    /// Distinct from text generation degeneration (StructuringError::Degeneration).
+    /// This fires during vision OCR chat when the model enters a thinking-token
+    /// or output repetition loop (e.g., `"Titre" - This is a header.` × 200).
+    #[error("Vision output degenerated ({pattern}) after {tokens_before_abort} tokens")]
+    VisionDegeneration {
+        pattern: String,
+        tokens_before_abort: usize,
+        partial_output: String,
+    },
+}
+
+impl OllamaError {
+    /// Whether this error is transient and the operation could succeed on retry.
+    ///
+    /// BTL-05: `ModelLoading` and `Network` are retryable (transient conditions).
+    /// `NotReachable` and `ApiError` require user action (start Ollama, fix model).
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::ModelLoading(_) | Self::Network(_))
+    }
 }
 
 /// Bridge: convert OllamaError to StructuringError for backward compatibility.
@@ -408,8 +427,80 @@ impl From<OllamaError> for super::StructuringError {
             OllamaError::Timeout(secs) => {
                 super::StructuringError::HttpClient(format!("Request timed out after {secs}s"))
             }
+            OllamaError::ModelLoading(secs) => {
+                super::StructuringError::HttpClient(
+                    format!("Model loading — request timed out after {secs}s"),
+                )
+            }
             OllamaError::Network(msg) => super::StructuringError::HttpClient(msg),
             other => super::StructuringError::HttpClient(other.to_string()),
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// OLM-C1: Inference completion and metrics
+// ──────────────────────────────────────────────
+
+/// OLM-C1: Why inference stopped — parsed from `done_reason` on the final chunk.
+///
+/// Source: Ollama Go `api/types.go` DoneReason type.
+/// `Length` = truncated at `num_predict` limit — medically critical for extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoneReason {
+    /// Model finished naturally (EOS token).
+    Stop,
+    /// Truncated at `num_predict` limit — output is INCOMPLETE.
+    Length,
+    /// Model was loaded (no generation).
+    Load,
+    /// Model was unloaded.
+    Unload,
+}
+
+impl DoneReason {
+    /// Whether this reason indicates truncated (incomplete) output.
+    pub fn is_truncated(&self) -> bool {
+        matches!(self, Self::Length)
+    }
+}
+
+/// OLM-C1: Inference performance metrics from the final streaming chunk.
+///
+/// All durations are in nanoseconds (Ollama Go convention).
+/// Captured from the final `done: true` chunk of generate/chat responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceMetrics {
+    /// Why inference stopped.
+    pub done_reason: Option<DoneReason>,
+    /// Total request duration (includes load + prompt eval + generation).
+    pub total_duration_ns: Option<u64>,
+    /// Time spent loading the model (0 if already loaded).
+    pub load_duration_ns: Option<u64>,
+    /// Number of tokens in the prompt.
+    pub prompt_eval_count: Option<u32>,
+    /// Time spent evaluating the prompt.
+    pub prompt_eval_duration_ns: Option<u64>,
+    /// Number of tokens generated.
+    pub eval_count: Option<u32>,
+    /// Time spent generating tokens.
+    pub eval_duration_ns: Option<u64>,
+}
+
+impl InferenceMetrics {
+    /// Whether the output was truncated at the `num_predict` limit.
+    pub fn is_truncated(&self) -> bool {
+        self.done_reason.as_ref().is_some_and(|r| r.is_truncated())
+    }
+
+    /// Generation speed in tokens per second (eval only, excludes prompt + load).
+    pub fn tokens_per_second(&self) -> Option<f64> {
+        match (self.eval_count, self.eval_duration_ns) {
+            (Some(count), Some(duration)) if duration > 0 => {
+                Some(count as f64 / (duration as f64 / 1_000_000_000.0))
+            }
+            _ => None,
         }
     }
 }
@@ -451,7 +542,9 @@ pub fn validate_base_url(url: &str) -> Result<(), OllamaError> {
     };
 
     match host_clean {
-        "localhost" | "127.0.0.1" | "::1" => Ok(()),
+        // BTL-09: 0.0.0.0 is Ollama's default listen address; outbound connects
+        // resolve to loopback. SEC-L6-01 preserved — data stays on machine.
+        "localhost" | "127.0.0.1" | "::1" | "0.0.0.0" => Ok(()),
         _ => Err(OllamaError::NonLocalEndpoint),
     }
 }
@@ -508,6 +601,21 @@ pub fn extract_model_component(full_name: &str) -> String {
     let without_tag = full_name.split(':').next().unwrap_or(full_name);
     let model_part = without_tag.rsplit('/').next().unwrap_or(without_tag);
     model_part.to_lowercase()
+}
+
+/// Normalize a model name to its canonical identity for comparison.
+///
+/// Strips namespace prefix and tag suffix, lowercases. Two names are "the same model"
+/// if their normalized identities match.
+///
+/// BTL-03: Used by `model_router` to decide ProcessingMode (Interleaved vs BatchStages).
+///
+/// # Examples
+/// - `"ktiyab/coheara-medgemma-4b-f16"` → `"coheara-medgemma-4b-f16"`
+/// - `"coheara-medgemma-4b-f16:latest"` → `"coheara-medgemma-4b-f16"`
+/// - `"medgemma:4b"` → `"medgemma"`
+pub fn normalize_model_identity(name: &str) -> String {
+    extract_model_component(name)
 }
 
 // ──────────────────────────────────────────────
@@ -568,6 +676,10 @@ pub(crate) struct OllamaShowResponse {
     pub template: Option<String>,
     #[serde(default)]
     pub details: Option<OllamaTagDetails>,
+    /// OLM-C2: Model capabilities (e.g., `["completion", "vision"]`).
+    /// Present in Ollama >= 0.6. Empty for older versions.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 // ──────────────────────────────────────────────
@@ -675,6 +787,13 @@ mod tests {
     #[test]
     fn validate_url_accepts_https_localhost() {
         assert!(validate_base_url("https://localhost:11434").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_zero_address() {
+        // BTL-09: 0.0.0.0 is Ollama's default listen address; outbound resolves to loopback
+        assert!(validate_base_url("http://0.0.0.0:11434").is_ok());
+        assert!(validate_base_url("http://0.0.0.0").is_ok());
     }
 
     // ── Model Name Validation Tests (SEC-L6-02) ──
@@ -825,27 +944,93 @@ mod tests {
         assert_eq!(extract_model_component(""), "");
     }
 
-    // ── Vision Model Detection (R3) ──
+    // ── Model Identity Normalization (BTL-03) ──
 
     #[test]
-    fn is_vision_model_detects_medgemma() {
-        assert!(is_vision_model("medgemma:4b"));
-        assert!(is_vision_model("dcarrascosa/medgemma-1.5-4b-it"));
-        assert!(is_vision_model("amsaravi/medgemma-4b-it"));
-        assert!(is_vision_model("someuser/medgemma:4b"));
+    fn normalize_strips_namespace() {
+        assert_eq!(
+            normalize_model_identity("ktiyab/medgemma:4b"),
+            normalize_model_identity("medgemma:4b"),
+        );
     }
 
     #[test]
-    fn is_vision_model_detects_llava() {
-        assert!(is_vision_model("llava:13b"));
+    fn normalize_strips_tag() {
+        assert_eq!(
+            normalize_model_identity("medgemma:latest"),
+            normalize_model_identity("medgemma:4b"),
+        );
     }
 
     #[test]
-    fn is_vision_model_rejects_text_only() {
-        assert!(!is_vision_model("llama3:8b"));
-        assert!(!is_vision_model("mistral:7b"));
-        assert!(!is_vision_model("phi3:mini"));
+    fn normalize_case_insensitive() {
+        assert_eq!(normalize_model_identity("MedGemma:4B"), "medgemma");
     }
+
+    #[test]
+    fn normalize_aliased_models_are_equal() {
+        // The production failure: these should be recognized as the same model
+        assert_eq!(
+            normalize_model_identity("ktiyab/coheara-medgemma-4b-f16"),
+            normalize_model_identity("coheara-medgemma-4b-f16"),
+        );
+    }
+
+    #[test]
+    fn normalize_different_models_differ() {
+        assert_ne!(
+            normalize_model_identity("medgemma:4b"),
+            normalize_model_identity("llava:13b"),
+        );
+    }
+
+    // ── Error Classification (BTL-05) ──
+
+    #[test]
+    fn model_loading_message_is_informative() {
+        let err = OllamaError::ModelLoading(30);
+        let msg = err.to_string();
+        assert!(msg.contains("loading"), "Expected 'loading' in: {msg}");
+        assert!(!msg.contains("not running"), "Should not say 'not running': {msg}");
+    }
+
+    #[test]
+    fn model_loading_is_retryable() {
+        assert!(OllamaError::ModelLoading(30).is_retryable());
+    }
+
+    #[test]
+    fn not_reachable_is_not_retryable() {
+        assert!(!OllamaError::NotReachable.is_retryable());
+    }
+
+    #[test]
+    fn network_error_is_retryable() {
+        assert!(OllamaError::Network("connection reset".into()).is_retryable());
+    }
+
+    #[test]
+    fn model_loading_converts_to_structuring_error() {
+        let err: crate::pipeline::structuring::StructuringError = OllamaError::ModelLoading(30).into();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("loading") || msg.contains("timed out"),
+            "Expected loading/timeout message, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn api_error_is_not_retryable() {
+        assert!(!OllamaError::ApiError {
+            status: 500,
+            message: "internal error".into(),
+        }
+        .is_retryable());
+    }
+
+    // BTL-02: is_vision_model tests removed — function removed.
+    // Vision capability now determined by CT-01 tags in model_capability_tags table.
+    // See suggest_auto_tags tests in db/repository/preference.rs.
 
     // ── Type Deserialization Tests ──
 
@@ -991,6 +1176,178 @@ mod tests {
         let json = serde_json::to_value(&opts).unwrap();
         // num_predict should be present as null when using serde default
         assert!(json.get("num_predict").is_some());
+    }
+
+    // ── OLM-C1: DoneReason Tests ──
+
+    #[test]
+    fn done_reason_serde_roundtrip() {
+        for (variant, expected_json) in [
+            (DoneReason::Stop, "\"stop\""),
+            (DoneReason::Length, "\"length\""),
+            (DoneReason::Load, "\"load\""),
+            (DoneReason::Unload, "\"unload\""),
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected_json, "Serialization for {variant:?}");
+            let parsed: DoneReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant, "Roundtrip for {variant:?}");
+        }
+    }
+
+    #[test]
+    fn done_reason_length_is_truncated() {
+        assert!(DoneReason::Length.is_truncated());
+    }
+
+    #[test]
+    fn done_reason_stop_not_truncated() {
+        assert!(!DoneReason::Stop.is_truncated());
+        assert!(!DoneReason::Load.is_truncated());
+        assert!(!DoneReason::Unload.is_truncated());
+    }
+
+    // ── OLM-C1: InferenceMetrics Tests ──
+
+    #[test]
+    fn inference_metrics_tokens_per_second() {
+        let metrics = InferenceMetrics {
+            done_reason: Some(DoneReason::Stop),
+            total_duration_ns: Some(5_000_000_000),
+            load_duration_ns: Some(1_000_000_000),
+            prompt_eval_count: Some(10),
+            prompt_eval_duration_ns: Some(500_000_000),
+            eval_count: Some(100),
+            eval_duration_ns: Some(2_000_000_000), // 2 seconds
+        };
+        let tps = metrics.tokens_per_second().unwrap();
+        assert!((tps - 50.0).abs() < 0.01, "Expected 50 tok/s, got {tps}");
+    }
+
+    #[test]
+    fn inference_metrics_tokens_per_second_zero_duration() {
+        let metrics = InferenceMetrics {
+            done_reason: Some(DoneReason::Stop),
+            total_duration_ns: None,
+            load_duration_ns: None,
+            prompt_eval_count: None,
+            prompt_eval_duration_ns: None,
+            eval_count: Some(100),
+            eval_duration_ns: Some(0),
+        };
+        assert!(metrics.tokens_per_second().is_none());
+    }
+
+    #[test]
+    fn inference_metrics_tokens_per_second_missing_fields() {
+        let metrics = InferenceMetrics {
+            done_reason: None,
+            total_duration_ns: None,
+            load_duration_ns: None,
+            prompt_eval_count: None,
+            prompt_eval_duration_ns: None,
+            eval_count: None,
+            eval_duration_ns: None,
+        };
+        assert!(metrics.tokens_per_second().is_none());
+    }
+
+    #[test]
+    fn inference_metrics_is_truncated() {
+        let truncated = InferenceMetrics {
+            done_reason: Some(DoneReason::Length),
+            total_duration_ns: None,
+            load_duration_ns: None,
+            prompt_eval_count: None,
+            prompt_eval_duration_ns: None,
+            eval_count: None,
+            eval_duration_ns: None,
+        };
+        assert!(truncated.is_truncated());
+
+        let normal = InferenceMetrics {
+            done_reason: Some(DoneReason::Stop),
+            total_duration_ns: None,
+            load_duration_ns: None,
+            prompt_eval_count: None,
+            prompt_eval_duration_ns: None,
+            eval_count: None,
+            eval_duration_ns: None,
+        };
+        assert!(!normal.is_truncated());
+
+        let no_reason = InferenceMetrics {
+            done_reason: None,
+            total_duration_ns: None,
+            load_duration_ns: None,
+            prompt_eval_count: None,
+            prompt_eval_duration_ns: None,
+            eval_count: None,
+            eval_duration_ns: None,
+        };
+        assert!(!no_reason.is_truncated());
+    }
+
+    #[test]
+    fn inference_metrics_serde_roundtrip() {
+        let metrics = InferenceMetrics {
+            done_reason: Some(DoneReason::Stop),
+            total_duration_ns: Some(5_000_000_000),
+            load_duration_ns: Some(100_000_000),
+            prompt_eval_count: Some(10),
+            prompt_eval_duration_ns: Some(500_000_000),
+            eval_count: Some(100),
+            eval_duration_ns: Some(2_000_000_000),
+        };
+        let json = serde_json::to_string(&metrics).unwrap();
+        let parsed: InferenceMetrics = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.done_reason, Some(DoneReason::Stop));
+        assert_eq!(parsed.eval_count, Some(100));
+        assert_eq!(parsed.eval_duration_ns, Some(2_000_000_000));
+    }
+
+    // ── OLM-C2: Capabilities + Show Response Tests ──
+
+    #[test]
+    fn show_response_with_capabilities_deserializes() {
+        let json = r#"{
+            "modelfile": "FROM medgemma",
+            "parameters": "temperature 0.1",
+            "template": "{{ .System }}",
+            "details": {"family": "gemma", "parameter_size": "4B", "quantization_level": "Q8_0"},
+            "capabilities": ["completion", "vision"]
+        }"#;
+        let resp: OllamaShowResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.capabilities, vec!["completion", "vision"]);
+    }
+
+    #[test]
+    fn show_response_without_capabilities_defaults_empty() {
+        let json = r#"{
+            "modelfile": "FROM llama3",
+            "template": "{{ .System }}"
+        }"#;
+        let resp: OllamaShowResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.capabilities.is_empty());
+    }
+
+    #[test]
+    fn model_detail_capabilities_field() {
+        let detail = ModelDetail {
+            name: "medgemma:4b".to_string(),
+            modelfile: Some("FROM medgemma".to_string()),
+            parameters: None,
+            template: None,
+            details: ModelDetails::default(),
+            capabilities: vec!["completion".to_string(), "vision".to_string()],
+        };
+        assert_eq!(detail.capabilities.len(), 2);
+        assert!(detail.capabilities.iter().any(|c| c == "vision"));
+
+        // Serializes correctly
+        let json = serde_json::to_value(&detail).unwrap();
+        let caps = json["capabilities"].as_array().unwrap();
+        assert_eq!(caps.len(), 2);
     }
 
 }

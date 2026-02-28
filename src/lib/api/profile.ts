@@ -101,6 +101,20 @@ export async function verifyAiStatus(): Promise<AiStatus> {
   return invoke<AiStatus>('verify_ai_status');
 }
 
+/** BTL-08: Butler Service status — SLM lifecycle state. */
+export interface ButlerStatus {
+  loaded_model: string | null;
+  warm_endpoints: ('generate' | 'chat')[];
+  hardware_tier: 'full_gpu' | 'partial_gpu' | 'cpu_only' | null;
+  active_operation: string | null;
+  idle_secs: number;
+}
+
+/** BTL-08: Query the Butler Service status (model state, warm endpoints, hardware). */
+export async function getButlerStatus(): Promise<ButlerStatus> {
+  return invoke<ButlerStatus>('get_butler_status');
+}
+
 export async function deleteProfile(profileId: string): Promise<void> {
   return invoke('delete_profile', { profileId });
 }

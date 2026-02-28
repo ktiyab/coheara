@@ -1,11 +1,22 @@
-<!-- E2E-F04: Full document list with search/filter and infinite scroll. -->
+<!--
+  BTL-10 C7: DocumentListScreen v2 — Unified Documents screen.
+  Integrates: ImportDropZone, ImportQueueSection, extended filter pills,
+  delete modal, retry action, droppedFiles prop.
+  Layout: Header → Drop zone → Queue section → Filter pills → Document list.
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { getDocuments } from '$lib/api/documents';
+  import { deleteDocument, reprocessDocument } from '$lib/api/import';
   import type { DocumentCard } from '$lib/types/home';
+  import type { DocumentLifecycleStatus } from '$lib/types/home';
   import DocumentCardView from '$lib/components/home/DocumentCardView.svelte';
   import DocumentSearch from '$lib/components/documents/DocumentSearch.svelte';
+  import ImportDropZone from '$lib/components/documents/ImportDropZone.svelte';
+  import ImportQueueSection from '$lib/components/documents/ImportQueueSection.svelte';
+  import DeleteConfirmModal from '$lib/components/documents/DeleteConfirmModal.svelte';
+  import { importQueue } from '$lib/stores/importQueue.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -13,32 +24,58 @@
   import EmptyStateUI from '$lib/components/ui/EmptyState.svelte';
   import { DocsIcon, SearchIcon } from '$lib/components/icons/md';
 
+  interface Props {
+    /** File paths dropped from DropZoneOverlay. */
+    droppedFiles?: string[];
+  }
+  let { droppedFiles }: Props = $props();
+
   let documents: DocumentCard[] = $state([]);
   let loading = $state(true);
   let loadingMore = $state(false);
   let hasMore = $state(true);
   let error: string | null = $state(null);
-  let filterType = $state('all');
-  let filterStatus = $state('all');
+  let filterStatus = $state<'all' | 'pending' | 'confirmed' | 'failed'>('all');
   let showSearch = $state(false);
+
+  // Delete modal state
+  let deleteTarget: DocumentCard | null = $state(null);
+  let deleting = $state(false);
 
   const PAGE_SIZE = 20;
 
+  const PROCESSING_STATES: DocumentLifecycleStatus[] = ['Imported', 'Extracting', 'Structuring'];
+
+  // -- Derived counts --
+
+  // Filter processing docs from list — they are displayed in ImportQueueSection
+  let visibleDocuments = $derived(
+    importQueue.hasActiveImports
+      ? documents.filter((d) => !PROCESSING_STATES.includes(d.status))
+      : documents
+  );
+  let pendingCount = $derived(documents.filter((d) => d.status === 'PendingReview').length);
+  let confirmedCount = $derived(documents.filter((d) => d.status === 'Confirmed').length);
+  let failedCount = $derived(documents.filter((d) => d.status === 'Failed' || d.status === 'Rejected').length);
+
+  // -- Filtered list --
+
   let filtered = $derived.by(() => {
-    return documents.filter((d) => {
-      if (filterType !== 'all' && d.document_type !== filterType) return false;
-      if (filterStatus === 'pending' && d.status !== 'PendingReview') return false;
-      if (filterStatus === 'confirmed' && d.status !== 'Confirmed') return false;
-      return true;
+    return visibleDocuments.filter((d) => {
+      switch (filterStatus) {
+        case 'pending':
+          return d.status === 'PendingReview';
+        case 'confirmed':
+          return d.status === 'Confirmed';
+        case 'failed':
+          return d.status === 'Failed' || d.status === 'Rejected';
+        default:
+          return true;
+      }
     });
   });
 
-  let documentTypes = $derived.by(() => {
-    const types = new Set(documents.map((d) => d.document_type));
-    return Array.from(types).sort();
-  });
-
-  let pendingCount = $derived(documents.filter((d) => d.status === 'PendingReview').length);
+  // -- Data loading --
 
   async function loadDocuments() {
     loading = true;
@@ -68,16 +105,63 @@
     }
   }
 
+  // -- Actions --
+
   function handleDocumentTap(card: DocumentCard) {
     if (card.status === 'PendingReview') {
       navigation.navigate('review', { documentId: card.id });
+    } else if (card.status === 'Failed' || card.status === 'Rejected') {
+      // Failed/rejected cards don't navigate — actions are inline
+      return;
     } else {
       navigation.navigate('document-detail', { documentId: card.id });
     }
   }
 
+  function handleDeleteRequest(card: DocumentCard) {
+    deleteTarget = card;
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    deleting = true;
+    try {
+      await deleteDocument(deleteTarget.id);
+      documents = documents.filter((d) => d.id !== deleteTarget!.id);
+      deleteTarget = null;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      deleting = false;
+    }
+  }
+
+  async function handleRetry(card: DocumentCard) {
+    try {
+      await reprocessDocument(card.id);
+      await loadDocuments();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // -- Refresh on queue completion (new documents appear) --
+  // Track which completed job IDs we've already reacted to, to avoid infinite loops.
+  let seenCompletedIds = new Set<string>();
+
+  $effect(() => {
+    const completed = importQueue.completedItems;
+    const newIds = completed.filter((j) => !seenCompletedIds.has(j.id));
+    if (newIds.length > 0 && !loading) {
+      for (const j of newIds) seenCompletedIds.add(j.id);
+      loadDocuments();
+    }
+  });
+
   onMount(() => {
     loadDocuments();
+    // importQueue listener is started at app level (+page.svelte), not here.
+    importQueue.refresh();
   });
 </script>
 
@@ -99,9 +183,6 @@
           >
             <SearchIcon class="w-4 h-4" />
           </button>
-          <Button variant="primary" size="sm" onclick={() => navigation.navigate('import')}>
-            {$t('documents.list_import')}
-          </Button>
         </div>
       {/if}
     </div>
@@ -118,45 +199,67 @@
       </div>
     {/if}
 
-    <!-- Filters: only visible when documents exist (V10-1, V10-5: S8-1) -->
+    <!-- Filter pills: visible when documents exist -->
     {#if documents.length > 0}
       <div class="flex gap-2 overflow-x-auto pb-1">
+        <!-- All -->
         <button
           class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium min-h-[32px]
-                 {filterStatus === 'all' && filterType === 'all'
+                 {filterStatus === 'all'
                    ? 'bg-stone-800 dark:bg-gray-100 text-white dark:text-gray-900'
                    : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}"
-          onclick={() => { filterType = 'all'; filterStatus = 'all'; }}
+          onclick={() => { filterStatus = 'all'; }}
         >
-          {$t('documents.list_filter_all', { values: { count: documents.length } })}
+          {$t('documents.list_filter_all', { values: { count: visibleDocuments.length } })}
         </button>
 
+        <!-- Pending Review -->
         {#if pendingCount > 0}
           <button
             class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium min-h-[32px]
                    {filterStatus === 'pending'
                      ? 'bg-[var(--color-warning)] text-white'
                      : 'bg-[var(--color-warning-50)] text-[var(--color-warning-800)]'}"
-            onclick={() => { filterStatus = filterStatus === 'pending' ? 'all' : 'pending'; filterType = 'all'; }}
+            onclick={() => { filterStatus = filterStatus === 'pending' ? 'all' : 'pending'; }}
           >
             {$t('documents.list_filter_pending', { values: { count: pendingCount } })}
           </button>
         {/if}
 
-        {#each documentTypes as dtype}
+        <!-- Confirmed -->
+        {#if confirmedCount > 0}
           <button
             class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium min-h-[32px]
-                   {filterType === dtype
-                     ? 'bg-stone-800 dark:bg-gray-100 text-white dark:text-gray-900'
-                     : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300'}"
-            onclick={() => { filterType = filterType === dtype ? 'all' : dtype; filterStatus = 'all'; }}
+                   {filterStatus === 'confirmed'
+                     ? 'bg-[var(--color-success)] text-white'
+                     : 'bg-[var(--color-success-50)] text-[var(--color-success-800)]'}"
+            onclick={() => { filterStatus = filterStatus === 'confirmed' ? 'all' : 'confirmed'; }}
           >
-            {dtype}
+            {$t('documents.list_filter_confirmed', { values: { count: confirmedCount } })}
           </button>
-        {/each}
+        {/if}
+
+        <!-- Failed -->
+        {#if failedCount > 0}
+          <button
+            class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium min-h-[32px]
+                   {filterStatus === 'failed'
+                     ? 'bg-red-600 text-white'
+                     : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'}"
+            onclick={() => { filterStatus = filterStatus === 'failed' ? 'all' : 'failed'; }}
+          >
+            {$t('documents.list_filter_failed', { values: { count: failedCount } })}
+          </button>
+        {/if}
       </div>
     {/if}
   </header>
+
+  <!-- Import drop zone -->
+  <ImportDropZone hasDocuments={documents.length > 0} {droppedFiles} />
+
+  <!-- Import queue section (active + failed jobs) -->
+  <ImportQueueSection />
 
   <!-- Document list -->
   <div class="flex-1 px-4 py-4">
@@ -170,13 +273,11 @@
         retryLabel={$t('documents.list_try_again')}
       />
 
-    {:else if documents.length === 0}
+    {:else if documents.length === 0 && !importQueue.hasActiveImports}
       <EmptyStateUI
         icon={DocsIcon}
         title={$t('documents.list_empty_heading')}
         description={$t('documents.list_empty_description')}
-        actionLabel={$t('documents.list_import_documents')}
-        onaction={() => navigation.navigate('import')}
       />
 
     {:else if filtered.length === 0}
@@ -188,12 +289,17 @@
       <div class="space-y-3" role="list" aria-label={$t('documents.list_heading')}>
         {#each filtered as card (card.id)}
           <div role="listitem">
-            <DocumentCardView {card} onTap={handleDocumentTap} />
+            <DocumentCardView
+              {card}
+              onTap={handleDocumentTap}
+              onDelete={handleDeleteRequest}
+              onRetry={handleRetry}
+            />
           </div>
         {/each}
       </div>
 
-      {#if hasMore && filterType === 'all' && filterStatus === 'all'}
+      {#if hasMore && filterStatus === 'all'}
         <div class="flex justify-center py-6">
           <Button variant="ghost" loading={loadingMore} onclick={loadMore}>
             {loadingMore ? $t('documents.list_loading_more') : $t('documents.list_load_more')}
@@ -203,3 +309,12 @@
     {/if}
   </div>
 </div>
+
+<!-- Delete confirmation modal -->
+<DeleteConfirmModal
+  open={deleteTarget !== null}
+  filename={deleteTarget?.source_filename ?? deleteTarget?.document_type ?? ''}
+  loading={deleting}
+  onconfirm={confirmDelete}
+  onclose={() => { deleteTarget = null; }}
+/>

@@ -37,10 +37,9 @@ pub struct PipelineConfig {
     pub keep_alive_vision: String,
     /// Ollama `keep_alive` for LLM structuring model.
     pub keep_alive_llm: String,
-    /// Context window for vision extraction (per-page, smaller = less KV cache).
-    pub num_ctx_vision: u32,
-    /// Context window for LLM structuring (full document text, larger).
-    pub num_ctx_structuring: u32,
+    /// Context window for all inference calls (vision + structuring).
+    /// Unified to avoid Ollama reloading the model when KvSize changes.
+    pub num_ctx: u32,
     /// Model warm-up strategy.
     pub warm_strategy: WarmStrategy,
     /// Estimated tokens per second for time calculations.
@@ -61,8 +60,7 @@ pub fn derive_config(profile: &HardwareProfile) -> PipelineConfig {
         GpuTier::FullGpu => PipelineConfig {
             keep_alive_vision: "30m".into(),
             keep_alive_llm: "30m".into(),
-            num_ctx_vision: 2048,
-            num_ctx_structuring: 4096,
+            num_ctx: 4096,
             warm_strategy: WarmStrategy::WarmBoth,
             estimated_tok_per_sec: 30.0,
             estimated_model_load_secs: 2.0,
@@ -70,8 +68,7 @@ pub fn derive_config(profile: &HardwareProfile) -> PipelineConfig {
         GpuTier::PartialGpu => PipelineConfig {
             keep_alive_vision: "15m".into(),
             keep_alive_llm: "15m".into(),
-            num_ctx_vision: 1536,
-            num_ctx_structuring: 2048,
+            num_ctx: 4096,
             warm_strategy: WarmStrategy::WarmBoth,
             estimated_tok_per_sec: 15.0,
             estimated_model_load_secs: 5.0,
@@ -79,8 +76,7 @@ pub fn derive_config(profile: &HardwareProfile) -> PipelineConfig {
         GpuTier::CpuOnly => PipelineConfig {
             keep_alive_vision: "0".into(),
             keep_alive_llm: "10m".into(),
-            num_ctx_vision: 1024,
-            num_ctx_structuring: 2048,
+            num_ctx: 4096,
             warm_strategy: WarmStrategy::SwapBetweenStages,
             estimated_tok_per_sec: 3.2,
             estimated_model_load_secs: 30.0,
@@ -127,8 +123,7 @@ mod tests {
         let config = derive_config(&make_profile(GpuTier::FullGpu));
         assert_eq!(config.keep_alive_vision, "30m");
         assert_eq!(config.keep_alive_llm, "30m");
-        assert_eq!(config.num_ctx_vision, 2048);
-        assert_eq!(config.num_ctx_structuring, 4096);
+        assert_eq!(config.num_ctx, 4096);
         assert_eq!(config.warm_strategy, WarmStrategy::WarmBoth);
         assert!((config.estimated_tok_per_sec - 30.0).abs() < f32::EPSILON);
     }
@@ -137,8 +132,7 @@ mod tests {
     fn partial_gpu_config() {
         let config = derive_config(&make_profile(GpuTier::PartialGpu));
         assert_eq!(config.keep_alive_vision, "15m");
-        assert_eq!(config.num_ctx_vision, 1536);
-        assert_eq!(config.num_ctx_structuring, 2048);
+        assert_eq!(config.num_ctx, 4096);
         assert_eq!(config.warm_strategy, WarmStrategy::WarmBoth);
         assert!((config.estimated_tok_per_sec - 15.0).abs() < f32::EPSILON);
     }
@@ -148,8 +142,7 @@ mod tests {
         let config = derive_config(&make_profile(GpuTier::CpuOnly));
         assert_eq!(config.keep_alive_vision, "0");
         assert_eq!(config.keep_alive_llm, "10m");
-        assert_eq!(config.num_ctx_vision, 1024);
-        assert_eq!(config.num_ctx_structuring, 2048);
+        assert_eq!(config.num_ctx, 4096);
         assert_eq!(config.warm_strategy, WarmStrategy::SwapBetweenStages);
         assert!((config.estimated_tok_per_sec - 3.2).abs() < f32::EPSILON);
         assert!((config.estimated_model_load_secs - 30.0).abs() < f32::EPSILON);

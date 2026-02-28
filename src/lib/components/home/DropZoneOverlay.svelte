@@ -29,7 +29,7 @@
           isDragging = false;
           const supported = payload.paths.filter(isSupported);
           if (supported.length > 0) {
-            navigation.navigate('import', { droppedFiles: supported.join('|') });
+            navigation.navigate('documents', { droppedFiles: JSON.stringify(supported) });
           }
         }
       });

@@ -169,6 +169,12 @@ pub enum PreferenceError {
     #[error("No AI model is available. Please install a model using Ollama.")]
     NoModelAvailable,
 
+    /// BTL-02: No model tagged with VISION capability.
+    /// Returned when ScannedPdf or Image needs vision processing
+    /// but no enabled model has the VISION tag.
+    #[error("No vision-capable model found — tag a model with VISION capability in Settings")]
+    NoVisionModel,
+
     #[error("Ollama is not reachable: {0}")]
     OllamaUnavailable(String),
 

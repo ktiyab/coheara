@@ -5,6 +5,7 @@ pub mod vectordb;
 pub mod entity_store;
 pub mod markdown_store;
 pub mod orchestrator;
+pub mod connection_extractor;
 
 use std::path::PathBuf;
 

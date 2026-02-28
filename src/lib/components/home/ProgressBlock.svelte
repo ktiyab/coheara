@@ -20,7 +20,7 @@
   }
 
   const steps: Step[] = [
-    { key: 'first_document_loaded', labelKey: 'home.progress_step1', action: 'import' },
+    { key: 'first_document_loaded', labelKey: 'home.progress_step1', action: 'documents' },
     { key: 'first_document_reviewed', labelKey: 'home.progress_step2', action: 'documents' },
     { key: 'first_question_asked', labelKey: 'home.progress_step3', action: 'chat' },
   ];

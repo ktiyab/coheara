@@ -36,6 +36,13 @@
     "dialog_title": "Medizinische Dokumente auswählen",
     "entities_found": "{count, plural, one {# Entit\u00e4t gefunden} other {# Entit\u00e4ten gefunden}}",
     "drop_files_here": "Dateien hier ablegen",
-    "drag_drop_hint": "Sie k\u00f6nnen Dateien auch hierher ziehen"
+    "drag_drop_hint": "Sie k\u00f6nnen Dateien auch hierher ziehen",
+    "step_imported": "Importiert",
+    "step_extracted": "Extrahiert",
+    "step_structured": "Analysiert",
+    "step_reviewed": "Bereit zur \u00dcberpr\u00fcfung",
+    "step_import_failed": "Import fehlgeschlagen",
+    "step_extraction_failed": "Extraktion fehlgeschlagen",
+    "step_structuring_failed": "Analyse fehlgeschlagen"
   }
 }
