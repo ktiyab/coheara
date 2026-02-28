@@ -73,6 +73,8 @@ pub enum ExtractionWarning {
     PartialExtraction { reason: String },
     /// Table appears to continue on the next page
     TableContinuation,
+    /// C4: Vision OCR degenerated — fell back to iterative vision Q&A.
+    FallbackUsed { reason: String },
 }
 
 /// PDF page-to-image renderer abstraction.

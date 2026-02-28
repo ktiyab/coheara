@@ -84,6 +84,23 @@ pub struct DomainContract {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Input mode — C4: text vs vision prompts
+// ═══════════════════════════════════════════════════════════
+
+/// How the source content is provided to the model.
+///
+/// Determines prompt generation strategy:
+/// - `Text`: Document text embedded in prompt (IterativeDrill on extracted text)
+/// - `Vision`: Image attached to prompt (IterativeDrill on raw image)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    /// Pre-extracted text (from OCR or plain text).
+    Text,
+    /// Image attached to prompt (vision model reads directly).
+    Vision,
+}
+
+// ═══════════════════════════════════════════════════════════
 // Prompt generation
 // ═══════════════════════════════════════════════════════════
 
@@ -143,6 +160,69 @@ impl DomainContract {
             self.item_label, item_name, field.prompt_label,
         )
     }
+
+    // ── C4: Input-mode-aware prompt generation ────────────
+
+    /// Generate enumerate prompt for the given input mode.
+    ///
+    /// - `Text`: Wraps document text in XML tags (existing behavior).
+    /// - `Vision`: Image-oriented prompt — no document text needed.
+    pub fn enumerate_prompt_for(&self, mode: InputMode, document_text: &str) -> String {
+        match mode {
+            InputMode::Text => self.build_enumerate_prompt(document_text),
+            InputMode::Vision => format!(
+                "What {} are visible in this document image?\n\
+                 List only the names, one per line.",
+                self.item_label_plural,
+            ),
+        }
+    }
+
+    /// Generate drill prompt for one field in the given input mode.
+    ///
+    /// - `Text`: Wraps document text + uses existing drill instruction.
+    /// - `Vision`: Focused single-field question — image provides context.
+    pub fn drill_prompt_for(
+        &self,
+        mode: InputMode,
+        item_name: &str,
+        field: &FieldDescriptor,
+        document_text: &str,
+    ) -> String {
+        match mode {
+            InputMode::Text => {
+                let escaped = escape_xml_tags(document_text);
+                let instruction = self.drill_instruction(item_name, field);
+                format!("<document>\n{escaped}\n</document>\n\n{instruction}")
+            }
+            InputMode::Vision => {
+                let type_hint = match field.field_type {
+                    FieldType::Numeric => " Answer with a number.",
+                    FieldType::Date => " Answer with a date.",
+                    FieldType::Boolean => " Answer yes or no.",
+                    FieldType::Enum(values) => {
+                        let _ = values;
+                        ""
+                    }
+                    FieldType::Text => "",
+                };
+
+                let enum_hint = if let FieldType::Enum(values) = field.field_type {
+                    format!(" Choose from: {}.", values.join(", "))
+                } else {
+                    String::new()
+                };
+
+                format!(
+                    "In this document image, for the {} '{}': what is the {}?\n\
+                     Answer with just the value, or 'not specified' if not visible.{type_hint}{enum_hint}",
+                    self.item_label, item_name, field.prompt_label,
+                )
+            }
+        }
+    }
+
+    // ── Basic field accessors ──────────────────────────────
 
     /// Get field names as a slice of &str (for backward compat with drill_fields).
     pub fn field_names(&self) -> Vec<&'static str> {
@@ -861,5 +941,77 @@ mod tests {
         let prompt = ALLERGIES.build_enumerate_prompt("Patient <allergic> to penicillin");
         assert!(!prompt.contains("<allergic>"));
         assert!(prompt.contains("&lt;allergic&gt;"));
+    }
+
+    // ── C4: Vision-aware prompt tests ───────────────────
+
+    #[test]
+    fn input_mode_variants() {
+        assert_ne!(InputMode::Text, InputMode::Vision);
+        assert_eq!(InputMode::Text, InputMode::Text);
+        assert_eq!(InputMode::Vision, InputMode::Vision);
+    }
+
+    #[test]
+    fn enumerate_prompt_text_mode_matches_existing() {
+        let text_mode = LAB_RESULTS.enumerate_prompt_for(InputMode::Text, "Hemoglobin: 13.3");
+        let existing = LAB_RESULTS.build_enumerate_prompt("Hemoglobin: 13.3");
+        assert_eq!(text_mode, existing);
+    }
+
+    #[test]
+    fn enumerate_prompt_vision_mode_lab_results() {
+        let prompt = LAB_RESULTS.enumerate_prompt_for(InputMode::Vision, "");
+        assert!(prompt.contains("tests"));
+        assert!(prompt.contains("document image"));
+        assert!(prompt.contains("one per line"));
+        // Should NOT contain document wrapping
+        assert!(!prompt.contains("<document>"));
+    }
+
+    #[test]
+    fn enumerate_prompt_vision_mode_medications() {
+        let prompt = MEDICATIONS.enumerate_prompt_for(InputMode::Vision, "");
+        assert!(prompt.contains("medications"));
+        assert!(prompt.contains("document image"));
+    }
+
+    #[test]
+    fn drill_prompt_text_mode_wraps_document() {
+        let field = LAB_RESULTS.field("value").unwrap();
+        let prompt = LAB_RESULTS.drill_prompt_for(InputMode::Text, "Hemoglobin", field, "test doc");
+        assert!(prompt.contains("<document>"));
+        assert!(prompt.contains("test doc"));
+        assert!(prompt.contains("Hemoglobin"));
+        assert!(prompt.contains("result value"));
+    }
+
+    #[test]
+    fn drill_prompt_vision_mode_value_field() {
+        let field = LAB_RESULTS.field("value").unwrap();
+        let prompt = LAB_RESULTS.drill_prompt_for(InputMode::Vision, "Hémoglobine", field, "");
+        assert!(prompt.contains("document image"));
+        assert!(prompt.contains("Hémoglobine"));
+        assert!(prompt.contains("result value"));
+        assert!(prompt.contains("not specified"));
+        assert!(prompt.contains("Answer with a number"));
+        // Should NOT contain document wrapping
+        assert!(!prompt.contains("<document>"));
+    }
+
+    #[test]
+    fn drill_prompt_vision_mode_date_field() {
+        let field = LAB_RESULTS.field("collection_date").unwrap();
+        let prompt = LAB_RESULTS.drill_prompt_for(InputMode::Vision, "Hématies", field, "");
+        assert!(prompt.contains("Answer with a date"));
+    }
+
+    #[test]
+    fn drill_prompt_vision_mode_enum_field() {
+        let field = LAB_RESULTS.field("abnormal_flag").unwrap();
+        let prompt = LAB_RESULTS.drill_prompt_for(InputMode::Vision, "Hémoglobine", field, "");
+        assert!(prompt.contains("Choose from:"));
+        assert!(prompt.contains("normal"));
+        assert!(prompt.contains("critical_high"));
     }
 }

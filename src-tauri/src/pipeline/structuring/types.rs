@@ -182,6 +182,28 @@ pub trait LlmClient {
 /// - `generate_with_images`: Uses `/api/generate` — for models with raw prompt interfaces
 /// - `chat_with_images`: Uses `/api/chat` — for chat-template models (MedGemma, LLaVA)
 ///   that expect messages-based format with proper role context (R4: default path)
+/// Strategy-driven parameters for vision calls.
+///
+/// When provided, overrides the client's default values for temperature
+/// and num_predict. Used by `ButlerSession` to apply strategy-calibrated
+/// limits (e.g., IterativeDrill uses short `num_predict` for focused Q&A).
+#[derive(Debug, Clone, Copy)]
+pub struct VisionCallParams {
+    /// Override temperature (default: 0.0 for deterministic extraction).
+    pub temperature: Option<f32>,
+    /// Override max tokens (default: 2048 for OCR, ~256 for drill Q&A).
+    pub num_predict: Option<i32>,
+}
+
+impl Default for VisionCallParams {
+    fn default() -> Self {
+        Self {
+            temperature: None,
+            num_predict: None,
+        }
+    }
+}
+
 pub trait VisionClient: Send + Sync {
     /// Generate text from a prompt with one or more base64-encoded images.
     ///
@@ -206,4 +228,68 @@ pub trait VisionClient: Send + Sync {
         images: &[String],
         system: Option<&str>,
     ) -> Result<String, super::ollama_types::OllamaError>;
+
+    /// Chat with strategy-driven parameter overrides.
+    ///
+    /// Default implementation ignores params and delegates to `chat_with_images`.
+    /// `OllamaClient` overrides to apply temperature/num_predict from strategy.
+    fn chat_with_images_with_params(
+        &self,
+        model: &str,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+        _params: VisionCallParams,
+    ) -> Result<String, super::ollama_types::OllamaError> {
+        self.chat_with_images(model, user_prompt, images, system)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vision_call_params_default_is_none() {
+        let params = VisionCallParams::default();
+        assert!(params.temperature.is_none());
+        assert!(params.num_predict.is_none());
+    }
+
+    #[test]
+    fn vision_call_params_overrides() {
+        let params = VisionCallParams {
+            temperature: Some(0.3),
+            num_predict: Some(512),
+        };
+        assert_eq!(params.temperature, Some(0.3));
+        assert_eq!(params.num_predict, Some(512));
+    }
+
+    /// Verify default `chat_with_images_with_params` delegates to `chat_with_images`.
+    #[test]
+    fn default_params_method_delegates() {
+        struct DelegatingVision;
+        impl VisionClient for DelegatingVision {
+            fn generate_with_images(
+                &self, _: &str, _: &str, _: &[String], _: Option<&str>,
+            ) -> Result<String, super::super::ollama_types::OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(
+                &self, _: &str, _: &str, _: &[String], _: Option<&str>,
+            ) -> Result<String, super::super::ollama_types::OllamaError> {
+                Ok("delegated".into())
+            }
+        }
+
+        let v = DelegatingVision;
+        let params = VisionCallParams { temperature: Some(0.5), num_predict: Some(256) };
+        let result = v.chat_with_images_with_params("m", "p", &[], None, params).unwrap();
+        assert_eq!(result, "delegated");
+    }
 }

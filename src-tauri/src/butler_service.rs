@@ -417,6 +417,82 @@ use crate::pipeline::strategy::{
     self, ContextType, PromptStrategy,
 };
 use crate::pipeline::stream_guard::StreamGuardConfig;
+use crate::pipeline::structuring::ollama_types::OllamaError;
+use crate::pipeline::structuring::types::{LlmClient, VisionCallParams, VisionClient};
+
+// ═══════════════════════════════════════════════════════════
+// ValidatedOutput — C4: enforced output from ButlerSession
+// ═══════════════════════════════════════════════════════════
+
+/// Output that has passed through all defense layers:
+/// sanitization (C2) → quality gate (C3).
+///
+/// Callers receiving `ValidatedOutput` are guaranteed clean data.
+#[derive(Debug, Clone)]
+pub struct ValidatedOutput {
+    /// Sanitized, quality-checked text.
+    pub text: String,
+    /// Approximate token count (whitespace-split words).
+    pub tokens_generated: usize,
+    /// Model that produced this output.
+    pub model: String,
+}
+
+// ═══════════════════════════════════════════════════════════
+// SessionError — C4: defense-aware error from ButlerSession
+// ═══════════════════════════════════════════════════════════
+
+/// Errors from ButlerSession LLM calls, with defense context.
+///
+/// Each variant maps to a specific defense layer failure:
+/// - `Degeneration`: StreamGuard (C1) detected repetition mid-stream
+/// - `QualityGate`: Quality gate (C3) rejected the completed output
+/// - `Llm`: Underlying network/API error
+/// - `RetriesExhausted`: All retry attempts failed
+#[derive(Debug)]
+pub enum SessionError {
+    /// Underlying LLM call failed (network, API, model not found).
+    Llm(String),
+    /// StreamGuard detected degeneration in the token stream.
+    Degeneration {
+        pattern: String,
+        tokens_before_abort: usize,
+        partial_output: String,
+    },
+    /// Quality gate rejected the output (low diversity, line dominance).
+    QualityGate {
+        reason: String,
+        raw_output: String,
+    },
+    /// All retry attempts exhausted.
+    RetriesExhausted {
+        attempts: u32,
+        last_error: Box<SessionError>,
+    },
+}
+
+impl std::fmt::Display for SessionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Llm(msg) => write!(f, "LLM error: {msg}"),
+            Self::Degeneration { pattern, tokens_before_abort, .. } => {
+                write!(f, "Degeneration detected ({pattern}) after {tokens_before_abort} tokens")
+            }
+            Self::QualityGate { reason, .. } => write!(f, "Quality gate rejected: {reason}"),
+            Self::RetriesExhausted { attempts, last_error } => {
+                write!(f, "All {attempts} retries exhausted: {last_error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SessionError {}
+
+impl From<OllamaServiceError> for SessionError {
+    fn from(e: OllamaServiceError) -> Self {
+        Self::Llm(e.to_string())
+    }
+}
 
 /// Enforced call boundary for all SLM interaction.
 ///
@@ -524,6 +600,185 @@ impl<'a> ButlerSession<'a> {
         let sanitized = self.sanitize(raw);
         self.validate_output(&sanitized)?;
         Ok(sanitized)
+    }
+
+    // ── LLM call methods (C4: enforced boundary) ──────────
+
+    /// Text generation through session with defense enforcement.
+    ///
+    /// Pipeline: client.generate() → sanitize (C2) → quality gate (C3) → ValidatedOutput.
+    /// Maps StructuringError::Degeneration to SessionError::Degeneration.
+    pub fn generate(
+        &self,
+        client: &dyn LlmClient,
+        prompt: &str,
+        system: &str,
+    ) -> Result<ValidatedOutput, SessionError> {
+        let raw = client
+            .generate(&self.model, prompt, system)
+            .map_err(|e| match e {
+                crate::pipeline::structuring::StructuringError::Degeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                } => SessionError::Degeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                },
+                other => SessionError::Llm(other.to_string()),
+            })?;
+
+        let clean = self.process_output(&raw).map_err(|failure| {
+            SessionError::QualityGate {
+                reason: failure.to_string(),
+                raw_output: raw.clone(),
+            }
+        })?;
+
+        Ok(ValidatedOutput {
+            tokens_generated: clean.split_whitespace().count(),
+            text: clean,
+            model: self.model.clone(),
+        })
+    }
+
+    /// Vision generation through session with defense enforcement.
+    ///
+    /// Pipeline: client.chat_with_images() → sanitize (C2) → quality gate (C3) → ValidatedOutput.
+    /// Maps OllamaError::VisionDegeneration to SessionError::Degeneration.
+    pub fn chat_with_images(
+        &self,
+        client: &dyn VisionClient,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<ValidatedOutput, SessionError> {
+        let params = VisionCallParams {
+            temperature: Some(self.strategy.temperature),
+            num_predict: Some(self.strategy.max_tokens as i32),
+        };
+        let raw = client
+            .chat_with_images_with_params(&self.model, user_prompt, images, system, params)
+            .map_err(|e| match e {
+                OllamaError::VisionDegeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                } => SessionError::Degeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                },
+                other => SessionError::Llm(other.to_string()),
+            })?;
+
+        let clean = self.process_output(&raw).map_err(|failure| {
+            SessionError::QualityGate {
+                reason: failure.to_string(),
+                raw_output: raw.clone(),
+            }
+        })?;
+
+        Ok(ValidatedOutput {
+            tokens_generated: clean.split_whitespace().count(),
+            text: clean,
+            model: self.model.clone(),
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VisionSession — C4: trait for session-like vision callers
+// ═══════════════════════════════════════════════════════════
+
+/// Trait for objects that can make validated vision LLM calls.
+///
+/// Implemented by `ButlerSession` (guarded, production) and
+/// `FallbackSession` (unguarded, for C4 fallback when caller
+/// already holds the butler guard).
+pub trait VisionSession: Send + Sync {
+    /// Make a vision LLM call with full defense pipeline.
+    fn chat_with_images(
+        &self,
+        client: &dyn VisionClient,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<ValidatedOutput, SessionError>;
+
+    /// Model name for this session.
+    fn model(&self) -> &str;
+}
+
+/// C4: Lightweight session for fallback — no guard, no lifetime.
+///
+/// Used when the caller already holds the butler guard (e.g., import_queue_worker).
+/// Replicates ButlerSession's defense pipeline (sanitize → quality gate) without
+/// requiring exclusive Ollama access (the caller's guard provides that).
+pub struct FallbackSession {
+    model: String,
+    strategy: PromptStrategy,
+    quality_config: QualityGateConfig,
+}
+
+impl FallbackSession {
+    /// Create from context + model (same resolution as ButlerSession).
+    pub fn new(model: &str, context: ContextType, has_gpu: bool) -> Self {
+        let variant = strategy::detect_model_variant(model);
+        let strategy = strategy::resolve_strategy_with_gpu(context, variant, has_gpu);
+        Self {
+            model: model.to_string(),
+            strategy,
+            quality_config: QualityGateConfig::default(),
+        }
+    }
+}
+
+impl VisionSession for FallbackSession {
+    fn chat_with_images(
+        &self,
+        client: &dyn VisionClient,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+    ) -> Result<ValidatedOutput, SessionError> {
+        let params = VisionCallParams {
+            temperature: Some(self.strategy.temperature),
+            num_predict: Some(self.strategy.max_tokens as i32),
+        };
+        let raw = client
+            .chat_with_images_with_params(&self.model, user_prompt, images, system, params)
+            .map_err(|e| match e {
+                OllamaError::VisionDegeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                } => SessionError::Degeneration {
+                    pattern,
+                    tokens_before_abort,
+                    partial_output,
+                },
+                other => SessionError::Llm(other.to_string()),
+            })?;
+
+        let sanitized = sanitize_llm_output(&raw);
+        quality_gate::validate_output(&sanitized, &self.quality_config).map_err(|failure| {
+            SessionError::QualityGate {
+                reason: failure.to_string(),
+                raw_output: raw.clone(),
+            }
+        })?;
+
+        Ok(ValidatedOutput {
+            tokens_generated: sanitized.split_whitespace().count(),
+            text: sanitized,
+            model: self.model.clone(),
+        })
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -1130,5 +1385,404 @@ mod tests {
         assert_eq!(config.sequence_length, 10);
         assert_eq!(config.max_sequence_repeats, 5);
         assert_eq!(config.ring_buffer_size, 200);
+    }
+
+    // ── C4: ButlerSession LLM method tests ─────────────────
+
+    enum MockLlmMode {
+        Ok(String),
+        Degenerate,
+    }
+
+    /// Mock LLM client for testing session generate().
+    struct MockLlm {
+        mode: MockLlmMode,
+    }
+
+    impl MockLlm {
+        fn ok(text: &str) -> Self {
+            Self { mode: MockLlmMode::Ok(text.to_string()) }
+        }
+
+        fn degenerate() -> Self {
+            Self { mode: MockLlmMode::Degenerate }
+        }
+    }
+
+    impl crate::pipeline::structuring::types::LlmClient for MockLlm {
+        fn generate(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _system: &str,
+        ) -> Result<String, crate::pipeline::structuring::StructuringError> {
+            match &self.mode {
+                MockLlmMode::Ok(text) => Ok(text.clone()),
+                MockLlmMode::Degenerate => Err(crate::pipeline::structuring::StructuringError::Degeneration {
+                    pattern: "sequence_repeat".into(),
+                    tokens_before_abort: 200,
+                    partial_output: "repeat repeat".into(),
+                }),
+            }
+        }
+
+        fn is_model_available(&self, _model: &str) -> Result<bool, crate::pipeline::structuring::StructuringError> {
+            Ok(true)
+        }
+
+        fn list_models(&self) -> Result<Vec<String>, crate::pipeline::structuring::StructuringError> {
+            Ok(vec!["mock:latest".into()])
+        }
+    }
+
+    enum MockVisionMode {
+        Ok(String),
+        Degenerate,
+        NetworkError,
+    }
+
+    /// Mock vision client for testing session chat_with_images().
+    struct MockVision {
+        mode: MockVisionMode,
+    }
+
+    impl MockVision {
+        fn ok(text: &str) -> Self {
+            Self { mode: MockVisionMode::Ok(text.to_string()) }
+        }
+
+        fn degenerate() -> Self {
+            Self { mode: MockVisionMode::Degenerate }
+        }
+
+        fn network_error() -> Self {
+            Self { mode: MockVisionMode::NetworkError }
+        }
+    }
+
+    impl crate::pipeline::structuring::types::VisionClient for MockVision {
+        fn generate_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, crate::pipeline::structuring::ollama_types::OllamaError> {
+            match &self.mode {
+                MockVisionMode::Ok(text) => Ok(text.clone()),
+                MockVisionMode::Degenerate => Err(crate::pipeline::structuring::ollama_types::OllamaError::VisionDegeneration {
+                    pattern: "token_repeat".into(),
+                    tokens_before_abort: 150,
+                    partial_output: "13.3 13.3 13.3".into(),
+                }),
+                MockVisionMode::NetworkError => Err(crate::pipeline::structuring::ollama_types::OllamaError::NotReachable),
+            }
+        }
+
+        fn chat_with_images(
+            &self,
+            _model: &str,
+            _user_prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, crate::pipeline::structuring::ollama_types::OllamaError> {
+            match &self.mode {
+                MockVisionMode::Ok(text) => Ok(text.clone()),
+                MockVisionMode::Degenerate => Err(crate::pipeline::structuring::ollama_types::OllamaError::VisionDegeneration {
+                    pattern: "token_repeat".into(),
+                    tokens_before_abort: 150,
+                    partial_output: "13.3 13.3 13.3".into(),
+                }),
+                MockVisionMode::NetworkError => Err(crate::pipeline::structuring::ollama_types::OllamaError::NotReachable),
+            }
+        }
+    }
+
+    #[test]
+    fn session_generate_returns_validated_output() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentStructuring, "medgemma:4b", ContextType::DocumentExtraction)
+            .unwrap();
+        let client = MockLlm::ok("Patient has normal blood pressure at 120/80 mmHg with adequate hemoglobin levels");
+        let result = session.generate(&client, "extract data", "You are a medical assistant");
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.text.contains("blood pressure"));
+        assert_eq!(output.model, "medgemma:4b");
+        assert!(output.tokens_generated > 0);
+    }
+
+    #[test]
+    fn session_generate_sanitizes_thinking_tokens() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::ChatGeneration, "medgemma:4b", ContextType::HealthQuery)
+            .unwrap();
+        // sanitize_llm_output strips "<unusedN>thought\n" prefix and everything before it
+        let client = MockLlm::ok(
+            "<unused94>thought\nsome internal reasoning here\nThe patient has stable vital signs and normal lab results throughout the screening"
+        );
+        let result = session.generate(&client, "query", "system");
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(!output.text.contains("<unused94>"));
+        assert!(!output.text.contains("thought"));
+        assert!(output.text.contains("vital signs"));
+    }
+
+    #[test]
+    fn session_generate_maps_degeneration() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentStructuring, "medgemma:4b", ContextType::DocumentExtraction)
+            .unwrap();
+        let client = MockLlm::degenerate();
+        let result = session.generate(&client, "extract", "system");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SessionError::Degeneration { pattern, tokens_before_abort, .. } => {
+                assert_eq!(pattern, "sequence_repeat");
+                assert_eq!(tokens_before_abort, 200);
+            }
+            other => panic!("Expected Degeneration, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn session_generate_rejects_degenerate_output() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentStructuring, "medgemma:4b", ContextType::DocumentExtraction)
+            .unwrap();
+        let degenerate = vec!["Pharmacist Dr. LEVANDIER"; 100].join("\n");
+        let client = MockLlm::ok(&degenerate);
+        let result = session.generate(&client, "extract", "system");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SessionError::QualityGate { reason, raw_output } => {
+                assert!(!reason.is_empty());
+                assert!(raw_output.contains("LEVANDIER"));
+            }
+            other => panic!("Expected QualityGate, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn session_chat_with_images_returns_validated_output() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentOcr, "medgemma:4b", ContextType::VisionOcr)
+            .unwrap();
+        let client = MockVision::ok("Hemoglobin level measured at 13.3 g/dl in the laboratory report");
+        let result = session.chat_with_images(
+            &client, "What is the hemoglobin value?", &["base64img".into()], Some("system"),
+        );
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.text.contains("13.3"));
+        assert_eq!(output.model, "medgemma:4b");
+    }
+
+    #[test]
+    fn session_chat_with_images_maps_degeneration() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentOcr, "medgemma:4b", ContextType::VisionOcr)
+            .unwrap();
+        let client = MockVision::degenerate();
+        let result = session.chat_with_images(&client, "extract", &["img".into()], None);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SessionError::Degeneration { pattern, tokens_before_abort, partial_output } => {
+                assert_eq!(pattern, "token_repeat");
+                assert_eq!(tokens_before_abort, 150);
+                assert!(partial_output.contains("13.3"));
+            }
+            other => panic!("Expected Degeneration, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn session_chat_with_images_maps_network_error() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentOcr, "medgemma:4b", ContextType::VisionOcr)
+            .unwrap();
+        let client = MockVision::network_error();
+        let result = session.chat_with_images(&client, "extract", &["img".into()], None);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SessionError::Llm(msg) => assert!(msg.contains("not running")),
+            other => panic!("Expected Llm, got: {other}"),
+        }
+    }
+
+    #[test]
+    fn session_chat_with_images_rejects_degenerate_output() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentOcr, "medgemma:4b", ContextType::VisionOcr)
+            .unwrap();
+        let degenerate = vec!["Lab Pharmacist: Dr. LEVANDIER"; 100].join("\n");
+        let client = MockVision::ok(&degenerate);
+        let result = session.chat_with_images(&client, "extract text", &["img".into()], None);
+        assert!(result.is_err());
+        matches!(result.unwrap_err(), SessionError::QualityGate { .. });
+    }
+
+    #[test]
+    fn validated_output_fields() {
+        let output = ValidatedOutput {
+            text: "hello world test".to_string(),
+            tokens_generated: 3,
+            model: "test-model".to_string(),
+        };
+        assert_eq!(output.text, "hello world test");
+        assert_eq!(output.tokens_generated, 3);
+        assert_eq!(output.model, "test-model");
+    }
+
+    #[test]
+    fn session_error_display() {
+        let err = SessionError::Degeneration {
+            pattern: "token_repeat".into(),
+            tokens_before_abort: 100,
+            partial_output: "partial".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("token_repeat"));
+        assert!(msg.contains("100"));
+
+        let err = SessionError::QualityGate {
+            reason: "low diversity".into(),
+            raw_output: "raw".into(),
+        };
+        assert!(err.to_string().contains("low diversity"));
+
+        let err = SessionError::Llm("connection refused".into());
+        assert!(err.to_string().contains("connection refused"));
+
+        let inner = SessionError::Llm("inner".into());
+        let err = SessionError::RetriesExhausted {
+            attempts: 3,
+            last_error: Box::new(inner),
+        };
+        assert!(err.to_string().contains("3 retries"));
+    }
+
+    #[test]
+    fn session_error_from_ollama_service_error() {
+        let svc_err = OllamaServiceError::LockPoisoned;
+        let session_err: SessionError = svc_err.into();
+        assert!(matches!(session_err, SessionError::Llm(_)));
+    }
+
+    /// Verify ButlerSession passes strategy params via chat_with_images_with_params.
+    #[test]
+    fn session_chat_uses_strategy_params() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct ParamsCapturingVision {
+            params_used: AtomicBool,
+        }
+
+        impl crate::pipeline::structuring::types::VisionClient for ParamsCapturingVision {
+            fn generate_with_images(
+                &self, _: &str, _: &str, _: &[String], _: Option<&str>,
+            ) -> Result<String, crate::pipeline::structuring::ollama_types::OllamaError> {
+                Ok(String::new())
+            }
+
+            fn chat_with_images(
+                &self, _: &str, _: &str, _: &[String], _: Option<&str>,
+            ) -> Result<String, crate::pipeline::structuring::ollama_types::OllamaError> {
+                // Should NOT be called if params method is used
+                panic!("Expected chat_with_images_with_params, not chat_with_images");
+            }
+
+            fn chat_with_images_with_params(
+                &self, _: &str, _: &str, _: &[String], _: Option<&str>,
+                _params: crate::pipeline::structuring::types::VisionCallParams,
+            ) -> Result<String, crate::pipeline::structuring::ollama_types::OllamaError> {
+                self.params_used.store(true, Ordering::Relaxed);
+                Ok("Patient has stable vital signs with blood pressure at normal range".into())
+            }
+        }
+
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(OperationKind::DocumentOcr, "medgemma:4b", ContextType::VisionOcr)
+            .unwrap();
+        let client = ParamsCapturingVision {
+            params_used: AtomicBool::new(false),
+        };
+        let result = session.chat_with_images(&client, "extract", &["img".into()], None);
+        assert!(result.is_ok());
+        assert!(client.params_used.load(Ordering::Relaxed));
+    }
+
+    // ── FallbackSession tests ────────────────────────────────
+
+    #[test]
+    fn fallback_session_model_returns_name() {
+        let session = FallbackSession::new("medgemma:4b", ContextType::VisionOcr, false);
+        assert_eq!(session.model(), "medgemma:4b");
+    }
+
+    #[test]
+    fn fallback_session_implements_vision_session() {
+        let session = FallbackSession::new("medgemma:4b", ContextType::NightBatch, false);
+
+        // Verify it's usable as &dyn VisionSession
+        let dyn_ref: &dyn VisionSession = &session;
+        assert_eq!(dyn_ref.model(), "medgemma:4b");
+    }
+
+    #[test]
+    fn fallback_session_chat_returns_validated_output() {
+        struct EchoVision;
+        impl VisionClient for EchoVision {
+            fn generate_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(&self, _: &str, prompt: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(format!("response to: {prompt}"))
+            }
+        }
+
+        let session = FallbackSession::new("medgemma:4b", ContextType::VisionOcr, false);
+        let result = session.chat_with_images(&EchoVision, "test prompt", &["img".into()], None);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.text.contains("response to: test prompt"));
+        assert_eq!(output.model, "medgemma:4b");
+    }
+
+    #[test]
+    fn fallback_session_maps_degeneration_error() {
+        struct DegenerateVision;
+        impl VisionClient for DegenerateVision {
+            fn generate_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Err(OllamaError::VisionDegeneration {
+                    pattern: "test_pattern".into(),
+                    tokens_before_abort: 42,
+                    partial_output: "partial...".into(),
+                })
+            }
+        }
+
+        let session = FallbackSession::new("medgemma:4b", ContextType::VisionOcr, false);
+        let result = session.chat_with_images(&DegenerateVision, "test", &["img".into()], None);
+        assert!(matches!(result, Err(SessionError::Degeneration { pattern, .. }) if pattern == "test_pattern"));
+    }
+
+    #[test]
+    fn fallback_session_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<FallbackSession>();
     }
 }

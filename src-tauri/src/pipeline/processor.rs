@@ -1113,6 +1113,19 @@ pub fn build_processor_from_assignment(
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
 ) -> Result<DocumentProcessor, ProcessingError> {
+    build_processor_from_assignment_with_fallback(assignment, config, language, None)
+}
+
+/// Build a `DocumentProcessor` with optional vision fallback.
+///
+/// When `fallback` is provided, OCR degeneration triggers iterative vision Q&A
+/// instead of failing permanently (C4: hybrid vision OCR).
+pub fn build_processor_from_assignment_with_fallback(
+    assignment: &crate::pipeline::model_router::PipelineAssignment,
+    config: &crate::pipeline_config::PipelineConfig,
+    language: &str,
+    fallback: Option<crate::pipeline::extraction::orchestrator::VisionFallback>,
+) -> Result<DocumentProcessor, ProcessingError> {
     use crate::pipeline::model_router::ExtractionStrategy;
 
     let extractor: Box<dyn TextExtractor + Send + Sync> = match &assignment.extraction {
@@ -1138,11 +1151,17 @@ pub fn build_processor_from_assignment(
             ));
             let preprocessor: Box<dyn ImagePreprocessor> =
                 Box::new(PreprocessingPipeline::medgemma_gpu());
-            Box::new(
+            let mut doc_extractor =
                 DocumentExtractor::new(Box::new(pdf_renderer), vision_ocr, preprocessor)
                     .with_interpreter(interpreter)
-                    .with_language(language),
-            )
+                    .with_language(language);
+
+            // C4: Wire vision fallback if provided
+            if let Some(fb) = fallback {
+                doc_extractor = doc_extractor.with_vision_fallback(fb);
+            }
+
+            Box::new(doc_extractor)
         }
         ExtractionStrategy::PdfiumText | ExtractionStrategy::DirectText => {
             Box::new(crate::pipeline::extraction::text_only::PlainTextExtractor)

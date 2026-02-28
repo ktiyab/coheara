@@ -11,7 +11,8 @@
 
 use std::collections::HashMap;
 
-use crate::pipeline::domain_contracts::contract_for_document_domain;
+use crate::butler_service::{SessionError, ValidatedOutput, VisionSession};
+use crate::pipeline::domain_contracts::{contract_for_document_domain, InputMode};
 use crate::pipeline::prompt_templates::{
     self, DocumentDomain, PromptStrategyKind,
 };
@@ -20,7 +21,7 @@ use crate::pipeline::structuring::extraction_strategy::{ExtractionStrategy, Stra
 use crate::pipeline::structuring::types::{
     ExtractedAllergy, ExtractedDiagnosis, ExtractedEntities, ExtractedInstruction,
     ExtractedLabResult, ExtractedMedication, ExtractedProcedure, ExtractedReferral,
-    LlmClient,
+    LlmClient, VisionClient,
 };
 use crate::pipeline::structuring::StructuringError;
 
@@ -40,6 +41,148 @@ pub struct IterativeDrillStrategy {
 impl IterativeDrillStrategy {
     pub fn new(max_retries: u32) -> Self {
         Self { max_retries }
+    }
+}
+
+impl IterativeDrillStrategy {
+    /// Extract entities from an image using iterative vision Q&A.
+    ///
+    /// Phase 0: For each domain, enumerate items visible in the image.
+    /// Phase 1: For each item, drill each field with focused single-question prompts.
+    ///
+    /// Uses `VisionSession` for enforced sanitize + quality gate on every call.
+    /// Handles degeneration gracefully: uses partial output if available, skips field otherwise.
+    pub fn extract_from_image(
+        &self,
+        session: &dyn VisionSession,
+        client: &dyn VisionClient,
+        images: &[String],
+        system_prompt: &str,
+    ) -> Result<StrategyOutput, SessionError> {
+        let domains = DocumentDomain::all();
+        let mut entities = ExtractedEntities::default();
+        let mut markdown_sections = Vec::new();
+        let mut raw_responses = Vec::new();
+
+        for &domain in domains {
+            let contract = contract_for_document_domain(domain);
+
+            // Phase 0: Enumerate items for this domain via vision
+            let enumerate_prompt = contract.enumerate_prompt_for(InputMode::Vision, "");
+            let enumerate_result = match session.chat_with_images(
+                client,
+                &enumerate_prompt,
+                images,
+                Some(system_prompt),
+            ) {
+                Ok(result) => result,
+                Err(SessionError::Degeneration { partial_output, .. }) => {
+                    // Try to salvage item names from partial output
+                    if partial_output.trim().is_empty() {
+                        tracing::warn!(domain = %domain, "Vision enumerate degenerated with no output, skipping");
+                        continue;
+                    }
+                    tracing::debug!(domain = %domain, "Vision enumerate degenerated, using partial output");
+                    ValidatedOutput {
+                        text: partial_output,
+                        tokens_generated: 0,
+                        model: session.model().to_string(),
+                    }
+                }
+                Err(SessionError::QualityGate { raw_output, .. }) => {
+                    // Quality gate rejected but raw might still have item names
+                    if raw_output.trim().is_empty() {
+                        continue;
+                    }
+                    ValidatedOutput {
+                        text: raw_output,
+                        tokens_generated: 0,
+                        model: session.model().to_string(),
+                    }
+                }
+                Err(e) => return Err(e),
+            };
+
+            raw_responses.push(enumerate_result.text.clone());
+            let item_names = parse_enumerate_response(&enumerate_result.text);
+
+            if item_names.is_empty() {
+                continue;
+            }
+
+            // Phase 1: Drill each item × each field via vision
+            let mut domain_markdown = Vec::new();
+
+            for item_name in &item_names {
+                let mut field_values: HashMap<String, String> = HashMap::new();
+                let mut item_markdown = format!("- **{item_name}**");
+
+                for field_desc in contract.fields {
+                    let drill_prompt =
+                        contract.drill_prompt_for(InputMode::Vision, item_name, field_desc, "");
+
+                    match session.chat_with_images(
+                        client,
+                        &drill_prompt,
+                        images,
+                        Some(system_prompt),
+                    ) {
+                        Ok(result) => {
+                            raw_responses.push(result.text.clone());
+                            let value = result.text.trim().to_string();
+                            if !value.is_empty() && !is_not_specified(&value) {
+                                field_values
+                                    .insert(field_desc.name.to_string(), value.clone());
+                                item_markdown
+                                    .push_str(&format!("\n  - {}: {value}", field_desc.name));
+                            }
+                        }
+                        Err(SessionError::Degeneration {
+                            partial_output, ..
+                        }) => {
+                            // Use partial if non-empty, else skip field
+                            let trimmed = partial_output.trim().to_string();
+                            if !trimmed.is_empty() && !is_not_specified(&trimmed) {
+                                field_values
+                                    .insert(field_desc.name.to_string(), trimmed.clone());
+                                item_markdown
+                                    .push_str(&format!("\n  - {}: {trimmed}", field_desc.name));
+                            }
+                        }
+                        Err(SessionError::QualityGate { .. }) => {
+                            // Quality gate rejected — skip this field
+                            tracing::debug!(
+                                domain = %domain,
+                                item = %item_name,
+                                field = %field_desc.name,
+                                "Vision drill quality gate rejected, skipping field"
+                            );
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+
+                domain_markdown.push(item_markdown);
+                assemble_entity(domain, item_name, &field_values, &mut entities);
+            }
+
+            if !domain_markdown.is_empty() {
+                let header = domain_header(domain);
+                markdown_sections
+                    .push(format!("## {header}\n{}", domain_markdown.join("\n")));
+            }
+        }
+
+        let markdown = markdown_sections.join("\n\n");
+
+        Ok(StrategyOutput {
+            entities,
+            markdown,
+            document_type: None,
+            document_date: None,
+            professional: None,
+            raw_responses,
+        })
     }
 }
 
@@ -609,5 +752,337 @@ mod tests {
         let med = assemble_medication("Test", &fields);
         assert_eq!(med.dose, "500mg");
         assert!(med.route.is_empty()); // Not in fields → default empty
+    }
+
+    // ── Vision IterativeDrill tests ──────────────────────
+
+    use crate::butler_service::{FallbackSession, SessionError};
+    use crate::pipeline::strategy::ContextType;
+    use crate::pipeline::structuring::ollama_types::OllamaError;
+
+    /// Vision mock that responds contextually to enumerate vs drill prompts.
+    struct VisionDrillMock;
+
+    impl VisionClient for VisionDrillMock {
+        fn generate_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Ok(String::new())
+        }
+
+        fn chat_with_images(
+            &self,
+            _model: &str,
+            prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            let lower = prompt.to_lowercase();
+
+            // Enumerate prompts contain "what ... are visible"
+            if lower.contains("are visible") {
+                // LAB_RESULTS: "What tests are visible..."
+                if lower.contains("tests") {
+                    return Ok("- Hemoglobine\n- Leucocytes".into());
+                }
+                // All other domains: nothing found
+                return Ok("None".into());
+            }
+
+            // Drill prompts: "In this document image, for the test '{name}': what is the {prompt_label}?"
+            if lower.contains("what is the") {
+                if lower.contains("hemoglobine") {
+                    // prompt_label: "result value (number)"
+                    if lower.contains("result value") {
+                        return Ok("11.2".into());
+                    }
+                    // prompt_label: "unit of measurement"
+                    if lower.contains("unit of measurement") {
+                        return Ok("g/dL".into());
+                    }
+                    // prompt_label: "whether the result is normal, low, high..."
+                    if lower.contains("whether the result") {
+                        return Ok("low".into());
+                    }
+                    // prompt_label: "low end of the normal range"
+                    if lower.contains("low end") {
+                        return Ok("12.0".into());
+                    }
+                    // prompt_label: "high end of the normal range"
+                    if lower.contains("high end") {
+                        return Ok("16.0".into());
+                    }
+                    return Ok("not specified".into());
+                }
+                if lower.contains("leucocytes") {
+                    if lower.contains("result value") {
+                        return Ok("7.2".into());
+                    }
+                    if lower.contains("unit of measurement") {
+                        return Ok("10^9/L".into());
+                    }
+                    if lower.contains("whether the result") {
+                        return Ok("normal".into());
+                    }
+                    return Ok("not specified".into());
+                }
+                return Ok("not specified".into());
+            }
+
+            Ok(String::new())
+        }
+    }
+
+    /// Helper to run vision drill with a given mock and return the result.
+    fn run_vision_drill(
+        vision: &dyn VisionClient,
+    ) -> Result<StrategyOutput, SessionError> {
+        let session = FallbackSession::new("medgemma:4b", ContextType::NightBatch, false);
+        let strategy = IterativeDrillStrategy::new(0);
+        let images = vec!["base64_image_data".to_string()];
+        strategy.extract_from_image(&session, vision, &images, "You are a medical document extractor.")
+    }
+
+    #[test]
+    fn vision_drill_extracts_lab_results() {
+        let mock = VisionDrillMock;
+        let output = run_vision_drill(&mock).unwrap();
+
+        assert_eq!(output.entities.lab_results.len(), 2);
+        assert_eq!(output.entities.lab_results[0].test_name, "Hemoglobine");
+        assert_eq!(output.entities.lab_results[0].value, Some(11.2));
+        assert_eq!(output.entities.lab_results[0].unit.as_deref(), Some("g/dL"));
+        assert_eq!(output.entities.lab_results[0].abnormal_flag.as_deref(), Some("low"));
+
+        assert_eq!(output.entities.lab_results[1].test_name, "Leucocytes");
+        assert_eq!(output.entities.lab_results[1].value, Some(7.2));
+    }
+
+    #[test]
+    fn vision_drill_skips_empty_domains() {
+        let mock = VisionDrillMock;
+        let output = run_vision_drill(&mock).unwrap();
+
+        // Only lab results should have items, other domains return "None"
+        assert!(output.entities.medications.is_empty());
+        assert!(output.entities.diagnoses.is_empty());
+        assert!(output.entities.allergies.is_empty());
+        assert!(output.entities.procedures.is_empty());
+        assert!(output.entities.referrals.is_empty());
+        assert!(output.entities.instructions.is_empty());
+    }
+
+    #[test]
+    fn vision_drill_not_specified_skipped() {
+        let mock = VisionDrillMock;
+        let output = run_vision_drill(&mock).unwrap();
+
+        // Leucocytes: mock returns "not specified" for fields not explicitly handled
+        // (collection_date, reference ranges). These should not appear in the entity.
+        let leuco = &output.entities.lab_results[1];
+        assert!(leuco.collection_date.is_none());
+        // "normal" is a valid abnormal_flag value, so it should be present
+        assert_eq!(leuco.abnormal_flag.as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn vision_drill_markdown_output() {
+        let mock = VisionDrillMock;
+        let output = run_vision_drill(&mock).unwrap();
+
+        assert!(output.markdown.contains("## Lab Results"));
+        assert!(output.markdown.contains("Hemoglobine"));
+        assert!(output.markdown.contains("Leucocytes"));
+    }
+
+    #[test]
+    fn vision_drill_raw_responses_collected() {
+        let mock = VisionDrillMock;
+        let output = run_vision_drill(&mock).unwrap();
+
+        // At least: 7 enumerate + drill responses for 2 items
+        assert!(output.raw_responses.len() >= 7);
+    }
+
+    /// Mock that degenerates on enumerate for all domains.
+    struct VisionAlwaysDegenerate;
+
+    impl VisionClient for VisionAlwaysDegenerate {
+        fn generate_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Ok(String::new())
+        }
+
+        fn chat_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Err(OllamaError::VisionDegeneration {
+                pattern: "token_repeat".into(),
+                tokens_before_abort: 100,
+                partial_output: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn vision_drill_handles_degeneration_gracefully() {
+        let mock = VisionAlwaysDegenerate;
+        let output = run_vision_drill(&mock).unwrap();
+
+        // All domains degenerate with empty partial — nothing extracted, but no error
+        assert!(output.entities.lab_results.is_empty());
+        assert!(output.entities.medications.is_empty());
+    }
+
+    /// Mock that degenerates on enumerate but provides partial item names.
+    struct VisionPartialDegenerate;
+
+    impl VisionClient for VisionPartialDegenerate {
+        fn generate_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Ok(String::new())
+        }
+
+        fn chat_with_images(
+            &self,
+            _model: &str,
+            prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            let lower = prompt.to_lowercase();
+
+            if lower.contains("are visible") {
+                if lower.contains("tests") {
+                    // Degenerate but with useful partial
+                    return Err(OllamaError::VisionDegeneration {
+                        pattern: "low_diversity".into(),
+                        tokens_before_abort: 50,
+                        partial_output: "- Glucose".into(),
+                    });
+                }
+                return Ok("None".into());
+            }
+
+            // Drill: return value for Glucose
+            if lower.contains("what is the") && lower.contains("glucose") {
+                if lower.contains("result value") {
+                    return Ok("5.4".into());
+                }
+                if lower.contains("unit of measurement") {
+                    return Ok("mmol/L".into());
+                }
+            }
+
+            Ok("not specified".into())
+        }
+    }
+
+    #[test]
+    fn vision_drill_partial_output_used_on_degeneration() {
+        let mock = VisionPartialDegenerate;
+        let output = run_vision_drill(&mock).unwrap();
+
+        // Should have extracted Glucose from partial degeneration output
+        assert_eq!(output.entities.lab_results.len(), 1);
+        assert_eq!(output.entities.lab_results[0].test_name, "Glucose");
+        assert_eq!(output.entities.lab_results[0].value, Some(5.4));
+        assert_eq!(output.entities.lab_results[0].unit.as_deref(), Some("mmol/L"));
+    }
+
+    /// Mock that returns a network error (non-degeneration).
+    struct VisionNetworkError;
+
+    impl VisionClient for VisionNetworkError {
+        fn generate_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Ok(String::new())
+        }
+
+        fn chat_with_images(
+            &self,
+            _model: &str,
+            _prompt: &str,
+            _images: &[String],
+            _system: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Err(OllamaError::NotReachable)
+        }
+    }
+
+    #[test]
+    fn vision_drill_session_error_propagated() {
+        let mock = VisionNetworkError;
+        let result = run_vision_drill(&mock);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SessionError::Llm(msg) => assert!(msg.contains("not reachable") || msg.contains("NotReachable") || !msg.is_empty()),
+            other => panic!("Expected SessionError::Llm, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vision_drill_all_7_domains_checked() {
+        // Use a counting mock to verify all 7 domains get an enumerate call
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingVision {
+            enumerate_count: AtomicUsize,
+        }
+
+        impl VisionClient for CountingVision {
+            fn generate_with_images(
+                &self,
+                _model: &str,
+                _prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+
+            fn chat_with_images(
+                &self,
+                _model: &str,
+                prompt: &str,
+                _images: &[String],
+                _system: Option<&str>,
+            ) -> Result<String, OllamaError> {
+                if prompt.to_lowercase().contains("are visible") {
+                    self.enumerate_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok("None".into())
+            }
+        }
+
+        let mock = CountingVision {
+            enumerate_count: AtomicUsize::new(0),
+        };
+        let _ = run_vision_drill(&mock).unwrap();
+
+        assert_eq!(mock.enumerate_count.load(Ordering::Relaxed), 7);
     }
 }

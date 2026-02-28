@@ -8,7 +8,7 @@ use super::ollama_types::{
     OllamaTagsResponse, PullProgress, VisionChatMessage, VisionChatRequest,
     VisionGenerateRequest, VisionGenerationOptions, validate_base_url, validate_model_name,
 };
-use super::types::{LlmClient, VisionClient};
+use super::types::{LlmClient, VisionCallParams, VisionClient};
 
 /// Raw HTTP response from vision POST — status + body bytes.
 ///
@@ -1640,7 +1640,7 @@ impl VisionClient for OllamaClient {
     ///
     /// Key behaviors:
     /// - Image size guard: rejects images > 20 MB base64
-    /// - Deterministic: temperature=0.0, num_predict=8192
+    /// - Deterministic: temperature=0.0, num_predict=2048
     /// - keep_alive: hardware-tiered (caller must warm_model() first)
     /// - Streaming: uses `stream: true` to prevent OS idle socket timeout
     ///   (with `stream: false`, zero bytes flow during inference and the OS
@@ -1684,7 +1684,7 @@ impl VisionClient for OllamaClient {
             stream: true,
             options: Some(VisionGenerationOptions {
                 temperature: 0.0,
-                num_predict: 8192,
+                num_predict: 2048,
                 num_ctx: self.vision_num_ctx,
             }),
             keep_alive: Some(self.keep_alive.clone()),  // OLM-C5: hardware-tiered
@@ -1743,7 +1743,7 @@ impl VisionClient for OllamaClient {
     ///
     /// Key behaviors (same as generate_with_images):
     /// - Image size guard: rejects images > 20 MB base64
-    /// - Deterministic: temperature=0.0, num_predict=8192
+    /// - Deterministic: temperature=0.0, num_predict=2048
     /// - keep_alive: hardware-tiered (caller must warm_model() first)
     /// - Streaming: uses `stream: true` to prevent OS idle socket timeout
     fn chat_with_images(
@@ -1800,7 +1800,7 @@ impl VisionClient for OllamaClient {
             stream: true,
             options: Some(VisionGenerationOptions {
                 temperature: 0.0,
-                num_predict: 8192,
+                num_predict: 2048,
                 num_ctx: self.vision_num_ctx,
             }),
             keep_alive: Some(self.keep_alive.clone()),  // OLM-C5: hardware-tiered
@@ -1851,6 +1851,103 @@ impl VisionClient for OllamaClient {
             elapsed_ms = %start.elapsed().as_millis(),
             response_len = full_response.len(),
             "Ollama chat_with_images complete"
+        );
+
+        Ok(full_response)
+    }
+
+    fn chat_with_images_with_params(
+        &self,
+        model: &str,
+        user_prompt: &str,
+        images: &[String],
+        system: Option<&str>,
+        params: VisionCallParams,
+    ) -> Result<String, OllamaError> {
+        validate_model_name(model)?;
+        let temperature = params.temperature.unwrap_or(0.0);
+        let num_predict = params.num_predict.unwrap_or(2048);
+
+        let _span = tracing::info_span!(
+            "ollama_chat_with_images_params",
+            model = %model,
+            prompt_len = user_prompt.len(),
+            image_count = images.len(),
+            temperature,
+            num_predict,
+        )
+        .entered();
+        let start = std::time::Instant::now();
+        tracing::info!("Ollama chat_with_images_with_params starting");
+
+        // Guard: reject oversized images
+        for img in images {
+            if img.len() > MAX_IMAGE_SIZE_BYTES {
+                return Err(OllamaError::ImageTooLarge(img.len()));
+            }
+        }
+
+        // Build messages array
+        let mut messages = Vec::new();
+
+        if let Some(sys) = system {
+            messages.push(VisionChatMessage {
+                role: "system".to_string(),
+                content: sys.to_string(),
+                images: None,
+            });
+        }
+
+        messages.push(VisionChatMessage {
+            role: "user".to_string(),
+            content: user_prompt.to_string(),
+            images: Some(images.to_vec()),
+        });
+
+        let request = VisionChatRequest {
+            model: model.to_string(),
+            messages,
+            stream: true,
+            options: Some(VisionGenerationOptions {
+                temperature,
+                num_predict,
+                num_ctx: self.vision_num_ctx,
+            }),
+            keep_alive: Some(self.keep_alive.clone()),
+        };
+
+        let url = format!("{}/api/chat", self.base_url);
+
+        let raw = self.send_async_post(&url, &request).map_err(|e| {
+            tracing::warn!(
+                model = %model,
+                elapsed_ms = %start.elapsed().as_millis(),
+                error = %e,
+                "Ollama chat_with_images_with_params failed"
+            );
+            e
+        })?;
+
+        if raw.status < 200 || raw.status >= 300 {
+            let body = parse_error_body(&String::from_utf8_lossy(&raw.body));
+            return Err(OllamaError::ApiError {
+                status: raw.status,
+                message: body,
+            });
+        }
+
+        let cursor = std::io::Cursor::new(raw.body);
+        let guard_config = crate::pipeline::stream_guard::StreamGuardConfig::default();
+        let (full_response, metrics) =
+            collect_chat_stream_guarded(cursor, model, &start, guard_config)?;
+
+        self.store_metrics(metrics);
+
+        tracing::info!(
+            model = %model,
+            elapsed_ms = %start.elapsed().as_millis(),
+            response_len = full_response.len(),
+            "Ollama chat_with_images_with_params complete"
         );
 
         Ok(full_response)

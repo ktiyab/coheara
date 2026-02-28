@@ -10,6 +10,7 @@
 
 use std::path::Path;
 
+use base64::Engine;
 use uuid::Uuid;
 
 use super::confidence::compute_overall_confidence;
@@ -21,11 +22,15 @@ use super::types::{
 };
 use super::vision_ocr::{build_system_prompt, build_user_prompt};
 use super::ExtractionError;
+use crate::butler_service::VisionSession;
 use crate::crypto::ProfileSession;
 use crate::pipeline::diagnostic;
+use crate::pipeline::extraction::types::ExtractionWarning;
 use crate::pipeline::import::format::FileCategory;
 use crate::pipeline::import::staging::read_staged_file;
 use crate::pipeline::import::FormatDetection;
+use crate::pipeline::structuring::strategy_iterative_drill::IterativeDrillStrategy;
+use crate::pipeline::structuring::types::VisionClient;
 
 // ──────────────────────────────────────────────
 // Adaptive DPI selection
@@ -50,18 +55,39 @@ pub fn select_render_dpi(format: &FormatDetection) -> u32 {
     }
 }
 
+/// C4: Vision fallback configuration for hybrid OCR.
+///
+/// When monolithic OCR degenerates, the orchestrator falls back to iterative
+/// vision Q&A using a `FallbackSession` and shared `VisionClient`.
+///
+/// Uses `FallbackSession` (no lifetime, no guard) instead of `ButlerSession`
+/// because the caller (import_queue_worker) already holds the butler guard.
+/// The fallback replicates the defense pipeline (sanitize + quality gate)
+/// without acquiring a second lock (which would deadlock).
+pub struct VisionFallback {
+    /// Unguarded session — caller holds the butler guard separately.
+    pub session: Box<dyn VisionSession>,
+    /// Vision client for iterative Q&A calls (shared with normal OCR path).
+    pub vision_client: Box<dyn VisionClient>,
+    /// System prompt for vision Q&A.
+    pub system_prompt: String,
+}
+
 /// R4+: Vision-based document extraction orchestrator.
 ///
-/// Three required + one optional dependency (trait objects for DI):
+/// Three required + two optional dependencies (trait objects for DI):
 /// - `pdf_renderer`: Renders PDF pages to PNG images (PdfiumRenderer in prod)
 /// - `vision_ocr`: Extracts text from images via vision model (OllamaVisionOcr in prod)
 /// - `preprocessor`: Prepares images for optimal vision model input (PreprocessingPipeline in prod)
 /// - `interpreter` (optional): Interprets medical images (OllamaMedicalImageInterpreter in prod)
+/// - `vision_fallback` (optional): C4 hybrid fallback for OCR degeneration
 pub struct DocumentExtractor {
     pdf_renderer: Box<dyn PdfPageRenderer>,
     vision_ocr: Box<dyn VisionOcrEngine>,
     preprocessor: Box<dyn ImagePreprocessor>,
     interpreter: Option<Box<dyn MedicalImageInterpreter>>,
+    /// C4: Fallback for OCR degeneration — iterative vision Q&A.
+    vision_fallback: Option<VisionFallback>,
     /// Language code for diagnostic prompt dumps (e.g., "en", "fr", "de").
     language: String,
 }
@@ -77,6 +103,7 @@ impl DocumentExtractor {
             vision_ocr,
             preprocessor,
             interpreter: None,
+            vision_fallback: None,
             language: "en".to_string(),
         }
     }
@@ -87,6 +114,16 @@ impl DocumentExtractor {
     /// are routed to the interpreter for clinical findings instead of OCR text.
     pub fn with_interpreter(mut self, interpreter: Box<dyn MedicalImageInterpreter>) -> Self {
         self.interpreter = Some(interpreter);
+        self
+    }
+
+    /// C4: Set the vision fallback for hybrid OCR.
+    ///
+    /// When monolithic OCR degenerates (repetition loops, quality gate failures),
+    /// the orchestrator falls back to iterative vision Q&A that asks focused
+    /// single-field questions per domain.
+    pub fn with_vision_fallback(mut self, fallback: VisionFallback) -> Self {
+        self.vision_fallback = Some(fallback);
         self
     }
 
@@ -167,20 +204,37 @@ impl DocumentExtractor {
                 }
             }
 
-            let ocr_result = ocr_result?;
+            match ocr_result {
+                Ok(result) => {
+                    // Fast path: OCR succeeded
+                    let (text, confidence, content_type) =
+                        self.route_by_content_type(&prepared.png_bytes, &result);
 
-            // Route medical images to interpreter if available
-            let (text, confidence, content_type) =
-                self.route_by_content_type(&prepared.png_bytes, &ocr_result);
-
-            pages.push(PageExtraction {
-                page_number: page_idx + 1, // 1-indexed for display
-                text,
-                confidence,
-                regions: vec![],
-                warnings: prepared.warnings,
-                content_type: Some(content_type),
-            });
+                    pages.push(PageExtraction {
+                        page_number: page_idx + 1,
+                        text,
+                        confidence,
+                        regions: vec![],
+                        warnings: prepared.warnings,
+                        content_type: Some(content_type),
+                    });
+                }
+                Err(ExtractionError::VisionDegeneration {
+                    pattern,
+                    tokens_before_abort: _,
+                    partial_output: _,
+                }) => {
+                    // C4: OCR degenerated — try iterative vision fallback
+                    let page = self.try_vision_fallback(
+                        &prepared.png_bytes,
+                        page_idx,
+                        &pattern,
+                        prepared.warnings,
+                    )?;
+                    pages.push(page);
+                }
+                Err(e) => return Err(e),
+            }
 
             // §22: Update extraction page progress
             if let Some(tracker) = progress {
@@ -240,19 +294,34 @@ impl DocumentExtractor {
             }
         }
 
-        let ocr_result = ocr_result?;
+        let page = match ocr_result {
+            Ok(result) => {
+                let (text, confidence, content_type) =
+                    self.route_by_content_type(&prepared.png_bytes, &result);
 
-        // Route medical images to interpreter if available
-        let (text, confidence, content_type) =
-            self.route_by_content_type(&prepared.png_bytes, &ocr_result);
-
-        let page = PageExtraction {
-            page_number: 1,
-            text,
-            confidence,
-            regions: vec![],
-            warnings: prepared.warnings,
-            content_type: Some(content_type),
+                PageExtraction {
+                    page_number: 1,
+                    text,
+                    confidence,
+                    regions: vec![],
+                    warnings: prepared.warnings,
+                    content_type: Some(content_type),
+                }
+            }
+            Err(ExtractionError::VisionDegeneration {
+                pattern,
+                tokens_before_abort: _,
+                partial_output: _,
+            }) => {
+                // C4: OCR degenerated — try iterative vision fallback
+                self.try_vision_fallback(
+                    &prepared.png_bytes,
+                    0,
+                    &pattern,
+                    prepared.warnings,
+                )?
+            }
+            Err(e) => return Err(e),
         };
 
         // §22: Single-page image — set progress as complete
@@ -304,6 +373,109 @@ impl DocumentExtractor {
             ocr_result.confidence,
             ocr_result.content_type,
         )
+    }
+
+    /// C4: Attempt iterative vision Q&A fallback for a degenerated page.
+    ///
+    /// Encodes the preprocessed PNG as base64 and runs
+    /// `IterativeDrillStrategy::extract_from_image()` to extract entities
+    /// with focused single-question prompts via the fallback session.
+    fn try_vision_fallback(
+        &self,
+        png_bytes: &[u8],
+        page_idx: usize,
+        pattern: &str,
+        mut warnings: Vec<ExtractionWarning>,
+    ) -> Result<PageExtraction, ExtractionError> {
+        let fallback = self.vision_fallback.as_ref().ok_or_else(|| {
+            ExtractionError::VisionOcrFailed(format!(
+                "OCR degenerated ({pattern}) and no fallback configured"
+            ))
+        })?;
+
+        tracing::warn!(
+            page = page_idx,
+            pattern = %pattern,
+            "C4: OCR degenerated — falling back to iterative vision Q&A"
+        );
+
+        let base64_image =
+            base64::engine::general_purpose::STANDARD.encode(png_bytes);
+        let images = vec![base64_image];
+
+        let drill = IterativeDrillStrategy::new(1);
+        let drill_result = drill
+            .extract_from_image(
+                fallback.session.as_ref(),
+                fallback.vision_client.as_ref(),
+                &images,
+                &fallback.system_prompt,
+            )
+            .map_err(|e| {
+                ExtractionError::VisionOcrFailed(format!("Fallback vision Q&A failed: {e}"))
+            })?;
+
+        let page_text = format_entities_as_markdown(&drill_result);
+
+        warnings.push(ExtractionWarning::FallbackUsed {
+            reason: format!("OCR degenerated: {pattern}"),
+        });
+
+        Ok(PageExtraction {
+            page_number: page_idx + 1,
+            text: page_text,
+            confidence: 0.7,
+            regions: vec![],
+            warnings,
+            content_type: Some(ImageContentType::Document),
+        })
+    }
+}
+
+/// Format extracted entities from iterative drill as structured markdown.
+///
+/// Produces human-readable text that can feed into downstream structuring
+/// or be stored as page text.
+fn format_entities_as_markdown(
+    output: &crate::pipeline::structuring::extraction_strategy::StrategyOutput,
+) -> String {
+    if output.markdown.is_empty() {
+        // Fallback: list entities by domain
+        let mut parts = Vec::new();
+        let e = &output.entities;
+        if !e.lab_results.is_empty() {
+            let items: Vec<String> = e.lab_results.iter().map(|r| {
+                let val = r.value.map_or_else(
+                    || r.value_text.clone().unwrap_or_default(),
+                    |v| v.to_string(),
+                );
+                let unit = r.unit.as_deref().unwrap_or("");
+                format!("- {}: {} {}", r.test_name, val, unit)
+            }).collect();
+            parts.push(format!("## Lab Results\n{}", items.join("\n")));
+        }
+        if !e.medications.is_empty() {
+            let items: Vec<String> = e.medications.iter().map(|m| {
+                let name = m.generic_name.as_deref().unwrap_or("unknown");
+                format!("- {} {}", name, m.dose)
+            }).collect();
+            parts.push(format!("## Medications\n{}", items.join("\n")));
+        }
+        if !e.diagnoses.is_empty() {
+            let items: Vec<String> = e.diagnoses.iter().map(|d| {
+                format!("- {}", d.name)
+            }).collect();
+            parts.push(format!("## Diagnoses\n{}", items.join("\n")));
+        }
+        if !e.allergies.is_empty() {
+            let items: Vec<String> = e.allergies.iter().map(|a| {
+                format!("- {}", a.allergen)
+            }).collect();
+            parts.push(format!("## Allergies\n{}", items.join("\n")));
+        }
+        parts.join("\n\n")
+    } else {
+        output.markdown.clone()
     }
 }
 
@@ -1009,5 +1181,216 @@ mod tests {
         for page in &result.pages {
             assert_eq!(page.content_type, Some(ImageContentType::Document));
         }
+    }
+
+    // ── C4: Vision fallback tests ──
+
+    use crate::pipeline::extraction::types::VisionOcrResult;
+    use crate::pipeline::structuring::ollama_types::OllamaError;
+
+    /// Mock VisionOcr that always returns VisionDegeneration.
+    struct DegeneratingVisionOcr;
+
+    impl VisionOcrEngine for DegeneratingVisionOcr {
+        fn extract_text_from_image(
+            &self,
+            _image_bytes: &[u8],
+        ) -> Result<VisionOcrResult, ExtractionError> {
+            Err(ExtractionError::VisionDegeneration {
+                pattern: "low_diversity(0.09)".into(),
+                tokens_before_abort: 1370,
+                partial_output: "Titre Titre Titre".into(),
+            })
+        }
+    }
+
+    /// Mock VisionClient that responds to iterative drill prompts.
+    struct FallbackVisionClient;
+
+    impl crate::pipeline::structuring::types::VisionClient for FallbackVisionClient {
+        fn generate_with_images(
+            &self,
+            _: &str,
+            _: &str,
+            _: &[String],
+            _: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            Ok(String::new())
+        }
+
+        fn chat_with_images(
+            &self,
+            _: &str,
+            prompt: &str,
+            _: &[String],
+            _: Option<&str>,
+        ) -> Result<String, OllamaError> {
+            let lower = prompt.to_lowercase();
+
+            // Enumerate: return lab tests for "tests" domain
+            if lower.contains("are visible") {
+                if lower.contains("tests") {
+                    return Ok("- Hemoglobine\n- Leucocytes".into());
+                }
+                return Ok("None".into());
+            }
+
+            // Drill
+            if lower.contains("what is the") {
+                if lower.contains("hemoglobine") {
+                    if lower.contains("result value") {
+                        return Ok("11.2".into());
+                    }
+                    if lower.contains("unit") {
+                        return Ok("g/dL".into());
+                    }
+                    if lower.contains("whether the result") {
+                        return Ok("low".into());
+                    }
+                }
+                if lower.contains("leucocytes") {
+                    if lower.contains("result value") {
+                        return Ok("7.2".into());
+                    }
+                    if lower.contains("unit") {
+                        return Ok("10^9/L".into());
+                    }
+                }
+                return Ok("not specified".into());
+            }
+
+            Ok(String::new())
+        }
+    }
+
+    fn make_extractor_with_fallback() -> DocumentExtractor {
+        use crate::butler_service::FallbackSession;
+        use crate::pipeline::strategy::ContextType;
+
+        let session = FallbackSession::new("medgemma:4b", ContextType::VisionOcr, false);
+
+        let fallback = VisionFallback {
+            session: Box::new(session),
+            vision_client: Box::new(FallbackVisionClient),
+            system_prompt: "You are a medical document extractor.".into(),
+        };
+
+        DocumentExtractor::new(
+            Box::new(MockPdfPageRenderer::new(1)),
+            Box::new(DegeneratingVisionOcr),
+            Box::new(MockImagePreprocessor::new()),
+        )
+        .with_vision_fallback(fallback)
+    }
+
+    #[test]
+    fn ocr_degeneration_triggers_fallback() {
+        let extractor = make_extractor_with_fallback();
+        let prepared = extractor.preprocessor.preprocess(&[0u8; 10]).unwrap();
+
+        let page = extractor
+            .try_vision_fallback(&prepared.png_bytes, 0, "low_diversity(0.09)", vec![])
+            .unwrap();
+
+        assert!(page.text.contains("Hemoglobine"));
+        assert!(page.text.contains("Leucocytes"));
+        assert_eq!(page.confidence, 0.7);
+        assert_eq!(page.content_type, Some(ImageContentType::Document));
+    }
+
+    #[test]
+    fn fallback_warning_includes_reason() {
+        let extractor = make_extractor_with_fallback();
+        let prepared = extractor.preprocessor.preprocess(&[0u8; 10]).unwrap();
+
+        let page = extractor
+            .try_vision_fallback(&prepared.png_bytes, 0, "low_diversity(0.09)", vec![])
+            .unwrap();
+
+        let has_fallback_warning = page.warnings.iter().any(|w| {
+            matches!(w, ExtractionWarning::FallbackUsed { reason } if reason.contains("low_diversity"))
+        });
+        assert!(has_fallback_warning);
+    }
+
+    #[test]
+    fn no_fallback_propagates_degeneration_error() {
+        // Extractor WITHOUT fallback configured
+        let extractor = DocumentExtractor::new(
+            Box::new(MockPdfPageRenderer::new(1)),
+            Box::new(DegeneratingVisionOcr),
+            Box::new(MockImagePreprocessor::new()),
+        );
+
+        let result = extractor.try_vision_fallback(&[0u8; 10], 0, "test", vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_image_uses_fallback_on_degeneration() {
+        let extractor = make_extractor_with_fallback();
+
+        let result = extractor.extract_image(&[0u8; 10], &None, None);
+        assert!(result.is_ok());
+
+        let (method, pages) = result.unwrap();
+        assert_eq!(method, ExtractionMethod::VisionOcr);
+        assert_eq!(pages.len(), 1);
+        assert!(pages[0].text.contains("Hemoglobine"));
+        assert_eq!(pages[0].confidence, 0.7);
+    }
+
+    #[test]
+    fn fallback_entities_formatted_as_markdown() {
+        use crate::pipeline::structuring::extraction_strategy::StrategyOutput;
+        use crate::pipeline::structuring::types::{ExtractedEntities, ExtractedLabResult};
+
+        let mut entities = ExtractedEntities::default();
+        entities.lab_results.push(ExtractedLabResult {
+            test_name: "Hemoglobine".into(),
+            test_code: None,
+            value: Some(11.2),
+            value_text: None,
+            unit: Some("g/dL".into()),
+            reference_range_low: None,
+            reference_range_high: None,
+            reference_range_text: None,
+            abnormal_flag: None,
+            collection_date: None,
+            confidence: 0.0,
+        });
+
+        let output = StrategyOutput {
+            entities,
+            markdown: String::new(),
+            document_type: None,
+            document_date: None,
+            professional: None,
+            raw_responses: vec![],
+        };
+
+        let text = format_entities_as_markdown(&output);
+        assert!(text.contains("## Lab Results"));
+        assert!(text.contains("Hemoglobine"));
+        assert!(text.contains("11.2"));
+        assert!(text.contains("g/dL"));
+    }
+
+    #[test]
+    fn fallback_uses_markdown_when_available() {
+        use crate::pipeline::structuring::extraction_strategy::StrategyOutput;
+        use crate::pipeline::structuring::types::ExtractedEntities;
+
+        let output = StrategyOutput {
+            entities: ExtractedEntities::default(),
+            markdown: "## Lab Results\n- Hemoglobine: 11.2 g/dL".into(),
+            document_type: None,
+            document_date: None,
+            professional: None,
+            raw_responses: vec![],
+        };
+
+        let text = format_entities_as_markdown(&output);
+        assert_eq!(text, "## Lab Results\n- Hemoglobine: 11.2 g/dL");
     }
 }
