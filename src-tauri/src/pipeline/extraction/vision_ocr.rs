@@ -15,6 +15,8 @@ use super::types::{
     VisionOcrResult,
 };
 use super::ExtractionError;
+use crate::pipeline::quality_gate::{self, QualityGateConfig, QualityGateFailure};
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::structuring::types::VisionClient;
 
 // ──────────────────────────────────────────────
@@ -186,8 +188,14 @@ impl VisionOcrEngine for OllamaVisionOcr {
                 other => ExtractionError::OcrProcessing(format!("Vision OCR failed: {other}")),
             })?;
 
+        // C2: Strip thinking tokens before parsing
+        let sanitized_response = sanitize_llm_output(&raw_response);
+
         // Parse classification tag from response
-        let (text, content_type) = parse_classification_tag(&raw_response);
+        let (text, content_type) = parse_classification_tag(&sanitized_response);
+
+        // C4: Quality gate — catch degenerate output that StreamGuard missed
+        validate_or_degenerate(&text)?;
 
         // Compute heuristic confidence
         let confidence = compute_heuristic_confidence(&text);
@@ -243,6 +251,45 @@ fn parse_classification_tag(response: &str) -> (String, ImageContentType) {
 // ──────────────────────────────────────────────
 // Confidence heuristic
 // ──────────────────────────────────────────────
+
+/// C4: Validate output via QualityGate, mapping failure to VisionDegeneration.
+///
+/// Defense-in-depth: StreamGuard catches exact-sequence repetition in the token
+/// stream. QualityGate catches semantically degenerate output (V-FR-03 pattern)
+/// after generation completes.
+fn validate_or_degenerate(text: &str) -> Result<(), ExtractionError> {
+    let config = QualityGateConfig::default();
+    quality_gate::validate_output(text, &config).map_err(|failure| {
+        let pattern = match &failure {
+            QualityGateFailure::LowDiversity { diversity_ratio, .. } => {
+                format!("quality_gate:low_diversity({diversity_ratio:.2})")
+            }
+            QualityGateFailure::LineDominance { dominant_line, dominance_ratio, .. } => {
+                let preview = if dominant_line.len() > 60 {
+                    &dominant_line[..60]
+                } else {
+                    dominant_line
+                };
+                format!("quality_gate:line_dominance(\"{preview}\" at {dominance_ratio:.2})")
+            }
+        };
+        let word_count = text.split_whitespace().count();
+        tracing::warn!(
+            pattern = %pattern,
+            word_count,
+            "C4: Vision output failed quality gate — degenerate content detected"
+        );
+        ExtractionError::VisionDegeneration {
+            pattern,
+            tokens_before_abort: word_count,
+            partial_output: if text.len() > 500 {
+                format!("{}...", &text[..500])
+            } else {
+                text.to_string()
+            },
+        }
+    })
+}
 
 /// Compute a heuristic confidence score based on text quality.
 ///
@@ -380,7 +427,13 @@ impl MedicalImageInterpreter for OllamaMedicalImageInterpreter {
                 ),
             })?;
 
-        let findings = raw_response.trim().to_string();
+        // C2: Strip thinking tokens before parsing
+        let sanitized = sanitize_llm_output(&raw_response);
+        let findings = sanitized.trim().to_string();
+
+        // C4: Quality gate — catch degenerate output that StreamGuard missed
+        validate_or_degenerate(&findings)?;
+
         let confidence = compute_heuristic_confidence(&findings);
 
         tracing::info!(
@@ -829,6 +882,88 @@ mod tests {
     fn interpret_prompt_mentions_modality() {
         assert!(INTERPRET_USER_PROMPT.contains("modality"));
         assert!(INTERPRET_SYSTEM_PROMPT.contains("medical image"));
+    }
+
+    // ── MockMedicalImageInterpreter ──
+
+    // ── C4: QualityGate integration ──
+
+    #[test]
+    fn quality_gate_catches_degenerate_ocr() {
+        // V-FR-03 pattern: same line repeated 50 times
+        let degenerate = (0..50)
+            .map(|_| "Lab Pharmacist: Dr. LEVANDIER")
+            .collect::<Vec<_>>()
+            .join("\n");
+        let response = format!("{degenerate}\n[DOCUMENT]");
+        let mock = Arc::new(MockVisionClient::new(&response));
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
+
+        let result = ocr.extract_text_from_image(b"fake-page");
+        assert!(result.is_err(), "Degenerate OCR output must be caught");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("quality_gate"),
+            "Error should mention quality_gate: {err}"
+        );
+    }
+
+    #[test]
+    fn quality_gate_passes_healthy_ocr() {
+        let response = "# Blood Test Results\n\n\
+                        | Test | Value | Unit | Reference |\n\
+                        |------|-------|------|-----------|\n\
+                        | Hemoglobin | 13.3 | g/dl | 13.4-16.7 |\n\
+                        | Hematocrit | 41.0 | % | 39.0-49.0 |\n\
+                        | Platelets | 250 | k/mm3 | 150-400 |\n\n\
+                        [DOCUMENT]";
+        let mock = Arc::new(MockVisionClient::new(response));
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
+
+        let result = ocr.extract_text_from_image(b"fake-page");
+        assert!(result.is_ok(), "Healthy OCR output must pass: {:?}", result.err());
+    }
+
+    #[test]
+    fn quality_gate_catches_degenerate_interpretation() {
+        // Degenerate medical image interpretation — same observation repeated
+        let degenerate = (0..50)
+            .map(|_| "Normal chest X-ray findings observed")
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mock = Arc::new(MockVisionClient::new(&degenerate));
+        let interp = OllamaMedicalImageInterpreter::new(mock, "medgemma:4b".to_string());
+
+        let result = interp.interpret_medical_image(b"fake-xray");
+        assert!(result.is_err(), "Degenerate interpretation must be caught");
+    }
+
+    #[test]
+    fn quality_gate_short_ocr_passes() {
+        // Short output (< 20 words) skips quality check — not enough signal
+        let response = "Metformin 500mg\n[DOCUMENT]";
+        let mock = Arc::new(MockVisionClient::new(response));
+        let ocr = OllamaVisionOcr::new(mock, "medgemma:4b".to_string());
+
+        let result = ocr.extract_text_from_image(b"tiny-page");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_or_degenerate_helper_maps_correctly() {
+        // Low diversity
+        let text = vec!["error"; 100].join(" ");
+        let err = validate_or_degenerate(&text).unwrap_err();
+        assert!(
+            matches!(err, ExtractionError::VisionDegeneration { .. }),
+            "Should map to VisionDegeneration: {err}"
+        );
+
+        // Healthy text
+        let healthy = "The patient presented with persistent headaches \
+                       over the past two weeks. Blood pressure was measured \
+                       at 140/90 mmHg. Lab results show elevated creatinine.";
+        assert!(validate_or_degenerate(healthy).is_ok());
     }
 
     // ── MockMedicalImageInterpreter ──

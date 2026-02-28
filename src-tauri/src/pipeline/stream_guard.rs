@@ -161,6 +161,10 @@ pub struct StreamGuard {
     last_token: Option<String>,
     /// Current sequence repeat count.
     sequence_repeat_count: usize,
+    /// Period of the currently tracked repeating sequence (C1-FIX).
+    /// Enables multi-period detection: scans periods 2..=sequence_length
+    /// instead of only checking the exact sequence_length window.
+    matched_period: usize,
 }
 
 impl StreamGuard {
@@ -175,6 +179,7 @@ impl StreamGuard {
             consecutive_count: 0,
             last_token: None,
             sequence_repeat_count: 0,
+            matched_period: 0,
         }
     }
 
@@ -217,19 +222,45 @@ impl StreamGuard {
         }
         self.buffer.push_back(token.to_string());
 
-        // Check 2: Sequence repetition — O(K)
+        // Check 2: Multi-period sequence repetition — O(K²) where K=sequence_length
+        // C1-FIX: Scans all candidate periods 2..=K instead of only period K.
+        // This catches degeneration where the repeating unit length doesn't
+        // match sequence_length exactly (e.g., 9-token repeat with K=10).
         let k = self.config.sequence_length;
-        if self.buffer.len() >= 2 * k {
-            let len = self.buffer.len();
-            let last_k = &self.buffer.range(len - k..len);
-            let prev_k = &self.buffer.range(len - 2 * k..len - k);
+        let len = self.buffer.len();
+        let max_period = k.min(len / 2);
 
-            if sequences_equal(last_k.clone(), prev_k.clone()) {
-                self.sequence_repeat_count += 1;
+        if max_period >= 2 {
+            let mut found_period = 0;
+            for p in 2..=max_period {
+                let last_p = self.buffer.range(len - p..len);
+                let prev_p = self.buffer.range(len - 2 * p..len - p);
+                if sequences_equal(last_p, prev_p) {
+                    // Skip if all tokens in the window are identical — the
+                    // consecutive-identical detector (Check 1) handles those.
+                    let first = &self.buffer[len - p];
+                    let has_variety = self.buffer.range(len - p..len).any(|t| t != first);
+                    if !has_variety {
+                        continue;
+                    }
+                    found_period = p;
+                    break; // Smallest matching period is most specific
+                }
+            }
+
+            if found_period > 0 {
+                if found_period == self.matched_period {
+                    self.sequence_repeat_count += 1;
+                } else {
+                    // New period detected — start counting fresh
+                    self.matched_period = found_period;
+                    self.sequence_repeat_count = 1;
+                }
+
                 if self.sequence_repeat_count >= self.config.max_sequence_repeats {
                     let preview: String = self
                         .buffer
-                        .range(len - k..len)
+                        .range(len - found_period..len)
                         .cloned()
                         .collect::<Vec<_>>()
                         .join("");
@@ -240,6 +271,7 @@ impl StreamGuard {
                 }
             } else {
                 self.sequence_repeat_count = 0;
+                self.matched_period = 0;
             }
         }
 
@@ -640,6 +672,144 @@ mod tests {
         }
         assert!(guard.buffer.len() <= 10);
         assert_eq!(guard.total_tokens(), 100);
+    }
+
+    // ── C1-FIX: Multi-period detection ─────────────────
+
+    #[test]
+    fn phase_shifted_repetition_detected() {
+        // C1-FIX: Period=4 with seq_length=3 — old code missed this
+        let mut guard = StreamGuard::new(StreamGuardConfig {
+            max_consecutive_identical: 20,
+            sequence_length: 10, // K=10, but actual period is 4
+            max_sequence_repeats: 3,
+            max_total_tokens: 500,
+            ring_buffer_size: 100,
+        });
+        let pattern = vec!["alpha", "beta", "gamma", "delta"];
+        let mut triggered = false;
+        for _ in 0..20 {
+            for token in &pattern {
+                if guard.feed(token).is_err() {
+                    triggered = true;
+                    break;
+                }
+            }
+            if triggered {
+                break;
+            }
+        }
+        assert!(triggered, "Should detect period=4 repetition with K=10");
+    }
+
+    #[test]
+    fn misaligned_period_detected() {
+        // C1-FIX: Period=7 with seq_length=10 — window never aligned before
+        let mut guard = StreamGuard::new(StreamGuardConfig {
+            max_consecutive_identical: 20,
+            sequence_length: 10,
+            max_sequence_repeats: 3,
+            max_total_tokens: 500,
+            ring_buffer_size: 100,
+        });
+        let pattern = vec!["one", "two", "three", "four", "five", "six", "seven"];
+        let mut triggered = false;
+        for _ in 0..20 {
+            for token in &pattern {
+                if guard.feed(token).is_err() {
+                    triggered = true;
+                    break;
+                }
+            }
+            if triggered {
+                break;
+            }
+        }
+        assert!(triggered, "Should detect period=7 repetition with K=10");
+    }
+
+    #[test]
+    fn v_fr_03_pattern_simulation() {
+        // Simulates the actual V-FR-03 incident pattern:
+        // "* Lab Pharmacist: Dr. LEVANDIER\n" repeated endlessly
+        // This is ~9 tokens, but K=10 meant the old check never triggered
+        let mut guard = StreamGuard::new(StreamGuardConfig {
+            max_consecutive_identical: 20,
+            sequence_length: 10,
+            max_sequence_repeats: 5,
+            max_total_tokens: 8192,
+            ring_buffer_size: 200,
+        });
+        let pattern = vec![
+            "*", " Lab", " Pharmacist", ":", " Dr", ".", " LEVAND", "IER", "\n",
+        ]; // 9 tokens — misaligned with K=10
+        let mut triggered = false;
+        for _ in 0..30 {
+            for token in &pattern {
+                if guard.feed(token).is_err() {
+                    triggered = true;
+                    break;
+                }
+            }
+            if triggered {
+                break;
+            }
+        }
+        assert!(
+            triggered,
+            "V-FR-03 degeneration pattern must be caught (9-token period, K=10)"
+        );
+    }
+
+    #[test]
+    fn period_2_repetition_detected() {
+        // Smallest possible period (2 tokens alternating)
+        let mut guard = StreamGuard::new(StreamGuardConfig {
+            max_consecutive_identical: 20,
+            sequence_length: 10,
+            max_sequence_repeats: 4,
+            max_total_tokens: 500,
+            ring_buffer_size: 100,
+        });
+        let mut triggered = false;
+        for _ in 0..20 {
+            if guard.feed("ping").is_err() {
+                triggered = true;
+                break;
+            }
+            if guard.feed("pong").is_err() {
+                triggered = true;
+                break;
+            }
+        }
+        assert!(triggered, "Should detect period=2 alternation");
+    }
+
+    #[test]
+    fn period_change_resets_count() {
+        // Period=3 repetition followed by period=5 — count should reset
+        let mut guard = StreamGuard::new(StreamGuardConfig {
+            max_consecutive_identical: 20,
+            sequence_length: 10,
+            max_sequence_repeats: 4,
+            max_total_tokens: 500,
+            ring_buffer_size: 100,
+        });
+        // 2 repeats of period=3 (below threshold=4)
+        let pattern3 = vec!["a", "b", "c"];
+        for _ in 0..2 {
+            for t in &pattern3 {
+                assert!(guard.feed(t).is_ok());
+            }
+        }
+        // Switch to different pattern — should not accumulate from period=3
+        let pattern5 = vec!["v", "w", "x", "y", "z"];
+        for _ in 0..2 {
+            for t in &pattern5 {
+                assert!(guard.feed(t).is_ok());
+            }
+        }
+        // No trigger because neither pattern exceeded threshold alone
     }
 
     // ── Real degeneration pattern (from BM-04) ─────────

@@ -11,9 +11,11 @@
 
 use std::collections::HashMap;
 
+use crate::pipeline::domain_contracts::contract_for_document_domain;
 use crate::pipeline::prompt_templates::{
     self, DocumentDomain, PromptStrategyKind,
 };
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::structuring::extraction_strategy::{ExtractionStrategy, StrategyOutput};
 use crate::pipeline::structuring::types::{
     ExtractedAllergy, ExtractedDiagnosis, ExtractedEntities, ExtractedInstruction,
@@ -57,8 +59,10 @@ impl ExtractionStrategy for IterativeDrillStrategy {
         let mut raw_responses = Vec::new();
 
         for &domain in domains {
+            let contract = contract_for_document_domain(domain);
+
             // Phase 1: Enumerate items for this domain
-            let enumerate_prompt = prompt_templates::enumerate_prompt(domain, text);
+            let enumerate_prompt = contract.build_enumerate_prompt(text);
             let enumerate_response = match call_with_retry(
                 llm, model, &enumerate_prompt, system, self.max_retries,
             ) {
@@ -80,30 +84,29 @@ impl ExtractionStrategy for IterativeDrillStrategy {
                 continue;
             }
 
-            // Phase 2: Drill each item × each field
-            let fields = prompt_templates::drill_fields(domain);
+            // Phase 2: Drill each item × each field (from DomainContract)
             let mut domain_markdown = Vec::new();
 
             for item_name in &item_names {
                 let mut field_values: HashMap<String, String> = HashMap::new();
                 let mut item_markdown = format!("- **{item_name}**");
 
-                for &field in fields {
-                    let drill = prompt_templates::drill_prompt(domain, item_name, field);
+                for field_desc in contract.fields {
+                    let drill = contract.drill_instruction(item_name, field_desc);
                     match call_with_retry(llm, model, &drill, system, self.max_retries) {
                         Ok(resp) => {
                             raw_responses.push(resp.clone());
                             let value = resp.trim().to_string();
                             if !value.is_empty() && !is_not_specified(&value) {
-                                field_values.insert(field.to_string(), value.clone());
-                                item_markdown.push_str(&format!("\n  - {field}: {value}"));
+                                field_values.insert(field_desc.name.to_string(), value.clone());
+                                item_markdown.push_str(&format!("\n  - {}: {value}", field_desc.name));
                             }
                         }
                         Err(e) => {
                             tracing::debug!(
                                 domain = %domain,
                                 item = %item_name,
-                                field = %field,
+                                field = %field_desc.name,
                                 error = %e,
                                 "IterativeDrill: drill failed, skipping field"
                             );
@@ -352,7 +355,10 @@ fn call_with_retry(
     let mut last_error = None;
     for attempt in 0..=max_retries {
         match llm.generate(model, prompt, system) {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                // C2: Strip thinking tokens before parsing
+                return Ok(sanitize_llm_output(&response));
+            }
             Err(e) => {
                 if attempt < max_retries {
                     tracing::debug!(attempt, error = %e, "IterativeDrill: retrying");
@@ -506,7 +512,8 @@ mod tests {
                 if lower.contains("dose") {
                     return Ok("500mg".into());
                 }
-                if lower.contains("frequency") {
+                // DomainContract prompt_label: "how often to take it ..."
+                if lower.contains("frequency") || lower.contains("how often") {
                     return Ok("twice daily".into());
                 }
                 if lower.contains("route") {

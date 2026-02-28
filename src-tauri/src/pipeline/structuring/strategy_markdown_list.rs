@@ -6,9 +6,11 @@
 //!
 //! 0% degeneration on all configurations (BM-05).
 
+use crate::pipeline::domain_contracts::contract_for_document_domain;
 use crate::pipeline::prompt_templates::{
     self, DocumentDomain, PromptStrategyKind,
 };
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::structuring::extraction_strategy::{ExtractionStrategy, StrategyOutput};
 use crate::pipeline::structuring::markdown_parser;
 use crate::pipeline::structuring::types::{ExtractedEntities, LlmClient};
@@ -48,7 +50,8 @@ impl ExtractionStrategy for MarkdownListStrategy {
         let mut raw_responses = Vec::with_capacity(domains.len());
 
         for &domain in domains {
-            let prompt = prompt_templates::markdown_list_prompt(domain, text, ocr_confidence);
+            let contract = contract_for_document_domain(domain);
+            let prompt = contract.build_markdown_list_prompt(text, ocr_confidence);
 
             let response = match call_with_retry(llm, model, &prompt, system, self.max_retries) {
                 Ok(resp) => resp,
@@ -108,7 +111,10 @@ fn call_with_retry(
 
     for attempt in 0..=max_retries {
         match llm.generate(model, prompt, system) {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                // C2: Strip thinking tokens before parsing
+                return Ok(sanitize_llm_output(&response));
+            }
             Err(e) => {
                 if attempt < max_retries {
                     tracing::debug!(attempt, error = %e, "MarkdownList: retrying");

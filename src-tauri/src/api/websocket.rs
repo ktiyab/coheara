@@ -410,6 +410,14 @@ async fn handle_chat_query(
             .resolve(&conn, &ollama_client)
             .ok()
             .map(|r| r.name);
+
+        // C5: Acquire Butler guard — tracks model state, prevents concurrent conflicts
+        let model_for_guard = resolved_model.as_deref().unwrap_or("unknown");
+        let _butler_guard = core.butler().acquire(
+            crate::ollama_service::OperationKind::ChatGeneration,
+            model_for_guard,
+        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
+
         let db_key = core.db_key().ok();
         let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref());
 

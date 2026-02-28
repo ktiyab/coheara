@@ -12,3 +12,5 @@ pub mod stream_guard; // L6-06: Degeneration watchdog for token streams
 pub mod hardware_advisor; // L6-07: Hardware → variant recommendation
 pub mod prompt_templates; // L6-08: Strategy-aware prompt templates
 pub mod strategy; // L6-05: Context-aware strategy resolution
+pub mod quality_gate; // L6-13: Post-generation output diversity validator
+pub mod domain_contracts; // L6-10: Declarative field-to-prompt-to-DB mapping

@@ -405,6 +405,166 @@ impl Drop for ButlerGuard<'_> {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ButlerSession — L6-11: enforced SLM call boundary
+// ═══════════════════════════════════════════════════════════
+
+use crate::pipeline::domain_contracts::DomainContract;
+use crate::pipeline::quality_gate::{
+    self, QualityGateConfig, QualityGateFailure,
+};
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
+use crate::pipeline::strategy::{
+    self, ContextType, PromptStrategy,
+};
+use crate::pipeline::stream_guard::StreamGuardConfig;
+
+/// Enforced call boundary for all SLM interaction.
+///
+/// Wraps `ButlerGuard` (exclusive access) with resolved configuration:
+/// `PromptStrategy`, `StreamGuardConfig`, `QualityGateConfig`, and optional
+/// `DomainContract`. Callers declare `ContextType` at creation, Butler
+/// resolves everything.
+///
+/// **Configuration resolver + output processor**:
+/// 1. Resolves strategy from (`ContextType`, `ModelVariant`)
+/// 2. Derives `StreamGuardConfig` from strategy
+/// 3. Provides output post-processing (sanitize → quality gate)
+/// 4. Holds optional `DomainContract` for prompt generation
+///
+/// Industry precedent: Apple `AVCaptureSession` (configure → startRunning),
+/// Android `CameraDevice.createCaptureSession` (preset → pipeline).
+pub struct ButlerSession<'a> {
+    /// RAII guard — held for exclusive access, released on drop.
+    #[allow(dead_code)]
+    guard: ButlerGuard<'a>,
+    model: String,
+    context: ContextType,
+    strategy: PromptStrategy,
+    guard_config: StreamGuardConfig,
+    quality_config: QualityGateConfig,
+    contract: Option<&'static DomainContract>,
+}
+
+/// Derive `StreamGuardConfig` from a resolved `PromptStrategy`.
+///
+/// The strategy's `max_tokens` caps the guard's total token limit.
+/// All other guard parameters use calibrated defaults (BM-04/05/06).
+fn derive_guard_config(strategy: &PromptStrategy) -> StreamGuardConfig {
+    StreamGuardConfig {
+        max_total_tokens: strategy.max_tokens as usize,
+        ..StreamGuardConfig::default()
+    }
+}
+
+impl<'a> ButlerSession<'a> {
+    // ── Accessors ──────────────────────────────────────────
+
+    /// The resolved prompt strategy for this session.
+    pub fn strategy(&self) -> &PromptStrategy {
+        &self.strategy
+    }
+
+    /// The stream guard configuration derived from the strategy.
+    pub fn stream_guard_config(&self) -> &StreamGuardConfig {
+        &self.guard_config
+    }
+
+    /// The quality gate configuration for this session.
+    pub fn quality_config(&self) -> &QualityGateConfig {
+        &self.quality_config
+    }
+
+    /// The optional domain contract bound to this session.
+    pub fn contract(&self) -> Option<&'static DomainContract> {
+        self.contract
+    }
+
+    /// The calling context type for this session.
+    pub fn context(&self) -> ContextType {
+        self.context
+    }
+
+    /// The model name for this session.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    // ── Builder methods ────────────────────────────────────
+
+    /// Bind a domain contract to this session (for prompt generation).
+    pub fn with_contract(mut self, contract: &'static DomainContract) -> Self {
+        self.contract = Some(contract);
+        self
+    }
+
+    /// Override the quality gate configuration (default is fine for most uses).
+    pub fn with_quality_config(mut self, config: QualityGateConfig) -> Self {
+        self.quality_config = config;
+        self
+    }
+
+    // ── Output processing ──────────────────────────────────
+
+    /// Strip thinking tokens and model artifacts from raw LLM output.
+    pub fn sanitize(&self, raw: &str) -> String {
+        sanitize_llm_output(raw)
+    }
+
+    /// Check if output passes the quality gate (diversity + line dominance).
+    pub fn validate_output(&self, text: &str) -> Result<(), QualityGateFailure> {
+        quality_gate::validate_output(text, &self.quality_config)
+    }
+
+    /// Sanitize output, then validate it through the quality gate.
+    ///
+    /// Returns the sanitized text on success, or the quality failure on error.
+    /// This is the standard output processing pipeline:
+    /// raw → sanitize → quality gate → clean text.
+    pub fn process_output(&self, raw: &str) -> Result<String, QualityGateFailure> {
+        let sanitized = self.sanitize(raw);
+        self.validate_output(&sanitized)?;
+        Ok(sanitized)
+    }
+}
+
+impl ButlerService {
+    /// Start a new SLM session with resolved configuration.
+    ///
+    /// Acquires exclusive Ollama access, resolves the prompt strategy from
+    /// the calling context + model variant, and derives the stream guard
+    /// config. The returned session provides output post-processing methods.
+    ///
+    /// # Arguments
+    /// * `kind` — Operation kind for Ollama lock tracking
+    /// * `model` — Model name (variant auto-detected)
+    /// * `context` — Calling context that determines strategy
+    pub fn start_session(
+        &self,
+        kind: OperationKind,
+        model: &str,
+        context: ContextType,
+    ) -> Result<ButlerSession<'_>, OllamaServiceError> {
+        let guard = self.acquire(kind, model)?;
+        let variant = strategy::detect_model_variant(model);
+        let gpu = self.hardware_tier().map_or(false, |t| {
+            matches!(t, GpuTier::FullGpu | GpuTier::PartialGpu)
+        });
+        let strategy = strategy::resolve_strategy_with_gpu(context, variant, gpu);
+        let guard_config = derive_guard_config(&strategy);
+
+        Ok(ButlerSession {
+            guard,
+            model: model.to_string(),
+            context,
+            strategy,
+            guard_config,
+            quality_config: QualityGateConfig::default(),
+            contract: None,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // ButlerStatus — serializable snapshot
 // ═══════════════════════════════════════════════════════════
 
@@ -736,5 +896,239 @@ mod tests {
         let status = butler.status();
         assert!(status.model_expires_at.is_none());
         assert!(status.measured_tok_per_sec.is_none());
+    }
+
+    // ── L6-11: ButlerSession tests ─────────────────────────
+
+    #[test]
+    fn start_session_resolves_strategy() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "coheara-medgemma-4b-q8",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap();
+        assert_eq!(session.context(), ContextType::DocumentExtraction);
+        assert_eq!(session.model(), "coheara-medgemma-4b-q8");
+        assert!(session.strategy().streaming);
+        assert_eq!(session.strategy().max_tokens, 4096);
+    }
+
+    #[test]
+    fn session_guard_config_derives_from_strategy() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::BatchExtraction,
+                "coheara-medgemma-4b-q4",
+                ContextType::NightBatch,
+            )
+            .unwrap();
+        // NightBatch uses IterativeDrill with 1024 max_tokens
+        assert_eq!(session.strategy().max_tokens, 1024);
+        assert_eq!(session.stream_guard_config().max_total_tokens, 1024);
+        // Other guard defaults preserved
+        assert_eq!(session.stream_guard_config().max_consecutive_identical, 20);
+        assert_eq!(session.stream_guard_config().sequence_length, 10);
+    }
+
+    #[test]
+    fn session_with_contract() {
+        use crate::pipeline::domain_contracts;
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "medgemma:4b",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap()
+            .with_contract(&domain_contracts::LAB_RESULTS);
+        assert!(session.contract().is_some());
+        assert_eq!(session.contract().unwrap().domain, "lab_results");
+    }
+
+    #[test]
+    fn session_without_contract() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::ChatGeneration,
+                "medgemma:4b",
+                ContextType::HealthQuery,
+            )
+            .unwrap();
+        assert!(session.contract().is_none());
+    }
+
+    #[test]
+    fn session_sanitize_strips_thinking_tokens() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::ChatGeneration,
+                "medgemma:4b",
+                ContextType::HealthQuery,
+            )
+            .unwrap();
+        let raw = "<unused94>thought\nsome reasoning here\nActual answer text";
+        let sanitized = session.sanitize(raw);
+        assert!(sanitized.contains("Actual answer text"));
+        assert!(!sanitized.contains("thought"));
+    }
+
+    #[test]
+    fn session_validate_output_passes_healthy_text() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "medgemma:4b",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap();
+        let text = "The patient presented with persistent headaches \
+                    over the past two weeks. Blood pressure was measured \
+                    at 140/90 mmHg. Lab results show elevated creatinine.";
+        assert!(session.validate_output(text).is_ok());
+    }
+
+    #[test]
+    fn session_validate_output_catches_degenerate() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "medgemma:4b",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap();
+        let degenerate = vec!["error"; 100].join(" ");
+        assert!(session.validate_output(&degenerate).is_err());
+    }
+
+    #[test]
+    fn session_process_output_sanitizes_and_validates() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::ChatGeneration,
+                "medgemma:4b",
+                ContextType::HealthQuery,
+            )
+            .unwrap();
+        let raw = "<unused94>thought\nreasoning\n\
+                   The patient has normal blood pressure at 120/80 mmHg with \
+                   adequate hemoglobin levels and no signs of infection or \
+                   abnormal lab findings during the routine screening.";
+        let result = session.process_output(raw);
+        assert!(result.is_ok());
+        let clean = result.unwrap();
+        assert!(!clean.contains("thought"));
+        assert!(clean.contains("blood pressure"));
+    }
+
+    #[test]
+    fn session_process_output_rejects_degenerate() {
+        let butler = ButlerService::new();
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "medgemma:4b",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap();
+        let degenerate = vec!["error error error"; 50].join(" ");
+        let result = session.process_output(&degenerate);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn session_with_custom_quality_config() {
+        let butler = ButlerService::new();
+        let config = QualityGateConfig {
+            min_diversity_ratio: 0.5,
+            max_line_dominance: 0.3,
+            min_words_for_check: 10,
+        };
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "medgemma:4b",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap()
+            .with_quality_config(config);
+        // Strict config catches more
+        let text = "take one tablet daily with food take one tablet daily \
+                    with food take one tablet daily with food and water";
+        assert!(session.validate_output(text).is_err());
+    }
+
+    #[test]
+    fn session_holds_exclusive_access() {
+        let butler = ButlerService::new();
+        let _session = butler
+            .start_session(
+                OperationKind::DocumentOcr,
+                "medgemma:4b",
+                ContextType::VisionOcr,
+            )
+            .unwrap();
+        // Butler is busy — try_acquire should fail
+        assert!(butler.try_acquire(OperationKind::ChatGeneration, "medgemma:4b").is_none());
+    }
+
+    #[test]
+    fn session_drop_releases_access() {
+        let butler = ButlerService::new();
+        {
+            let _session = butler
+                .start_session(
+                    OperationKind::DocumentOcr,
+                    "medgemma:4b",
+                    ContextType::VisionOcr,
+                )
+                .unwrap();
+        }
+        // After session drop, butler is free
+        let guard = butler.try_acquire(OperationKind::ChatGeneration, "medgemma:4b");
+        assert!(guard.is_some());
+    }
+
+    #[test]
+    fn session_gpu_aware_strategy() {
+        let butler = ButlerService::new();
+        butler.cache_hardware(GpuTier::FullGpu);
+        let session = butler
+            .start_session(
+                OperationKind::DocumentStructuring,
+                "coheara-medgemma-4b-f16",
+                ContextType::DocumentExtraction,
+            )
+            .unwrap();
+        // GPU + F16 should still use MarkdownList (STR-01: context determines strategy)
+        assert!(session.strategy().streaming);
+    }
+
+    #[test]
+    fn derive_guard_config_caps_tokens() {
+        use crate::pipeline::prompt_templates::PromptStrategyKind;
+        let strategy = PromptStrategy {
+            kind: PromptStrategyKind::IterativeDrill,
+            temperature: 0.1,
+            max_tokens: 1024,
+            max_retries: 1,
+            streaming: true,
+        };
+        let config = derive_guard_config(&strategy);
+        assert_eq!(config.max_total_tokens, 1024);
+        // Defaults preserved
+        assert_eq!(config.max_consecutive_identical, 20);
+        assert_eq!(config.sequence_length, 10);
+        assert_eq!(config.max_sequence_repeats, 5);
+        assert_eq!(config.ring_buffer_size, 200);
     }
 }

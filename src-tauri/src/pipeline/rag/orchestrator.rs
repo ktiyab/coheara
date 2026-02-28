@@ -13,6 +13,7 @@ use super::types::{
     AssembledContext, ContextSummary, PatientQuery, RagResponse, VectorSearch,
 };
 use super::RagError;
+use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::safety::sanitize::sanitize_patient_input;
 use crate::pipeline::storage::types::EmbeddingModel;
 
@@ -172,8 +173,11 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             .generator
             .generate(&system_prompt, &prompt)?;
 
+        // C2: Strip thinking tokens before parsing (prevents <unused94> leaking to user)
+        let sanitized_response = sanitize_llm_output(&raw_response);
+
         // Step 9: Parse boundary check + clean response
-        let (boundary_check, cleaned_response) = parse_boundary_check(&raw_response);
+        let (boundary_check, cleaned_response) = parse_boundary_check(&sanitized_response);
 
         // Step 10: Extract citations
         let raw_citations = extract_citations(&cleaned_response, &assembled.chunks_included);
@@ -276,8 +280,11 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             .generator
             .generate_streaming(&system_prompt, &prompt, token_tx)?;
 
+        // C2: Strip thinking tokens before parsing (prevents <unused94> leaking to user)
+        let sanitized_response = sanitize_llm_output(&raw_response);
+
         // Steps 9-13: post-processing (identical to generate())
-        let (boundary_check, cleaned_response) = parse_boundary_check(&raw_response);
+        let (boundary_check, cleaned_response) = parse_boundary_check(&sanitized_response);
         let raw_citations = extract_citations(&cleaned_response, &assembled.chunks_included);
         let citations = validate_citations(self.conn, raw_citations);
         let display_text = clean_citations_for_display(&cleaned_response);
