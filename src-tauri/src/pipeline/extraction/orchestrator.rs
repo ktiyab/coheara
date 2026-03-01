@@ -80,7 +80,6 @@ pub struct DocumentExtractor {
     classifier: Box<dyn VisionClassifier>,
     vision_session: Box<dyn VisionSession>,
     vision_client: Box<dyn VisionClient>,
-    system_prompt: String,
     preprocessor: Box<dyn ImagePreprocessor>,
     interpreter: Option<Box<dyn MedicalImageInterpreter>>,
     /// Language code for prompts and diagnostics (e.g., "en", "fr", "de").
@@ -90,12 +89,13 @@ pub struct DocumentExtractor {
 }
 
 impl DocumentExtractor {
+    /// 10-LDC: `system_prompt` removed — IterativeDrill now uses locale-specific
+    /// system prompts via `PromptLocale.system_prompt`. No monolithic OCR prompt needed.
     pub fn new(
         pdf_renderer: Box<dyn PdfPageRenderer>,
         classifier: Box<dyn VisionClassifier>,
         vision_session: Box<dyn VisionSession>,
         vision_client: Box<dyn VisionClient>,
-        system_prompt: String,
         preprocessor: Box<dyn ImagePreprocessor>,
     ) -> Self {
         Self {
@@ -103,7 +103,6 @@ impl DocumentExtractor {
             classifier,
             vision_session,
             vision_client,
-            system_prompt,
             preprocessor,
             interpreter: None,
             language: "en".to_string(),
@@ -280,9 +279,10 @@ impl DocumentExtractor {
                 self.vision_session.as_ref(),
                 self.vision_client.as_ref(),
                 &images,
-                &self.system_prompt,
+                "", // 10-LDC: system prompt now provided by PromptLocale inside drill
                 progress_path.as_deref(),
                 self.user_document_type,
+                &self.language,
             )
             .map_err(|e| {
                 ExtractionError::VisionOcrFailed(format!("Vision extraction failed: {e}"))
@@ -620,34 +620,27 @@ mod tests {
         ) -> Result<String, OllamaError> {
             let lower = prompt.to_lowercase();
 
-            // Enumerate: return lab tests for "tests" domain
-            if lower.contains("are visible") {
-                if lower.contains("tests") {
+            // 10-LDC: Enumerate via locale prompts ("per line" or "are visible")
+            if lower.contains("per line") || lower.contains("are visible") {
+                if lower.contains("analytes") || lower.contains("tests") {
                     return Ok("- Hemoglobine\n- Leucocytes".into());
                 }
-                return Ok("None".into());
+                return Ok("NONE".into());
             }
 
-            // Drill
-            if lower.contains("what is the") {
+            // 10-LDC: Drill via locale prompts (value+unit, reference range)
+            if lower.contains("value and unit") || lower.contains("measured value") {
                 if lower.contains("hemoglobine") {
-                    if lower.contains("result value") {
-                        return Ok("11.2".into());
-                    }
-                    if lower.contains("unit") {
-                        return Ok("g/dL".into());
-                    }
-                    if lower.contains("whether the result") {
-                        return Ok("low".into());
-                    }
+                    return Ok("11.2 g/dL".into());
                 }
                 if lower.contains("leucocytes") {
-                    if lower.contains("result value") {
-                        return Ok("7.2".into());
-                    }
-                    if lower.contains("unit") {
-                        return Ok("10^9/L".into());
-                    }
+                    return Ok("7.2 G/L".into());
+                }
+                return Ok("not specified".into());
+            }
+            if lower.contains("reference range") || lower.contains("normal values") {
+                if lower.contains("hemoglobine") {
+                    return Ok("(12.0-16.0)".into());
                 }
                 return Ok("not specified".into());
             }
@@ -664,7 +657,6 @@ mod tests {
             Box::new(MockVisionClassifier::document()),
             Box::new(session),
             Box::new(DrillVisionClient),
-            "You are a medical document extractor.".into(),
             Box::new(MockImagePreprocessor::new()),
         )
     }
@@ -677,7 +669,6 @@ mod tests {
             Box::new(MockVisionClassifier::document()),
             Box::new(session),
             Box::new(DrillVisionClient),
-            "You are a medical document extractor.".into(),
             Box::new(MockImagePreprocessor::new()),
         )
     }
@@ -690,7 +681,6 @@ mod tests {
             Box::new(MockVisionClassifier::medical_image()),
             Box::new(session),
             Box::new(DrillVisionClient),
-            "You are a medical document extractor.".into(),
             Box::new(MockImagePreprocessor::new()),
         )
         .with_interpreter(Box::new(MockMedicalImageInterpreter::new(
@@ -1107,7 +1097,6 @@ mod tests {
             Box::new(MockVisionClassifier::medical_image()),
             Box::new(session),
             Box::new(DrillVisionClient),
-            "You are a medical document extractor.".into(),
             Box::new(MockImagePreprocessor::new()),
         );
 

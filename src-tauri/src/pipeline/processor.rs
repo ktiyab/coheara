@@ -1138,9 +1138,8 @@ pub fn build_processor_from_assignment_with_vision(
             use crate::ollama_service::OllamaService;
             use crate::pipeline::extraction::pdfium::PdfiumRenderer;
             use crate::pipeline::extraction::preprocess::{ImagePreprocessor, PreprocessingPipeline};
-            use crate::pipeline::extraction::vision_ocr::{
-                OllamaMedicalImageInterpreter, build_system_prompt,
-            };
+            // 10-LDC: build_system_prompt removed — IterativeDrill uses PromptLocale.system_prompt
+            use crate::pipeline::extraction::vision_ocr::OllamaMedicalImageInterpreter;
             use crate::pipeline::strategy::ContextType;
 
             let pdf_renderer = PdfiumRenderer::new()
@@ -1169,8 +1168,6 @@ pub fn build_processor_from_assignment_with_vision(
             let mut drill_client = OllamaService::client();
             drill_client.set_vision_num_ctx(config.num_ctx);
 
-            let system_prompt = build_system_prompt(language).to_string();
-
             let interpreter = Box::new(OllamaMedicalImageInterpreter::new(
                 Arc::clone(&vision_client),
                 model.clone(),
@@ -1183,7 +1180,6 @@ pub fn build_processor_from_assignment_with_vision(
                 classifier,
                 Box::new(session),
                 Box::new(drill_client),
-                system_prompt,
                 preprocessor,
             )
             .with_interpreter(interpreter)
@@ -1316,7 +1312,6 @@ mod tests {
             Box::new(MockVisionClassifier::document()),
             Box::new(session),
             Box::new(MockVisionClient::new("mock drill response")),
-            "You are a medical document extractor.".into(),
             Box::new(MockImagePreprocessor::new()),
         )
     }

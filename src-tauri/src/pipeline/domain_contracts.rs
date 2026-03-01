@@ -682,6 +682,472 @@ pub fn category_context(doc_type: UserDocumentType) -> &'static str {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 10-LDC: Language-aware PromptLocale
+// ═══════════════════════════════════════════════════════════
+
+/// Language-specific prompt fragments for a medical extraction domain.
+///
+/// Each supported language provides its own PromptLocale for each domain.
+/// Prompts are written in the target language following BM-06 findings:
+/// language-matched prompts eliminate translation overhead and improve
+/// extraction quality by 5-23x (BM-06 evidence: 12/12 vs ~10/13 tests).
+///
+/// Design: prompts are DATA, not code. Adding a language means adding rows,
+/// not modifying control flow. Adding a domain means adding a match arm.
+#[derive(Debug, Clone, Copy)]
+pub struct PromptLocale {
+    /// Language code (ISO 639-1): "en", "fr", "de"
+    pub lang: &'static str,
+    /// Singular item label. EN: "analyte", FR: "analyse", DE: "Laborparameter"
+    pub item_label: &'static str,
+    /// Plural item label. EN: "analytes", FR: "analyses", DE: "Laborparameter"
+    pub item_label_plural: &'static str,
+    /// Vision enumerate prompt — complete, ready to send.
+    pub vision_enumerate: &'static str,
+    /// Vision drill prompt for value+unit. `{item}` placeholder.
+    pub vision_drill_value: &'static str,
+    /// Vision drill prompt for reference range. `{item}` placeholder.
+    pub vision_drill_range: &'static str,
+    /// NONE keyword in this language for empty-case detection.
+    pub none_keyword: &'static str,
+    /// System prompt for IterativeDrill — focused extraction assistant.
+    pub system_prompt: &'static str,
+    /// 11-SRP: Start delimiter for model's answer section.
+    /// Parser extracts content between answer_start and answer_end.
+    pub answer_start: &'static str,
+    /// 11-SRP: End delimiter for model's answer section.
+    pub answer_end: &'static str,
+}
+
+// ── Lab Results locales ────────────────────────────────────
+
+const LAB_RESULTS_EN: PromptLocale = PromptLocale {
+    lang: "en",
+    item_label: "analyte",
+    item_label_plural: "analytes",
+    vision_enumerate:
+        "What are the names of the laboratory analytes listed in this document?\n\
+         One name per line.\n\
+         If no analytes are visible, respond: <answer>NONE</answer>",
+    vision_drill_value:
+        "What is the measured value and unit for the analyte '{item}'?",
+    vision_drill_range:
+        "What is the reference range (normal values) for '{item}'?",
+    none_keyword: "NONE",
+    system_prompt:
+        "You are a medical data extraction assistant.\n\
+         Reason inside <think>...</think>, then give your answer inside <answer>...</answer>.\n\n\
+         Example:\n\
+         Question: What analytes are listed on this page?\n\
+         <think>\n\
+         I see a hematology section with Hemoglobin, Hematocrit, WBC count.\n\
+         </think>\n\
+         <answer>\n\
+         Hemoglobin\n\
+         Hematocrit\n\
+         WBC\n\
+         </answer>\n\n\
+         Rules:\n\
+         - Only extract what is asked\n\
+         - Answer must match what you see in the document\n\
+         - Close all tags",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const LAB_RESULTS_FR: PromptLocale = PromptLocale {
+    lang: "fr",
+    item_label: "analyse",
+    item_label_plural: "analyses",
+    vision_enumerate:
+        "Quels sont les noms des analyses biologiques listées dans ce document ?\n\
+         Un nom par ligne.\n\
+         Si aucune analyse n'est visible, répondre : <answer>AUCUN</answer>",
+    vision_drill_value:
+        "Quelle est la valeur mesurée et l'unité pour l'analyse « {item} » ?",
+    vision_drill_range:
+        "Quelle est la plage de référence (valeurs normales) pour « {item} » ?",
+    none_keyword: "AUCUN",
+    system_prompt:
+        "Tu es un assistant d'extraction médicale.\n\
+         Raisonne dans <think>...</think>, puis donne ta réponse dans <answer>...</answer>.\n\n\
+         Exemple :\n\
+         Question : Quels sont les noms des analyses sur cette page ?\n\
+         <think>\n\
+         Je vois une section HEMATOLOGIE avec Hématies, Hémoglobine, Hématocrite.\n\
+         </think>\n\
+         <answer>\n\
+         Hématies\n\
+         Hémoglobine\n\
+         Hématocrite\n\
+         </answer>\n\n\
+         Règles :\n\
+         - Extrais uniquement ce qui est demandé\n\
+         - La réponse doit correspondre au document\n\
+         - Ferme toujours les balises",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const LAB_RESULTS_DE: PromptLocale = PromptLocale {
+    lang: "de",
+    item_label: "Laborparameter",
+    item_label_plural: "Laborparameter",
+    vision_enumerate:
+        "Welche Laborparameter sind in diesem Dokument aufgelistet?\n\
+         Ein Name pro Zeile.\n\
+         Falls keine Laborparameter sichtbar sind, antworte: <answer>KEINE</answer>",
+    vision_drill_value:
+        "Welcher Messwert und welche Einheit hat der Parameter '{item}'?",
+    vision_drill_range:
+        "Welcher Referenzbereich (Normalwerte) gilt fuer '{item}'?",
+    none_keyword: "KEINE",
+    system_prompt:
+        "Du bist ein Assistent fuer medizinische Datenextraktion.\n\
+         Denke in <think>...</think>, dann gib deine Antwort in <answer>...</answer>.\n\n\
+         Beispiel:\n\
+         Frage: Welche Laborparameter sind auf dieser Seite?\n\
+         <think>\n\
+         Ich sehe einen Haematologie-Abschnitt mit Haemoglobin, Haematokrit.\n\
+         </think>\n\
+         <answer>\n\
+         Haemoglobin\n\
+         Haematokrit\n\
+         </answer>\n\n\
+         Regeln:\n\
+         - Nur extrahieren, was gefragt wird\n\
+         - Antwort muss dem Dokument entsprechen\n\
+         - Alle Tags schliessen",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+// ── Medications locales ────────────────────────────────────
+
+const MEDICATIONS_EN: PromptLocale = PromptLocale {
+    lang: "en",
+    item_label: "medication",
+    item_label_plural: "prescribed medications",
+    vision_enumerate:
+        "What are the names of the prescribed medications in this document?\n\
+         One name per line.\n\
+         If no medications are visible, respond: <answer>NONE</answer>",
+    vision_drill_value:
+        "What is the prescribed dosage for '{item}' (dose, frequency, route)?",
+    vision_drill_range: "",
+    none_keyword: "NONE",
+    system_prompt:
+        "You are a medical data extraction assistant.\n\
+         Reason inside <think>...</think>, then give your answer inside <answer>...</answer>.\n\n\
+         Example:\n\
+         Question: What medications are prescribed?\n\
+         <think>\n\
+         I see Paracetamol 1000mg and Amoxicillin 500mg on this prescription.\n\
+         </think>\n\
+         <answer>\n\
+         Paracetamol\n\
+         Amoxicillin\n\
+         </answer>\n\n\
+         Rules:\n\
+         - Only extract what is asked\n\
+         - Answer must match what you see in the document\n\
+         - Close all tags",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const MEDICATIONS_FR: PromptLocale = PromptLocale {
+    lang: "fr",
+    item_label: "médicament",
+    item_label_plural: "médicaments prescrits",
+    vision_enumerate:
+        "Quels sont les noms des médicaments prescrits dans cette ordonnance ?\n\
+         Un nom par ligne.\n\
+         Si aucun médicament n'est visible, répondre : <answer>AUCUN</answer>",
+    vision_drill_value:
+        "Quelle est la posologie prescrite pour « {item} » \
+         (dose, fréquence, voie d'administration) ?",
+    vision_drill_range: "",
+    none_keyword: "AUCUN",
+    system_prompt:
+        "Tu es un assistant d'extraction médicale.\n\
+         Raisonne dans <think>...</think>, puis donne ta réponse dans <answer>...</answer>.\n\n\
+         Exemple :\n\
+         Question : Quels médicaments sont prescrits ?\n\
+         <think>\n\
+         Je vois Paracétamol 1000mg et Amoxicilline 500mg sur cette ordonnance.\n\
+         </think>\n\
+         <answer>\n\
+         Paracétamol\n\
+         Amoxicilline\n\
+         </answer>\n\n\
+         Règles :\n\
+         - Extrais uniquement ce qui est demandé\n\
+         - La réponse doit correspondre au document\n\
+         - Ferme toujours les balises",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const MEDICATIONS_DE: PromptLocale = PromptLocale {
+    lang: "de",
+    item_label: "Medikament",
+    item_label_plural: "verordnete Medikamente",
+    vision_enumerate:
+        "Welche Medikamente sind in diesem Rezept verordnet?\n\
+         Ein Name pro Zeile.\n\
+         Falls keine Medikamente sichtbar sind, antworte: <answer>KEINE</answer>",
+    vision_drill_value:
+        "Welche Dosierung ist fuer '{item}' verordnet \
+         (Dosis, Haeufigkeit, Verabreichungsweg)?",
+    vision_drill_range: "",
+    none_keyword: "KEINE",
+    system_prompt:
+        "Du bist ein Assistent fuer medizinische Datenextraktion.\n\
+         Denke in <think>...</think>, dann gib deine Antwort in <answer>...</answer>.\n\n\
+         Beispiel:\n\
+         Frage: Welche Medikamente sind verordnet?\n\
+         <think>\n\
+         Ich sehe Paracetamol 1000mg und Amoxicillin 500mg auf diesem Rezept.\n\
+         </think>\n\
+         <answer>\n\
+         Paracetamol\n\
+         Amoxicillin\n\
+         </answer>\n\n\
+         Regeln:\n\
+         - Nur extrahieren, was gefragt wird\n\
+         - Antwort muss dem Dokument entsprechen\n\
+         - Alle Tags schliessen",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+// ── Diagnoses locales ──────────────────────────────────────
+
+const DIAGNOSES_EN: PromptLocale = PromptLocale {
+    lang: "en",
+    item_label: "diagnosis",
+    item_label_plural: "medical diagnoses",
+    vision_enumerate:
+        "What medical diagnoses are mentioned in this document?\n\
+         One diagnosis per line.\n\
+         If no diagnoses are visible, respond: <answer>NONE</answer>",
+    vision_drill_value:
+        "What is the current status of the diagnosis '{item}' \
+         (active, resolved, monitoring)?",
+    vision_drill_range: "",
+    none_keyword: "NONE",
+    system_prompt:
+        "You are a medical data extraction assistant.\n\
+         Reason inside <think>...</think>, then give your answer inside <answer>...</answer>.\n\n\
+         Example:\n\
+         Question: What diagnoses are mentioned?\n\
+         <think>\n\
+         I see Type 2 Diabetes and Hypertension listed as active conditions.\n\
+         </think>\n\
+         <answer>\n\
+         Type 2 Diabetes\n\
+         Hypertension\n\
+         </answer>\n\n\
+         Rules:\n\
+         - Only extract what is asked\n\
+         - Answer must match what you see in the document\n\
+         - Close all tags",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const DIAGNOSES_FR: PromptLocale = PromptLocale {
+    lang: "fr",
+    item_label: "diagnostic",
+    item_label_plural: "diagnostics médicaux",
+    vision_enumerate:
+        "Quels diagnostics médicaux sont mentionnés dans ce document ?\n\
+         Un diagnostic par ligne.\n\
+         Si aucun diagnostic n'est visible, répondre : <answer>AUCUN</answer>",
+    vision_drill_value:
+        "Quel est le statut actuel du diagnostic « {item} » \
+         (actif, résolu, en surveillance) ?",
+    vision_drill_range: "",
+    none_keyword: "AUCUN",
+    system_prompt:
+        "Tu es un assistant d'extraction médicale.\n\
+         Raisonne dans <think>...</think>, puis donne ta réponse dans <answer>...</answer>.\n\n\
+         Exemple :\n\
+         Question : Quels diagnostics sont mentionnés ?\n\
+         <think>\n\
+         Je vois Diabète de type 2 et Hypertension artérielle comme conditions actives.\n\
+         </think>\n\
+         <answer>\n\
+         Diabète de type 2\n\
+         Hypertension artérielle\n\
+         </answer>\n\n\
+         Règles :\n\
+         - Extrais uniquement ce qui est demandé\n\
+         - La réponse doit correspondre au document\n\
+         - Ferme toujours les balises",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const DIAGNOSES_DE: PromptLocale = PromptLocale {
+    lang: "de",
+    item_label: "Diagnose",
+    item_label_plural: "medizinische Diagnosen",
+    vision_enumerate:
+        "Welche medizinischen Diagnosen werden in diesem Dokument erwaehnt?\n\
+         Eine Diagnose pro Zeile.\n\
+         Falls keine Diagnosen sichtbar sind, antworte: <answer>KEINE</answer>",
+    vision_drill_value:
+        "Welchen aktuellen Status hat die Diagnose '{item}' \
+         (aktiv, abgeklungen, unter Beobachtung)?",
+    vision_drill_range: "",
+    none_keyword: "KEINE",
+    system_prompt:
+        "Du bist ein Assistent fuer medizinische Datenextraktion.\n\
+         Denke in <think>...</think>, dann gib deine Antwort in <answer>...</answer>.\n\n\
+         Beispiel:\n\
+         Frage: Welche Diagnosen werden erwaehnt?\n\
+         <think>\n\
+         Ich sehe Diabetes Typ 2 und Bluthochdruck als aktive Diagnosen.\n\
+         </think>\n\
+         <answer>\n\
+         Diabetes Typ 2\n\
+         Bluthochdruck\n\
+         </answer>\n\n\
+         Regeln:\n\
+         - Nur extrahieren, was gefragt wird\n\
+         - Antwort muss dem Dokument entsprechen\n\
+         - Alle Tags schliessen",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+// ── Generic locales (allergies, procedures, referrals, instructions) ──
+
+const GENERIC_EN: PromptLocale = PromptLocale {
+    lang: "en",
+    item_label: "item",
+    item_label_plural: "items",
+    vision_enumerate:
+        "What items are listed in this document?\n\
+         One item per line.\n\
+         If none are visible, respond: <answer>NONE</answer>",
+    vision_drill_value:
+        "What are the details for '{item}'?",
+    vision_drill_range: "",
+    none_keyword: "NONE",
+    system_prompt:
+        "You are a medical data extraction assistant.\n\
+         Reason inside <think>...</think>, then give your answer inside <answer>...</answer>.\n\n\
+         Example:\n\
+         Question: What items are listed?\n\
+         <think>\n\
+         I see an allergy to Penicillin and a referral to cardiology.\n\
+         </think>\n\
+         <answer>\n\
+         Penicillin allergy\n\
+         Cardiology referral\n\
+         </answer>\n\n\
+         Rules:\n\
+         - Only extract what is asked\n\
+         - Answer must match what you see in the document\n\
+         - Close all tags",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const GENERIC_FR: PromptLocale = PromptLocale {
+    lang: "fr",
+    item_label: "élément",
+    item_label_plural: "éléments",
+    vision_enumerate:
+        "Quels éléments sont listés dans ce document ?\n\
+         Un élément par ligne.\n\
+         Si aucun élément n'est visible, répondre : <answer>AUCUN</answer>",
+    vision_drill_value:
+        "Quels sont les détails pour « {item} » ?",
+    vision_drill_range: "",
+    none_keyword: "AUCUN",
+    system_prompt:
+        "Tu es un assistant d'extraction médicale.\n\
+         Raisonne dans <think>...</think>, puis donne ta réponse dans <answer>...</answer>.\n\n\
+         Exemple :\n\
+         Question : Quels éléments sont listés ?\n\
+         <think>\n\
+         Je vois une allergie à la Pénicilline et une orientation vers la cardiologie.\n\
+         </think>\n\
+         <answer>\n\
+         Allergie Pénicilline\n\
+         Orientation cardiologie\n\
+         </answer>\n\n\
+         Règles :\n\
+         - Extrais uniquement ce qui est demandé\n\
+         - La réponse doit correspondre au document\n\
+         - Ferme toujours les balises",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+const GENERIC_DE: PromptLocale = PromptLocale {
+    lang: "de",
+    item_label: "Element",
+    item_label_plural: "Elemente",
+    vision_enumerate:
+        "Welche Elemente sind in diesem Dokument aufgelistet?\n\
+         Ein Element pro Zeile.\n\
+         Falls keine Elemente sichtbar sind, antworte: <answer>KEINE</answer>",
+    vision_drill_value:
+        "Welche Details gibt es zu '{item}'?",
+    vision_drill_range: "",
+    none_keyword: "KEINE",
+    system_prompt:
+        "Du bist ein Assistent fuer medizinische Datenextraktion.\n\
+         Denke in <think>...</think>, dann gib deine Antwort in <answer>...</answer>.\n\n\
+         Beispiel:\n\
+         Frage: Welche Elemente sind aufgelistet?\n\
+         <think>\n\
+         Ich sehe eine Penicillin-Allergie und eine Ueberweisung zur Kardiologie.\n\
+         </think>\n\
+         <answer>\n\
+         Penicillin-Allergie\n\
+         Ueberweisung Kardiologie\n\
+         </answer>\n\n\
+         Regeln:\n\
+         - Nur extrahieren, was gefragt wird\n\
+         - Antwort muss dem Dokument entsprechen\n\
+         - Alle Tags schliessen",
+    answer_start: "<answer>",
+    answer_end: "</answer>",
+};
+
+/// Resolve the PromptLocale for a domain + language.
+///
+/// Falls back to English if the language is not supported for this domain.
+/// This ensures the app never panics on unsupported languages — it degrades
+/// gracefully to English (which BM-06 shows still works, just less accurately).
+pub fn locale_for_domain(domain: &str, lang: &str) -> &'static PromptLocale {
+    let lang_code = if lang.len() >= 2 { &lang[..2] } else { lang };
+    match (domain, lang_code) {
+        ("lab_results", "fr") => &LAB_RESULTS_FR,
+        ("lab_results", "de") => &LAB_RESULTS_DE,
+        ("lab_results", _) => &LAB_RESULTS_EN,
+
+        ("medications", "fr") => &MEDICATIONS_FR,
+        ("medications", "de") => &MEDICATIONS_DE,
+        ("medications", _) => &MEDICATIONS_EN,
+
+        ("diagnoses", "fr") => &DIAGNOSES_FR,
+        ("diagnoses", "de") => &DIAGNOSES_DE,
+        ("diagnoses", _) => &DIAGNOSES_EN,
+
+        (_, "fr") => &GENERIC_FR,
+        (_, "de") => &GENERIC_DE,
+        (_, _) => &GENERIC_EN,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════
 
@@ -1144,5 +1610,290 @@ mod tests {
     fn category_context_medical_image_empty() {
         let ctx = category_context(UserDocumentType::MedicalImage);
         assert!(ctx.is_empty());
+    }
+
+    // ── 10-LDC: PromptLocale lookup tests ───────────────────
+
+    #[test]
+    fn locale_lab_results_en() {
+        let locale = locale_for_domain("lab_results", "en");
+        assert_eq!(locale.lang, "en");
+        assert_eq!(locale.item_label, "analyte");
+        assert!(locale.vision_enumerate.contains("analytes"));
+    }
+
+    #[test]
+    fn locale_lab_results_fr() {
+        let locale = locale_for_domain("lab_results", "fr");
+        assert_eq!(locale.lang, "fr");
+        assert_eq!(locale.item_label, "analyse");
+        assert!(locale.vision_enumerate.contains("analyses biologiques"));
+    }
+
+    #[test]
+    fn locale_lab_results_de() {
+        let locale = locale_for_domain("lab_results", "de");
+        assert_eq!(locale.lang, "de");
+        assert_eq!(locale.item_label, "Laborparameter");
+        assert!(locale.vision_enumerate.contains("Laborparameter"));
+    }
+
+    #[test]
+    fn locale_medications_en() {
+        let locale = locale_for_domain("medications", "en");
+        assert_eq!(locale.lang, "en");
+        assert!(locale.vision_enumerate.contains("prescribed medications"));
+        assert!(locale.vision_drill_range.is_empty());
+    }
+
+    #[test]
+    fn locale_medications_fr() {
+        let locale = locale_for_domain("medications", "fr");
+        assert_eq!(locale.lang, "fr");
+        assert!(locale.vision_enumerate.contains("médicaments prescrits"));
+        assert!(locale.vision_drill_value.contains("posologie"));
+    }
+
+    #[test]
+    fn locale_medications_de() {
+        let locale = locale_for_domain("medications", "de");
+        assert_eq!(locale.lang, "de");
+        assert!(locale.vision_enumerate.contains("Medikamente"));
+    }
+
+    #[test]
+    fn locale_unknown_lang_falls_back_to_en() {
+        let locale = locale_for_domain("lab_results", "ja");
+        assert_eq!(locale.lang, "en");
+        assert_eq!(locale.none_keyword, "NONE");
+    }
+
+    #[test]
+    fn locale_unknown_domain_uses_generic() {
+        let locale = locale_for_domain("allergies", "fr");
+        assert_eq!(locale.lang, "fr");
+        assert_eq!(locale.none_keyword, "AUCUN");
+    }
+
+    #[test]
+    fn locale_enumerate_contains_none_keyword_en() {
+        let locale = locale_for_domain("lab_results", "en");
+        assert!(locale.vision_enumerate.contains(locale.none_keyword));
+    }
+
+    #[test]
+    fn locale_enumerate_contains_none_keyword_fr() {
+        let locale = locale_for_domain("lab_results", "fr");
+        assert!(locale.vision_enumerate.contains(locale.none_keyword));
+    }
+
+    #[test]
+    fn locale_enumerate_contains_none_keyword_de() {
+        let locale = locale_for_domain("lab_results", "de");
+        assert!(locale.vision_enumerate.contains(locale.none_keyword));
+    }
+
+    #[test]
+    fn locale_system_prompt_no_monolithic_en() {
+        let locale = locale_for_domain("lab_results", "en");
+        assert!(!locale.system_prompt.contains("Extract ALL"));
+        assert!(!locale.system_prompt.contains("Markdown"));
+        // 11-SRP: structured prompts use think/answer tokens
+        assert!(locale.system_prompt.contains("<think>"));
+        assert!(locale.system_prompt.contains("<answer>"));
+    }
+
+    #[test]
+    fn locale_system_prompt_no_monolithic_fr() {
+        let locale = locale_for_domain("lab_results", "fr");
+        assert!(!locale.system_prompt.contains("Extract ALL"));
+        assert!(!locale.system_prompt.contains("Markdown"));
+        // 11-SRP: structured prompts use think/answer tokens
+        assert!(locale.system_prompt.contains("<think>"));
+        assert!(locale.system_prompt.contains("<answer>"));
+    }
+
+    #[test]
+    fn locale_system_prompt_no_monolithic_de() {
+        let locale = locale_for_domain("lab_results", "de");
+        assert!(!locale.system_prompt.contains("Extract ALL"));
+        assert!(!locale.system_prompt.contains("Markdown"));
+        // 11-SRP: structured prompts use think/answer tokens
+        assert!(locale.system_prompt.contains("<think>"));
+        assert!(locale.system_prompt.contains("<answer>"));
+    }
+
+    #[test]
+    fn locale_diagnoses_fr() {
+        let locale = locale_for_domain("diagnoses", "fr");
+        assert_eq!(locale.lang, "fr");
+        assert!(locale.vision_enumerate.contains("diagnostics médicaux"));
+    }
+
+    #[test]
+    fn locale_drill_value_has_item_placeholder() {
+        for domain in &["lab_results", "medications", "diagnoses"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert!(
+                    locale.vision_drill_value.contains("{item}"),
+                    "{domain}/{lang} drill_value missing {{item}} placeholder"
+                );
+            }
+        }
+    }
+
+    // ── 11-SRP Brick 2: Answer token tests ──────────────
+
+    #[test]
+    fn locale_has_answer_tokens() {
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert!(
+                    !locale.answer_start.is_empty(),
+                    "{domain}/{lang} missing answer_start"
+                );
+                assert!(
+                    !locale.answer_end.is_empty(),
+                    "{domain}/{lang} missing answer_end"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn answer_tokens_structural_check() {
+        let locale = locale_for_domain("lab_results", "en");
+        assert!(locale.answer_start.contains('<'), "answer_start must be an XML-like tag");
+        assert!(locale.answer_end.contains("</"), "answer_end must be a closing XML-like tag");
+    }
+
+    #[test]
+    fn answer_tokens_consistent_across_locales() {
+        // All locales must use the same answer tokens (language-independent delimiters)
+        let reference = locale_for_domain("lab_results", "en");
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert_eq!(
+                    locale.answer_start, reference.answer_start,
+                    "{domain}/{lang} answer_start differs from reference"
+                );
+                assert_eq!(
+                    locale.answer_end, reference.answer_end,
+                    "{domain}/{lang} answer_end differs from reference"
+                );
+            }
+        }
+    }
+
+    // ── 11-SRP Brick 3: Structured system prompt tests ────
+
+    #[test]
+    fn system_prompt_contains_think_answer_all_locales() {
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert!(
+                    locale.system_prompt.contains("<think>"),
+                    "{domain}/{lang} system_prompt missing <think> token"
+                );
+                assert!(
+                    locale.system_prompt.contains("<answer>"),
+                    "{domain}/{lang} system_prompt missing <answer> token"
+                );
+                assert!(
+                    locale.system_prompt.contains("</think>"),
+                    "{domain}/{lang} system_prompt missing </think> closing"
+                );
+                assert!(
+                    locale.system_prompt.contains("</answer>"),
+                    "{domain}/{lang} system_prompt missing </answer> closing"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_prompt_contains_example_all_locales() {
+        // Each locale must have a domain-appropriate example
+        let en_example = ["Example", "Beispiel", "Exemple"];
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                let has_example = en_example.iter().any(|kw| locale.system_prompt.contains(kw));
+                assert!(
+                    has_example,
+                    "{domain}/{lang} system_prompt missing example section"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn enumerate_prompt_none_has_answer_token_all_locales() {
+        // NONE instruction in enumerate prompts must be wrapped in answer tokens
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                let expected = format!(
+                    "<answer>{}</answer>",
+                    locale.none_keyword
+                );
+                assert!(
+                    locale.vision_enumerate.contains(&expected),
+                    "{domain}/{lang} vision_enumerate NONE not wrapped in answer tokens: expected '{expected}'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_prompt_under_400_tokens_estimate() {
+        // Proxy: system prompt should be under 2000 chars (~400 tokens for 4B model)
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert!(
+                    locale.system_prompt.len() < 2000,
+                    "{domain}/{lang} system_prompt too long: {} chars",
+                    locale.system_prompt.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_prompt_no_numbered_steps() {
+        // 11-SRP: No numbered reasoning steps — examples teach, not rules
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                assert!(
+                    !locale.system_prompt.contains("1."),
+                    "{domain}/{lang} system_prompt contains numbered steps"
+                );
+                assert!(
+                    !locale.system_prompt.contains("Step 1"),
+                    "{domain}/{lang} system_prompt contains 'Step 1'"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_prompt_has_three_rules() {
+        // Each locale should have exactly 3 rules (minimal, not overwhelming for 4B model)
+        for domain in &["lab_results", "medications", "diagnoses", "allergies"] {
+            for lang in &["en", "fr", "de"] {
+                let locale = locale_for_domain(domain, lang);
+                let rule_count = locale.system_prompt.matches("\n- ").count();
+                assert_eq!(
+                    rule_count, 3,
+                    "{domain}/{lang} system_prompt has {rule_count} rules, expected 3"
+                );
+            }
+        }
     }
 }

@@ -8,7 +8,7 @@ use super::extraction_strategy::{MockExtractionStrategy, StrategyOutput};
 use super::ollama::MockLlmClient;
 use super::orchestrator::DocumentStructurer;
 use super::types::{
-    ExtractedEntities, ExtractedMedication, ExtractedDiagnosis, ExtractedLabResult,
+    ExtractedEntities, ExtractedMedication, ExtractedLabResult,
     ExtractedProfessional, MedicalStructurer,
 };
 use super::validation::validate_extracted_entities;
