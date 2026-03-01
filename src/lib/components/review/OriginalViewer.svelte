@@ -1,6 +1,5 @@
 <!-- L3-04: Original document viewer with zoom, pan, rotate (image/PDF). -->
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { RefreshIcon } from '$lib/components/icons/md';
 
@@ -72,16 +71,17 @@
 
   let blobUrl: string | null = $state(null);
 
-  // Create blob URL when base64 data arrives; revoke old one to prevent leaks.
+  // Create blob URL when base64 data arrives. Cleanup revokes the previous URL.
   $effect(() => {
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
-    if (!fileBase64) { blobUrl = null; return; }
+    if (!fileBase64) {
+      blobUrl = null;
+      return;
+    }
     const mime = fileType === 'Pdf' ? 'application/pdf' : 'image/jpeg';
-    blobUrl = base64ToBlobUrl(fileBase64, mime);
+    const url = base64ToBlobUrl(fileBase64, mime);
+    blobUrl = url;
+    return () => URL.revokeObjectURL(url);
   });
-
-  // Clean up blob URL on unmount.
-  onMount(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); });
 </script>
 
 <div class="flex flex-col h-full">
