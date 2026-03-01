@@ -28,9 +28,16 @@ export async function processDocumentsBatch(filePaths: string[]): Promise<Proces
 // BTL-10: Import queue IPC wrappers
 // ---------------------------------------------------------------------------
 
-/** Enqueue files for import. Returns job IDs. */
-export async function enqueueImports(filePaths: string[]): Promise<string[]> {
-  return invoke<string[]>('enqueue_imports', { filePaths });
+/** Enqueue files for import. Returns job IDs.
+ * UC-01: `documentType` bypasses LLM classification when provided. */
+export async function enqueueImports(
+  filePaths: string[],
+  documentType?: string,
+): Promise<string[]> {
+  return invoke<string[]>('enqueue_imports', {
+    filePaths,
+    documentType: documentType ?? null,
+  });
 }
 
 /** Get the full import queue snapshot. */

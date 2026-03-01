@@ -43,6 +43,10 @@
     "step_reviewed": "Ready for review",
     "step_import_failed": "Import failed",
     "step_extraction_failed": "Extraction failed",
-    "step_structuring_failed": "Structuring failed"
+    "step_structuring_failed": "Structuring failed",
+    "type_label": "Document type",
+    "type_lab_report": "Lab Report",
+    "type_prescription": "Prescription",
+    "type_medical_image": "Medical Image"
   }
 }

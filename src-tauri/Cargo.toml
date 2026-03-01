@@ -45,7 +45,7 @@ kamadak-exif = "0.5"
 # default-features=false avoids image_latest (0.25) conflicting with our image 0.23 pin.
 # pdfium_latest provides pre-generated FFI bindings (no libclang needed).
 pdfium-render = { version = "0.8", default-features = false, features = ["image_023", "pdfium_latest", "thread_safe"] }
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "stream"] }
 ort = { version = "2.0.0-rc.11", features = ["download-binaries", "ndarray"], optional = true }
 ndarray = { version = "0.17", optional = true }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }

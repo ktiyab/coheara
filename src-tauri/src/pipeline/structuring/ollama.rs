@@ -19,6 +19,66 @@ struct VisionPostResponse {
     body: Vec<u8>,
 }
 
+// ═══════════════════════════════════════════════════════════
+// C2+C3: Real-time streaming reader with per-chunk timeout
+// ═══════════════════════════════════════════════════════════
+
+/// Per-chunk read timeout for streaming Ollama responses.
+///
+/// If no data arrives within this window, the read fails with TimedOut.
+/// This catches stalled generation without needing a global client timeout.
+/// 120s is generous — even CPU inference at 3 tok/s produces a token every 330ms.
+const STREAM_CHUNK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Bridges async streaming response to sync `Read` trait.
+///
+/// Enables real-time StreamGuard monitoring on live Ollama streams.
+/// When StreamGuard detects degeneration, the caller drops this reader,
+/// which drops the receiver, causing the async task to abort on next send,
+/// closing the HTTP connection and stopping model generation.
+struct ChannelReader {
+    rx: std::sync::mpsc::Receiver<Result<Vec<u8>, OllamaError>>,
+    buffer: Vec<u8>,
+    pos: usize,
+}
+
+impl std::io::Read for ChannelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Drain current buffer first
+        if self.pos < self.buffer.len() {
+            let remaining = self.buffer.len() - self.pos;
+            let n = std::cmp::min(buf.len(), remaining);
+            buf[..n].copy_from_slice(&self.buffer[self.pos..self.pos + n]);
+            self.pos += n;
+            return Ok(n);
+        }
+
+        // Need more data — recv from channel with C3 timeout
+        match self.rx.recv_timeout(STREAM_CHUNK_TIMEOUT) {
+            Ok(Ok(bytes)) => {
+                if bytes.is_empty() {
+                    return Ok(0);
+                }
+                self.buffer = bytes;
+                self.pos = 0;
+                let n = std::cmp::min(buf.len(), self.buffer.len());
+                buf[..n].copy_from_slice(&self.buffer[..n]);
+                self.pos = n;
+                Ok(n)
+            }
+            Ok(Err(e)) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Stream error: {e}"),
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "No data received within 120s — Ollama generation stalled",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(0), // EOF
+        }
+    }
+}
+
 /// Ollama HTTP client for local LLM inference.
 ///
 /// Completion-based operations — no artificial request timeouts.
@@ -376,6 +436,116 @@ impl OllamaClient {
                     status: status.as_u16(),
                     body,
                 })
+            }
+        }
+    }
+
+    /// C2: Stream a POST response in real-time via sync channel.
+    ///
+    /// Unlike `send_async_post` which collects ALL bytes before returning,
+    /// this method streams chunks as they arrive from Ollama. The returned
+    /// `ChannelReader` implements `Read` — feeding directly into
+    /// `collect_chat_stream_guarded` makes StreamGuard monitor tokens in
+    /// real-time and abort the connection on degeneration.
+    ///
+    /// C3: Per-chunk read timeout (120s) is enforced by `ChannelReader`.
+    /// If Ollama stalls mid-generation, the read times out instead of
+    /// hanging indefinitely.
+    ///
+    /// Abort mechanism: when StreamGuard detects degeneration, the caller
+    /// drops `ChannelReader` → receiver closed → async task send fails →
+    /// response dropped → HTTP connection closed → Ollama stops generating.
+    ///
+    /// Falls back to buffered Cursor when no tokio runtime (tests).
+    fn send_async_post_streaming<T: Serialize>(
+        &self,
+        url: &str,
+        request: &T,
+    ) -> Result<(u16, Box<dyn std::io::Read + Send>), OllamaError> {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                let async_client = self.async_client.clone();
+                let url = url.to_string();
+                let body = serde_json::to_vec(request)
+                    .map_err(|e| OllamaError::Network(format!("Request serialization: {e}")))?;
+
+                tracing::info!(url = %url, body_len = body.len(), "streaming_post: spawning task");
+
+                // Status channel: async task sends HTTP status before streaming body
+                let (status_tx, status_rx) = std::sync::mpsc::sync_channel(1);
+                // Chunk channel: async task streams response body chunks
+                let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel(64);
+
+                handle.spawn(async move {
+                    let t0 = std::time::Instant::now();
+
+                    let resp = match async_client
+                        .post(&url)
+                        .header(reqwest::header::CONTENT_TYPE, "application/json")
+                        .body(body)
+                        .send()
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::warn!(url = %url, error = %e, "streaming_post: send failed");
+                            let err = if e.is_connect() {
+                                OllamaError::NotReachable
+                            } else {
+                                OllamaError::Network(e.to_string())
+                            };
+                            let _ = status_tx.send(Err(err));
+                            return;
+                        }
+                    };
+
+                    let status = resp.status().as_u16();
+                    tracing::info!(url = %url, status, elapsed_ms = %t0.elapsed().as_millis(), "streaming_post: headers received");
+
+                    if status_tx.send(Ok(status)).is_err() {
+                        return; // Caller gone
+                    }
+
+                    // Stream body chunks in real-time
+                    use futures_util::StreamExt;
+                    let mut stream = resp.bytes_stream();
+                    while let Some(chunk_result) = stream.next().await {
+                        match chunk_result {
+                            Ok(bytes) => {
+                                if chunk_tx.send(Ok(bytes.to_vec())).is_err() {
+                                    tracing::debug!(url = %url, "streaming_post: receiver dropped — aborting");
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(url = %url, error = %e, "streaming_post: chunk read failed");
+                                let _ = chunk_tx.send(Err(OllamaError::Network(format!("Stream read: {e}"))));
+                                break;
+                            }
+                        }
+                    }
+                    tracing::info!(url = %url, elapsed_ms = %t0.elapsed().as_millis(), "streaming_post: stream complete");
+                    // chunk_tx drops → receiver gets Disconnected → EOF
+                });
+
+                let status = status_rx.recv().map_err(|_| {
+                    tracing::warn!("streaming_post: status channel recv failed");
+                    OllamaError::Network("Streaming task dropped unexpectedly".to_string())
+                })??;
+
+                let reader: Box<dyn std::io::Read + Send> = Box::new(ChannelReader {
+                    rx: chunk_rx,
+                    buffer: Vec::new(),
+                    pos: 0,
+                });
+                Ok((status, reader))
+            }
+            Err(_) => {
+                // Blocking fallback (tests, CLI): collect all bytes, wrap in Cursor
+                let raw = self.send_async_post(url, request)?;
+                let reader: Box<dyn std::io::Read + Send> =
+                    Box::new(std::io::Cursor::new(raw.body));
+                Ok((raw.status, reader))
             }
         }
     }
@@ -1808,9 +1978,8 @@ impl VisionClient for OllamaClient {
 
         let url = format!("{}/api/chat", self.base_url);
 
-        // Use async client to bypass Windows IOCP ~30s timeout on blocking client.
-        // Vision TTFT can exceed 48s on CPU/Vulkan GPU.
-        let raw = self.send_async_post(&url, &request).map_err(|e| {
+        // C2: Stream response in real-time — same as chat_with_images_with_params.
+        let (status, mut reader) = self.send_async_post_streaming(&url, &request).map_err(|e| {
             tracing::warn!(
                 model = %model,
                 elapsed_ms = %start.elapsed().as_millis(),
@@ -1820,30 +1989,28 @@ impl VisionClient for OllamaClient {
             e
         })?;
 
-        if raw.status < 200 || raw.status >= 300 {
-            let body = parse_error_body(&String::from_utf8_lossy(&raw.body));
+        if status < 200 || status >= 300 {
+            let mut body_bytes = Vec::new();
+            let _ = reader.read_to_end(&mut body_bytes);
+            let body = parse_error_body(&String::from_utf8_lossy(&body_bytes));
             tracing::warn!(
                 model = %model,
-                status = raw.status,
+                status,
                 elapsed_ms = %start.elapsed().as_millis(),
                 body = %body,
                 "Ollama chat_with_images: non-success status"
             );
             return Err(OllamaError::ApiError {
-                status: raw.status,
+                status,
                 message: body,
             });
         }
 
-        // SGV-01: Parse NDJSON with StreamGuard monitoring for degeneration.
-        // Vision OCR on constrained SLMs can enter thinking-token repetition loops
-        // (e.g., "Titre" × 200) that consume the entire output budget.
-        let cursor = std::io::Cursor::new(raw.body);
+        // SGV-01: StreamGuard monitors LIVE stream — real-time degeneration detection.
         let guard_config = crate::pipeline::stream_guard::StreamGuardConfig::default();
         let (full_response, metrics) =
-            collect_chat_stream_guarded(cursor, model, &start, guard_config)?;
+            collect_chat_stream_guarded(reader, model, &start, guard_config)?;
 
-        // OLM-C1: Store metrics for later retrieval
         self.store_metrics(metrics);
 
         tracing::info!(
@@ -1918,7 +2085,10 @@ impl VisionClient for OllamaClient {
 
         let url = format!("{}/api/chat", self.base_url);
 
-        let raw = self.send_async_post(&url, &request).map_err(|e| {
+        // C2: Stream response in real-time — StreamGuard monitors live tokens
+        // and can abort on degeneration (drops ChannelReader → closes connection).
+        // C3: Per-chunk 120s timeout catches stalled generation.
+        let (status, mut reader) = self.send_async_post_streaming(&url, &request).map_err(|e| {
             tracing::warn!(
                 model = %model,
                 elapsed_ms = %start.elapsed().as_millis(),
@@ -1928,18 +2098,21 @@ impl VisionClient for OllamaClient {
             e
         })?;
 
-        if raw.status < 200 || raw.status >= 300 {
-            let body = parse_error_body(&String::from_utf8_lossy(&raw.body));
+        if status < 200 || status >= 300 {
+            // For error responses, read the body to get the error message
+            let mut body_bytes = Vec::new();
+            let _ = reader.read_to_end(&mut body_bytes);
+            let body = parse_error_body(&String::from_utf8_lossy(&body_bytes));
             return Err(OllamaError::ApiError {
-                status: raw.status,
+                status,
                 message: body,
             });
         }
 
-        let cursor = std::io::Cursor::new(raw.body);
+        // SGV-01: StreamGuard now monitors LIVE stream — can abort in real-time
         let guard_config = crate::pipeline::stream_guard::StreamGuardConfig::default();
         let (full_response, metrics) =
-            collect_chat_stream_guarded(cursor, model, &start, guard_config)?;
+            collect_chat_stream_guarded(reader, model, &start, guard_config)?;
 
         self.store_metrics(metrics);
 

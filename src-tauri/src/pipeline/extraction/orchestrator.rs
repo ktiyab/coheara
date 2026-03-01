@@ -85,6 +85,8 @@ pub struct DocumentExtractor {
     interpreter: Option<Box<dyn MedicalImageInterpreter>>,
     /// Language code for prompts and diagnostics (e.g., "en", "fr", "de").
     language: String,
+    /// 09-CAE: User-selected document type for domain filtering + category-aware prompts.
+    user_document_type: Option<super::vision_classifier::UserDocumentType>,
 }
 
 impl DocumentExtractor {
@@ -105,6 +107,7 @@ impl DocumentExtractor {
             preprocessor,
             interpreter: None,
             language: "en".to_string(),
+            user_document_type: None,
         }
     }
 
@@ -117,6 +120,12 @@ impl DocumentExtractor {
     /// Set the language for prompts and diagnostic dumps.
     pub fn with_language(mut self, language: &str) -> Self {
         self.language = language.to_string();
+        self
+    }
+
+    /// 09-CAE: Set the user-selected document type for domain filtering.
+    pub fn with_user_document_type(mut self, doc_type: super::vision_classifier::UserDocumentType) -> Self {
+        self.user_document_type = Some(doc_type);
         self
     }
 
@@ -260,6 +269,11 @@ impl DocumentExtractor {
             base64::engine::general_purpose::STANDARD.encode(png_bytes);
         let images = vec![base64_image];
 
+        // C4: Progress path for per-call JSONL diagnostic
+        let progress_path = dump_dir.as_ref().map(|dir| {
+            dir.join(format!("03-drill-progress-page-{page_idx}.jsonl"))
+        });
+
         let drill = IterativeDrillStrategy::new(1);
         let drill_result = drill
             .extract_from_image(
@@ -267,6 +281,8 @@ impl DocumentExtractor {
                 self.vision_client.as_ref(),
                 &images,
                 &self.system_prompt,
+                progress_path.as_deref(),
+                self.user_document_type,
             )
             .map_err(|e| {
                 ExtractionError::VisionOcrFailed(format!("Vision extraction failed: {e}"))

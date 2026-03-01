@@ -110,10 +110,11 @@ class ImportQueueStore {
     }
   }
 
-  /** Enqueue files for import. */
-  async enqueue(filePaths: string[]): Promise<string[]> {
+  /** Enqueue files for import.
+   * UC-01: `documentType` bypasses LLM classification when provided. */
+  async enqueue(filePaths: string[], documentType?: string): Promise<string[]> {
     try {
-      const jobIds = await enqueueImports(filePaths);
+      const jobIds = await enqueueImports(filePaths, documentType);
       await this.refresh();
       return jobIds;
     } catch (e) {

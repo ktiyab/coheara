@@ -8,15 +8,19 @@ use crate::core_state::CoreState;
 use crate::import_queue::QueueSnapshot;
 
 /// Enqueue one or more files for import. Returns job IDs.
+///
+/// UC-01: `document_type` bypasses LLM classification when provided.
+/// Values: `"lab_report"`, `"prescription"`, `"medical_image"`.
 #[tauri::command]
 pub fn enqueue_imports(
     file_paths: Vec<String>,
+    document_type: Option<String>,
     state: State<'_, Arc<CoreState>>,
 ) -> Vec<String> {
     let queue = state.import_queue();
     file_paths
         .into_iter()
-        .map(|path| queue.enqueue(path))
+        .map(|path| queue.enqueue(path, document_type.clone()))
         .collect()
 }
 

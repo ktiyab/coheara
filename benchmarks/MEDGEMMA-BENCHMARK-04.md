@@ -296,7 +296,7 @@ python3 bench_04_runner.py --model coheara-medgemma-4b-q8 --host "$HOST" --outpu
 
 ### V-FR-01: French Prescription (ordonnance-de-medicaments_FR.pdf)
 
-**Source**: Digital PDF — Dr. Frederic Vidal (remplaçant: Brandon Lalouche), Médecin Généraliste, 3 Avenue d'Argenteuil, 92600 Asnières-sur-Seine. Date: 16 oct. 2024. Patient: M. KONLAMBIGUE Tiyab, né le 17/04/1986.
+**Source**: Digital PDF — Dr. Frederic XXXXX (remplaçant: XXX XXXXXX), Médecin Généraliste, 3 Avenue d'Argenteuil, 92600 Asnières-sur-Seine. Date: 16 oct. 2024. Patient: M. XXXXXX, né le XX/XX/XXXX.
 
 **Expected JSON**:
 ```json
@@ -406,7 +406,7 @@ python3 bench_04_runner.py --model coheara-medgemma-4b-q8 --host "$HOST" --outpu
 
 ### V-FR-03: French Lab Results Page 1 — Hematology (PNG vision)
 
-**Source**: Scanned PNG (790×1116px). Lab: LBM BIOTEK, Asnières. Patient: Mr KONLAMBIGUE Tiyab, né 17-04-1986. Prelevé 16-05-2024. Dr VIDAL FREDERIC.
+**Source**: Scanned PNG (790×1116px). Lab: LBM BIOTEK, XXXXXXXXX. Patient: Mr XXXXXXXX XXXXXXX, né XX-XX-XX. Prelevé 16-05-2024. Dr VIDAL XXXXXXXX.
 
 **Expected lab_results** (partial — key values to verify):
 ```json

@@ -1113,17 +1113,22 @@ pub fn build_processor_from_assignment(
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
 ) -> Result<DocumentProcessor, ProcessingError> {
-    build_processor_from_assignment_with_vision(assignment, config, language, false)
+    build_processor_from_assignment_with_vision(assignment, config, language, false, None)
 }
 
-/// C4-FIX: Build a `DocumentProcessor` with vision extraction config.
+/// C4-FIX + 09-CAE: Build a `DocumentProcessor` with vision extraction config.
 ///
 /// When `has_gpu` is true, the VisionSession uses GPU-optimized strategy.
+/// UC-01: When `user_doc_type` is Some, uses `UserProvidedClassifier`
+/// instead of the LLM-based `OllamaVisionClassifier`.
+/// 09-CAE: `UserDocumentType` is threaded to `DocumentExtractor` for domain
+/// filtering and category-aware prompts (not just classifier bypass).
 pub fn build_processor_from_assignment_with_vision(
     assignment: &crate::pipeline::model_router::PipelineAssignment,
     config: &crate::pipeline_config::PipelineConfig,
     language: &str,
     has_gpu: bool,
+    user_doc_type: Option<crate::pipeline::extraction::vision_classifier::UserDocumentType>,
 ) -> Result<DocumentProcessor, ProcessingError> {
     use crate::pipeline::model_router::ExtractionStrategy;
 
@@ -1133,7 +1138,6 @@ pub fn build_processor_from_assignment_with_vision(
             use crate::ollama_service::OllamaService;
             use crate::pipeline::extraction::pdfium::PdfiumRenderer;
             use crate::pipeline::extraction::preprocess::{ImagePreprocessor, PreprocessingPipeline};
-            use crate::pipeline::extraction::vision_classifier::OllamaVisionClassifier;
             use crate::pipeline::extraction::vision_ocr::{
                 OllamaMedicalImageInterpreter, build_system_prompt,
             };
@@ -1148,10 +1152,15 @@ pub fn build_processor_from_assignment_with_vision(
             let vision_client: Arc<dyn crate::pipeline::structuring::types::VisionClient> =
                 Arc::new(vision_client);
 
-            // C4-FIX: Classifier (lightweight Document/MedicalImage detection)
-            let classifier = Box::new(
-                OllamaVisionClassifier::new(Arc::clone(&vision_client), model.clone())
-            );
+            // UC-01 + 09-CAE: Use user-provided classifier when available, else LLM classifier
+            let classifier: Box<dyn crate::pipeline::extraction::vision_classifier::VisionClassifier> =
+                if let Some(dt) = user_doc_type {
+                    use crate::pipeline::extraction::vision_classifier::UserProvidedClassifier;
+                    Box::new(UserProvidedClassifier::new(dt))
+                } else {
+                    use crate::pipeline::extraction::vision_classifier::OllamaVisionClassifier;
+                    Box::new(OllamaVisionClassifier::new(Arc::clone(&vision_client), model.clone()))
+                };
 
             // C4-FIX: VisionSession for IterativeDrill (primary extraction)
             let session = FallbackSession::new(model, ContextType::VisionOcr, has_gpu);
@@ -1169,7 +1178,7 @@ pub fn build_processor_from_assignment_with_vision(
             let preprocessor: Box<dyn ImagePreprocessor> =
                 Box::new(PreprocessingPipeline::medgemma_gpu());
 
-            let doc_extractor = DocumentExtractor::new(
+            let mut doc_extractor = DocumentExtractor::new(
                 Box::new(pdf_renderer),
                 classifier,
                 Box::new(session),
@@ -1179,6 +1188,11 @@ pub fn build_processor_from_assignment_with_vision(
             )
             .with_interpreter(interpreter)
             .with_language(language);
+
+            // 09-CAE: Thread UserDocumentType for domain filtering + category prompts
+            if let Some(dt) = user_doc_type {
+                doc_extractor = doc_extractor.with_user_document_type(dt);
+            }
 
             Box::new(doc_extractor)
         }

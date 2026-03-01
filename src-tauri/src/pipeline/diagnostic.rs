@@ -142,6 +142,45 @@ pub fn dump_text(dir: &Path, filename: &str, text: &str) {
     }
 }
 
+/// Append a single JSON line to a JSONL file (newline-delimited JSON).
+///
+/// Used for progressive diagnostics — each call appends one line,
+/// allowing real-time inspection (`tail -f`) during long-running operations.
+/// Never panics.
+pub fn dump_jsonl_append<T: serde::Serialize>(dir: &Path, filename: &str, value: &T) {
+    let path = dir.join(filename);
+    match serde_json::to_string(value) {
+        Ok(line) => {
+            use std::io::Write;
+            match std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    if let Err(e) = writeln!(file, "{line}") {
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "Diagnostic dump: failed to append JSONL line"
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Diagnostic dump: failed to open JSONL file"
+                ),
+            }
+        }
+        Err(e) => tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "Diagnostic dump: failed to serialize JSONL entry"
+        ),
+    }
+}
+
 // ──────────────────────────────────────────────
 // Tests
 // ──────────────────────────────────────────────
@@ -262,5 +301,27 @@ mod tests {
         assert!(dir.starts_with(&custom));
 
         std::env::remove_var("COHEARA_DUMP_DIR");
+    }
+
+    #[test]
+    fn dump_jsonl_append_writes_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        dump_jsonl_append(tmp.path(), "progress.jsonl", &serde_json::json!({"call": 1, "status": "ok"}));
+        dump_jsonl_append(tmp.path(), "progress.jsonl", &serde_json::json!({"call": 2, "status": "ok"}));
+        dump_jsonl_append(tmp.path(), "progress.jsonl", &serde_json::json!({"call": 3, "status": "degen"}));
+
+        let content = std::fs::read_to_string(tmp.path().join("progress.jsonl")).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("\"call\":1"));
+        assert!(lines[2].contains("\"degen\""));
+    }
+
+    #[test]
+    fn dump_jsonl_append_handles_failure_gracefully() {
+        let bad_dir = Path::new("/nonexistent/path");
+        dump_jsonl_append(bad_dir, "test.jsonl", &"data");
+        // No panic = success
     }
 }

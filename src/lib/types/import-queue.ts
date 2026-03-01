@@ -10,6 +10,9 @@ export type ImportJobState =
   | 'Failed'
   | 'Cancelled';
 
+/** UC-01: User-selected document type at import time. */
+export type UserDocumentType = 'lab_report' | 'prescription' | 'medical_image';
+
 export interface ImportQueueItem {
   id: string;
   file_path: string;
@@ -22,6 +25,8 @@ export interface ImportQueueItem {
   queued_at: string;
   started_at: string | null;
   completed_at: string | null;
+  /** UC-01: User-selected document type. Null when not provided (LLM fallback). */
+  user_document_type: string | null;
 }
 
 export interface QueueSnapshot {

@@ -167,14 +167,27 @@ impl DomainContract {
     ///
     /// - `Text`: Wraps document text in XML tags (existing behavior).
     /// - `Vision`: Image-oriented prompt — no document text needed.
-    pub fn enumerate_prompt_for(&self, mode: InputMode, document_text: &str) -> String {
+    ///
+    /// 09-CAE: `category_context` adds document type context to vision prompts
+    /// (e.g., "This is a laboratory analysis report."). When empty, the category
+    /// line is omitted. The NONE instruction is always included to get a
+    /// deterministic empty-case response instead of chain-of-thought reasoning.
+    pub fn enumerate_prompt_for(&self, mode: InputMode, document_text: &str, category_context: &str) -> String {
         match mode {
             InputMode::Text => self.build_enumerate_prompt(document_text),
-            InputMode::Vision => format!(
-                "What {} are visible in this document image?\n\
-                 List only the names, one per line.",
-                self.item_label_plural,
-            ),
+            InputMode::Vision => {
+                let category_line = if category_context.is_empty() {
+                    String::new()
+                } else {
+                    format!("{category_context}\n")
+                };
+                format!(
+                    "{category_line}What {} are visible in this document image?\n\
+                     List only the names, one per line.\n\
+                     If none are visible, respond with exactly: NONE",
+                    self.item_label_plural,
+                )
+            }
         }
     }
 
@@ -627,6 +640,48 @@ pub fn contract_for_document_domain(
 }
 
 // ═══════════════════════════════════════════════════════════
+// 09-CAE: Category-aware domain filtering
+// ═══════════════════════════════════════════════════════════
+
+use crate::pipeline::extraction::vision_classifier::UserDocumentType;
+use crate::pipeline::prompt_templates::DocumentDomain;
+
+/// 09-CAE: Return the relevant extraction domains for a user-selected document type.
+///
+/// Lab reports contain lab results and occasionally interpretive diagnoses.
+/// Prescriptions contain medications, administration instructions, and occasionally indications.
+/// Medical images are routed to MedicalImageInterpreter — they never reach IterativeDrill.
+///
+/// Domains not mapped to any category (Allergies, Procedures, Referrals) remain
+/// available for chat extraction (NightBatch) where all 7 domains apply.
+pub fn domains_for_document_type(doc_type: UserDocumentType) -> &'static [DocumentDomain] {
+    match doc_type {
+        UserDocumentType::LabReport => &[
+            DocumentDomain::LabResults,
+            DocumentDomain::Diagnoses,
+        ],
+        UserDocumentType::Prescription => &[
+            DocumentDomain::Medications,
+            DocumentDomain::Instructions,
+            DocumentDomain::Diagnoses,
+        ],
+        UserDocumentType::MedicalImage => &[], // never reaches IterativeDrill
+    }
+}
+
+/// 09-CAE: Return category context string for category-aware enumerate prompts.
+///
+/// Prepended to vision enumerate prompts so the model knows what document type
+/// it is looking at. Empty string for legacy/fallback path.
+pub fn category_context(doc_type: UserDocumentType) -> &'static str {
+    match doc_type {
+        UserDocumentType::LabReport => "This is a laboratory analysis report.",
+        UserDocumentType::Prescription => "This is a medical prescription.",
+        UserDocumentType::MedicalImage => "", // never reaches IterativeDrill
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════
 
@@ -954,26 +1009,57 @@ mod tests {
 
     #[test]
     fn enumerate_prompt_text_mode_matches_existing() {
-        let text_mode = LAB_RESULTS.enumerate_prompt_for(InputMode::Text, "Hemoglobin: 13.3");
+        let text_mode = LAB_RESULTS.enumerate_prompt_for(InputMode::Text, "Hemoglobin: 13.3", "");
         let existing = LAB_RESULTS.build_enumerate_prompt("Hemoglobin: 13.3");
         assert_eq!(text_mode, existing);
     }
 
     #[test]
     fn enumerate_prompt_vision_mode_lab_results() {
-        let prompt = LAB_RESULTS.enumerate_prompt_for(InputMode::Vision, "");
+        let prompt = LAB_RESULTS.enumerate_prompt_for(InputMode::Vision, "", "");
         assert!(prompt.contains("tests"));
         assert!(prompt.contains("document image"));
         assert!(prompt.contains("one per line"));
+        assert!(prompt.contains("NONE")); // 09-CAE: always present
         // Should NOT contain document wrapping
         assert!(!prompt.contains("<document>"));
     }
 
     #[test]
     fn enumerate_prompt_vision_mode_medications() {
-        let prompt = MEDICATIONS.enumerate_prompt_for(InputMode::Vision, "");
+        let prompt = MEDICATIONS.enumerate_prompt_for(InputMode::Vision, "", "");
         assert!(prompt.contains("medications"));
         assert!(prompt.contains("document image"));
+        assert!(prompt.contains("NONE")); // 09-CAE: always present
+    }
+
+    // ── 09-CAE: Category-aware prompt tests ─────────────
+
+    #[test]
+    fn enumerate_prompt_vision_with_category_context() {
+        let ctx = category_context(UserDocumentType::LabReport);
+        let prompt = LAB_RESULTS.enumerate_prompt_for(InputMode::Vision, "", ctx);
+        assert!(prompt.contains("laboratory analysis report"));
+        assert!(prompt.contains("tests"));
+        assert!(prompt.contains("NONE"));
+    }
+
+    #[test]
+    fn enumerate_prompt_vision_prescription_context() {
+        let ctx = category_context(UserDocumentType::Prescription);
+        let prompt = MEDICATIONS.enumerate_prompt_for(InputMode::Vision, "", ctx);
+        assert!(prompt.contains("medical prescription"));
+        assert!(prompt.contains("medications"));
+        assert!(prompt.contains("NONE"));
+    }
+
+    #[test]
+    fn enumerate_prompt_vision_no_context_still_has_none() {
+        let prompt = LAB_RESULTS.enumerate_prompt_for(InputMode::Vision, "", "");
+        assert!(prompt.contains("NONE"));
+        // No category line when context is empty
+        assert!(!prompt.contains("laboratory"));
+        assert!(!prompt.contains("prescription"));
     }
 
     #[test]
@@ -1013,5 +1099,50 @@ mod tests {
         assert!(prompt.contains("Choose from:"));
         assert!(prompt.contains("normal"));
         assert!(prompt.contains("critical_high"));
+    }
+
+    // ── 09-CAE: Domain filtering tests ──────────────────
+
+    #[test]
+    fn domains_for_lab_report() {
+        let domains = domains_for_document_type(UserDocumentType::LabReport);
+        assert_eq!(domains.len(), 2);
+        assert_eq!(domains[0], DocumentDomain::LabResults);
+        assert_eq!(domains[1], DocumentDomain::Diagnoses);
+    }
+
+    #[test]
+    fn domains_for_prescription() {
+        let domains = domains_for_document_type(UserDocumentType::Prescription);
+        assert_eq!(domains.len(), 3);
+        assert_eq!(domains[0], DocumentDomain::Medications);
+        assert_eq!(domains[1], DocumentDomain::Instructions);
+        assert_eq!(domains[2], DocumentDomain::Diagnoses);
+    }
+
+    #[test]
+    fn domains_for_medical_image() {
+        let domains = domains_for_document_type(UserDocumentType::MedicalImage);
+        assert!(domains.is_empty());
+    }
+
+    // ── 09-CAE: Category context tests ──────────────────
+
+    #[test]
+    fn category_context_lab_report() {
+        let ctx = category_context(UserDocumentType::LabReport);
+        assert_eq!(ctx, "This is a laboratory analysis report.");
+    }
+
+    #[test]
+    fn category_context_prescription() {
+        let ctx = category_context(UserDocumentType::Prescription);
+        assert_eq!(ctx, "This is a medical prescription.");
+    }
+
+    #[test]
+    fn category_context_medical_image_empty() {
+        let ctx = category_context(UserDocumentType::MedicalImage);
+        assert!(ctx.is_empty());
     }
 }

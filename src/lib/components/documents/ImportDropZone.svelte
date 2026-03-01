@@ -11,6 +11,8 @@
   import { isTauriEnv } from '$lib/utils/tauri';
   import Button from '$lib/components/ui/Button.svelte';
   import { DocumentScannerIcon, PlusIcon } from '$lib/components/icons/md';
+  import DocumentTypeSelector from './DocumentTypeSelector.svelte';
+  import type { UserDocumentType } from '$lib/types/import-queue';
 
   interface Props {
     /** True when documents exist — renders compact mode. */
@@ -20,6 +22,9 @@
   }
 
   let { hasDocuments = false, droppedFiles }: Props = $props();
+
+  /** UC-01: User-selected document type — default Lab Report (most common). */
+  let selectedDocType = $state<UserDocumentType>('lab_report');
 
   const SUPPORTED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'txt'];
 
@@ -44,7 +49,7 @@
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
     if (paths.length > 0) {
-      await importQueue.enqueue(paths);
+      await importQueue.enqueue(paths, selectedDocType);
     }
   }
 
@@ -53,7 +58,7 @@
     if (droppedFiles && droppedFiles.length > 0) {
       const supported = droppedFiles.filter(isSupportedPath);
       if (supported.length > 0) {
-        importQueue.enqueue(supported);
+        importQueue.enqueue(supported, selectedDocType);
       }
     }
   });
@@ -65,8 +70,9 @@
 </script>
 
 {#if isCompact}
-  <!-- Compact mode: single-row import button -->
-  <div class="px-4 pt-2">
+  <!-- Compact mode: selector + import button -->
+  <div class="px-4 pt-2 flex flex-col gap-2">
+    <DocumentTypeSelector selected={selectedDocType} onselect={(v) => selectedDocType = v} />
     <Button variant="dashed" fullWidth onclick={browseFiles}>
       <PlusIcon class="w-5 h-5" />
       {$t('documents.list_import')}
@@ -80,6 +86,9 @@
     role="region"
     aria-label={$t('import.drop_files_here')}
   >
+    <div class="flex justify-center mb-4">
+      <DocumentTypeSelector selected={selectedDocType} onselect={(v) => selectedDocType = v} />
+    </div>
     <DocumentScannerIcon class="w-10 h-10 mx-auto mb-3 text-stone-400 dark:text-gray-500" />
     <p class="text-sm font-medium text-stone-700 dark:text-gray-200 mb-1">
       {$t('import.add_documents')}

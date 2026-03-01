@@ -43,6 +43,10 @@
     "step_reviewed": "Bereit zur \u00dcberpr\u00fcfung",
     "step_import_failed": "Import fehlgeschlagen",
     "step_extraction_failed": "Extraktion fehlgeschlagen",
-    "step_structuring_failed": "Analyse fehlgeschlagen"
+    "step_structuring_failed": "Analyse fehlgeschlagen",
+    "type_label": "Dokumenttyp",
+    "type_lab_report": "Laborbericht",
+    "type_prescription": "Rezept",
+    "type_medical_image": "Medizinisches Bild"
   }
 }

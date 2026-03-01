@@ -109,6 +109,7 @@ async fn process_job(app: &AppHandle, job: ImportJob) {
     let file_path = job.file_path.clone();
     let filename = job.filename.clone();
     let is_recovery = job.document_id.is_some();
+    let user_document_type = job.user_document_type.clone();
 
     // §21 Fix C: Create cancellation token before blocking work
     let state: tauri::State<'_, Arc<CoreState>> = app.state();
@@ -117,9 +118,9 @@ async fn process_job(app: &AppHandle, job: ImportJob) {
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         if is_recovery {
-            process_recovery_job(&app_clone, &job_id, &file_path, &filename, cancel_token_clone)
+            process_recovery_job(&app_clone, &job_id, &file_path, &filename, cancel_token_clone, user_document_type.as_deref())
         } else {
-            process_fresh_job(&app_clone, &job_id, &file_path, &filename, cancel_token_clone)
+            process_fresh_job(&app_clone, &job_id, &file_path, &filename, cancel_token_clone, user_document_type.as_deref())
         }
     })
     .await;
@@ -167,12 +168,15 @@ async fn process_job(app: &AppHandle, job: ImportJob) {
 }
 
 /// Process a fresh import job (no existing document — full pipeline).
+///
+/// UC-01: `user_document_type` bypasses LLM classification when provided.
 fn process_fresh_job(
     app: &AppHandle,
     job_id: &str,
     file_path: &str,
     filename: &str,
     cancel_token: Arc<AtomicBool>,
+    user_document_type: Option<&str>,
 ) -> Result<(), String> {
     let state: tauri::State<'_, Arc<CoreState>> = app.state();
     let queue = state.import_queue();
@@ -223,6 +227,12 @@ fn process_fresh_job(
     ollama.set_vision_num_ctx(pipeline_config.num_ctx);
     crate::commands::import::warm_assignment_models(state.butler(), &ollama, &assignment);
 
+    // 09-CAE: Parse user-provided document type — preserve full UserDocumentType
+    // (not ImageContentType) so domain filtering and category-aware prompts work.
+    let user_doc_type = user_document_type.and_then(|s| {
+        crate::pipeline::extraction::vision_classifier::UserDocumentType::from_str(s)
+    });
+
     // C4-FIX: Build processor with primary IterativeDrill extraction
     let lang = state.get_profile_language();
     let has_gpu = detect_gpu(&state);
@@ -231,6 +241,7 @@ fn process_fresh_job(
         &pipeline_config,
         &lang,
         has_gpu,
+        user_doc_type,
     )
     .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 
@@ -277,12 +288,15 @@ fn process_fresh_job(
 }
 
 /// Process a recovery job (document exists in DB — reprocess only).
+///
+/// UC-01: `user_document_type` may be None for recovery jobs — falls back to LLM classifier.
 fn process_recovery_job(
     app: &AppHandle,
     job_id: &str,
     file_path: &str,
     _filename: &str,
     cancel_token: Arc<AtomicBool>,
+    user_document_type: Option<&str>,
 ) -> Result<(), String> {
     let state: tauri::State<'_, Arc<CoreState>> = app.state();
     let queue = state.import_queue();
@@ -366,6 +380,11 @@ fn process_recovery_job(
     ollama.set_vision_num_ctx(pipeline_config.num_ctx);
     crate::commands::import::warm_assignment_models(state.butler(), &ollama, &assignment);
 
+    // 09-CAE: Parse user-provided document type — preserve full UserDocumentType
+    let user_doc_type = user_document_type.and_then(|s| {
+        crate::pipeline::extraction::vision_classifier::UserDocumentType::from_str(s)
+    });
+
     // C4-FIX: Build processor with primary IterativeDrill extraction
     let lang = state.get_profile_language();
     let has_gpu = detect_gpu(&state);
@@ -374,6 +393,7 @@ fn process_recovery_job(
         &pipeline_config,
         &lang,
         has_gpu,
+        user_doc_type,
     )
     .map_err(|e| format!("Failed to initialize processor: {e}"))?;
 

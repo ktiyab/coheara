@@ -118,24 +118,25 @@ fn resolve_kind(context: ContextType, _variant: ModelVariant, _gpu: bool) -> Pro
         // NightBatch: IterativeDrill — thorough (12/12 lab tests), runs during idle
         ContextType::NightBatch => PromptStrategyKind::IterativeDrill,
 
-        // VisionOcr: MarkdownList — vision text noisy, keep extraction simple
-        ContextType::VisionOcr => PromptStrategyKind::MarkdownList,
+        // VisionOcr: IterativeDrill — focused per-field Q&A, 0% degen (BM-06).
+        // Orchestrator hardcodes IterativeDrill; session strategy must match.
+        ContextType::VisionOcr => PromptStrategyKind::IterativeDrill,
 
         // DocumentExtraction: MarkdownList — fast, 0% degen on all configs
         ContextType::DocumentExtraction => PromptStrategyKind::MarkdownList,
     }
 }
 
-/// Resolve max tokens from context + strategy kind.
-fn resolve_max_tokens(context: ContextType, kind: PromptStrategyKind) -> i32 {
-    match context {
-        ContextType::HealthQuery => 4096,
-        ContextType::VisionOcr => 4096,
-        ContextType::DocumentExtraction => 4096,
-        ContextType::NightBatch => match kind {
-            PromptStrategyKind::IterativeDrill => 1024, // Enumerate phase: short responses
-            PromptStrategyKind::MarkdownList => 4096,
-        },
+/// Resolve max tokens from strategy kind.
+///
+/// Strategy kind determines response size, not calling context:
+/// - IterativeDrill: focused per-field Q&A → enumerate ~200 tokens, drill 3-8 tokens.
+///   1024 is generous. 4096 would let a degenerated drill run 1000× over budget.
+/// - MarkdownList: full document/conversation extraction → 4096 needed.
+fn resolve_max_tokens(_context: ContextType, kind: PromptStrategyKind) -> i32 {
+    match kind {
+        PromptStrategyKind::IterativeDrill => 1024,
+        PromptStrategyKind::MarkdownList => 4096,
     }
 }
 
@@ -264,14 +265,20 @@ mod tests {
         }
     }
 
-    // ── VisionOcr: always MarkdownList ──────────────────
+    // ── VisionOcr: always IterativeDrill ────────────────
 
     #[test]
-    fn vision_ocr_always_markdown_list() {
+    fn vision_ocr_always_iterative_drill() {
         for variant in [ModelVariant::Q4, ModelVariant::Q8, ModelVariant::F16] {
             let s = resolve_strategy(ContextType::VisionOcr, variant);
-            assert_eq!(s.kind, PromptStrategyKind::MarkdownList);
+            assert_eq!(s.kind, PromptStrategyKind::IterativeDrill);
         }
+    }
+
+    #[test]
+    fn vision_ocr_max_tokens_matches_drill() {
+        let s = resolve_strategy(ContextType::VisionOcr, ModelVariant::Q8);
+        assert_eq!(s.max_tokens, 1024, "VisionOcr+IterativeDrill should use 1024");
     }
 
     // ── Temperature: 0.1 for all contexts ───────────────
@@ -363,6 +370,34 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"markdown_list\""));
         assert!(json.contains("\"streaming\":true"));
+    }
+
+    // ── Max tokens driven by kind ───────────────────────
+
+    #[test]
+    fn iterative_drill_always_1024() {
+        // All contexts resolving to IterativeDrill get 1024
+        for context in [ContextType::NightBatch, ContextType::VisionOcr] {
+            let s = resolve_strategy(context, ModelVariant::Q8);
+            assert_eq!(s.kind, PromptStrategyKind::IterativeDrill);
+            assert_eq!(
+                s.max_tokens, 1024,
+                "IterativeDrill should use 1024 for {context}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_list_always_4096() {
+        // All contexts resolving to MarkdownList get 4096
+        for context in [ContextType::HealthQuery, ContextType::DocumentExtraction] {
+            let s = resolve_strategy(context, ModelVariant::Q8);
+            assert_eq!(s.kind, PromptStrategyKind::MarkdownList);
+            assert_eq!(
+                s.max_tokens, 4096,
+                "MarkdownList should use 4096 for {context}"
+            );
+        }
     }
 
     // ── Display ─────────────────────────────────────────

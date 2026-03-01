@@ -43,6 +43,10 @@
     "step_reviewed": "Pr\u00eat pour v\u00e9rification",
     "step_import_failed": "\u00c9chec de l'importation",
     "step_extraction_failed": "\u00c9chec de l'extraction",
-    "step_structuring_failed": "\u00c9chec de l'analyse"
+    "step_structuring_failed": "\u00c9chec de l'analyse",
+    "type_label": "Type de document",
+    "type_lab_report": "Analyse",
+    "type_prescription": "Ordonnance",
+    "type_medical_image": "Imagerie"
   }
 }

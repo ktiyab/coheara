@@ -68,6 +68,9 @@ pub struct ImportJob {
     pub queued_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    /// UC-01: User-selected document type at import time.
+    /// When Some, bypasses LLM classifier. Values: "lab_report", "prescription", "medical_image".
+    pub user_document_type: Option<String>,
 }
 
 /// A snapshot of the entire queue (for IPC serialization).
@@ -101,7 +104,10 @@ impl ImportQueueService {
     }
 
     /// Enqueue a file for import. Returns the job ID.
-    pub fn enqueue(&self, file_path: String) -> String {
+    ///
+    /// UC-01: `user_document_type` bypasses LLM classification when provided.
+    /// Values: `"lab_report"`, `"prescription"`, `"medical_image"`.
+    pub fn enqueue(&self, file_path: String, user_document_type: Option<String>) -> String {
         let filename = std::path::Path::new(&file_path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -120,6 +126,7 @@ impl ImportQueueService {
             queued_at: Utc::now().to_rfc3339(),
             started_at: None,
             completed_at: None,
+            user_document_type,
         };
 
         let id = job.id.clone();
@@ -262,8 +269,10 @@ impl ImportQueueService {
 
     /// Retry a failed job. Marks old job as Cancelled (auto-dismissed from UI),
     /// then creates a new Queued entry with the same file. Returns the new job ID.
+    ///
+    /// UC-01: Preserves `user_document_type` from the original job.
     pub fn retry(&self, job_id: &str) -> Result<String, QueueError> {
-        let file_path = {
+        let (file_path, user_document_type) = {
             let mut jobs = self.jobs.lock().expect("import queue lock poisoned");
             let job = jobs.iter_mut().find(|j| j.id == job_id)
                 .ok_or(QueueError::JobNotFound)?;
@@ -276,13 +285,14 @@ impl ImportQueueService {
             }
 
             let file_path = job.file_path.clone();
+            let user_document_type = job.user_document_type.clone();
             // Auto-dismiss: mark old failed job as Cancelled (filtered from visibleItems)
             job.state = JobState::Cancelled;
             job.completed_at = Some(Utc::now().to_rfc3339());
-            file_path
+            (file_path, user_document_type)
         };
 
-        Ok(self.enqueue(file_path))
+        Ok(self.enqueue(file_path, user_document_type))
     }
 
     /// Delete a terminal job from the queue.
@@ -403,6 +413,7 @@ impl ImportQueueService {
                     queued_at: Utc::now().to_rfc3339(),
                     started_at: None,
                     completed_at: None,
+                    user_document_type: None, // Recovery: fallback to LLM classifier
                 };
 
                 let mut jobs = self.jobs.lock().expect("import queue lock poisoned");
@@ -460,7 +471,7 @@ mod tests {
     #[test]
     fn enqueue_creates_queued_job() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
 
         let snap = svc.snapshot();
         assert_eq!(snap.jobs.len(), 1);
@@ -473,9 +484,9 @@ mod tests {
     #[test]
     fn enqueue_preserves_order() {
         let svc = service();
-        let id1 = svc.enqueue("/tmp/a.pdf".into());
-        let id2 = svc.enqueue("/tmp/b.pdf".into());
-        let id3 = svc.enqueue("/tmp/c.pdf".into());
+        let id1 = svc.enqueue("/tmp/a.pdf".into(), None);
+        let id2 = svc.enqueue("/tmp/b.pdf".into(), None);
+        let id3 = svc.enqueue("/tmp/c.pdf".into(), None);
 
         let snap = svc.snapshot();
         assert_eq!(snap.jobs[0].id, id1);
@@ -488,7 +499,7 @@ mod tests {
     #[test]
     fn next_queued_transitions_to_importing() {
         let svc = service();
-        svc.enqueue("/tmp/a.pdf".into());
+        svc.enqueue("/tmp/a.pdf".into(), None);
 
         let job = svc.next_queued().unwrap();
         assert_eq!(job.state, JobState::Importing);
@@ -501,8 +512,8 @@ mod tests {
     #[test]
     fn next_queued_skips_non_queued() {
         let svc = service();
-        let id1 = svc.enqueue("/tmp/a.pdf".into());
-        svc.enqueue("/tmp/b.pdf".into());
+        let id1 = svc.enqueue("/tmp/a.pdf".into(), None);
+        svc.enqueue("/tmp/b.pdf".into(), None);
 
         // Take first
         svc.next_queued().unwrap();
@@ -525,7 +536,7 @@ mod tests {
     #[test]
     fn update_job_state_transitions() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
 
         svc.update_job_state(&id, JobState::Extracting, Some(25), None, Some("medgemma-4b".into()), None).unwrap();
@@ -548,7 +559,7 @@ mod tests {
     #[test]
     fn update_job_state_failed_with_error() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
 
         svc.update_job_state(&id, JobState::Failed, None, None, None, Some("OCR timeout".into())).unwrap();
@@ -570,7 +581,7 @@ mod tests {
     #[test]
     fn update_invalid_transition_rejected() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         // Queued → Done is invalid (must go through Importing → Extracting → Structuring)
         let err = svc.update_job_state(&id, JobState::Done, None, None, None, None).unwrap_err();
         assert!(matches!(err, QueueError::InvalidTransition { .. }));
@@ -589,7 +600,7 @@ mod tests {
     #[test]
     fn cancel_queued_job() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.cancel(&id).unwrap();
 
         let job = svc.get_job(&id).unwrap();
@@ -600,7 +611,7 @@ mod tests {
     #[test]
     fn cancel_active_job() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Extracting, Some(50), None, None, None).unwrap();
 
@@ -611,7 +622,7 @@ mod tests {
     #[test]
     fn cancel_terminal_fails() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Extracting, None, None, None, None).unwrap();
         svc.update_job_state(&id, JobState::Structuring, None, None, None, None).unwrap();
@@ -635,7 +646,7 @@ mod tests {
     #[test]
     fn retry_failed_job() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Failed, None, None, None, Some("error".into())).unwrap();
 
@@ -659,7 +670,7 @@ mod tests {
     #[test]
     fn retry_non_failed_fails() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
 
         let err = svc.retry(&id).unwrap_err();
         assert_eq!(err, QueueError::InvalidTransition {
@@ -671,7 +682,7 @@ mod tests {
     #[test]
     fn retry_old_job_excluded_from_active_count() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Failed, None, None, None, Some("err".into())).unwrap();
         svc.retry(&id).unwrap();
@@ -692,7 +703,7 @@ mod tests {
     #[test]
     fn delete_terminal_job() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Extracting, None, None, None, None).unwrap();
         svc.update_job_state(&id, JobState::Structuring, None, None, None, None).unwrap();
@@ -705,7 +716,7 @@ mod tests {
     #[test]
     fn delete_active_fails() {
         let svc = service();
-        let id = svc.enqueue("/tmp/a.pdf".into());
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
 
         let err = svc.delete(&id).unwrap_err();
         assert_eq!(err, QueueError::InvalidTransition {
@@ -719,8 +730,8 @@ mod tests {
     #[test]
     fn snapshot_reflects_state() {
         let svc = service();
-        svc.enqueue("/tmp/a.pdf".into());
-        svc.enqueue("/tmp/b.pdf".into());
+        svc.enqueue("/tmp/a.pdf".into(), None);
+        svc.enqueue("/tmp/b.pdf".into(), None);
 
         let snap = svc.snapshot();
         assert_eq!(snap.jobs.len(), 2);
@@ -732,8 +743,8 @@ mod tests {
     #[test]
     fn reset_clears_all() {
         let svc = service();
-        svc.enqueue("/tmp/a.pdf".into());
-        svc.enqueue("/tmp/b.pdf".into());
+        svc.enqueue("/tmp/a.pdf".into(), None);
+        svc.enqueue("/tmp/b.pdf".into(), None);
         svc.set_running(true);
 
         svc.reset();
@@ -748,8 +759,8 @@ mod tests {
     #[test]
     fn active_count_excludes_terminal() {
         let svc = service();
-        let id1 = svc.enqueue("/tmp/a.pdf".into());
-        svc.enqueue("/tmp/b.pdf".into());
+        let id1 = svc.enqueue("/tmp/a.pdf".into(), None);
+        svc.enqueue("/tmp/b.pdf".into(), None);
 
         assert_eq!(svc.active_count(), 2);
 
@@ -771,7 +782,7 @@ mod tests {
         for i in 0..10 {
             let svc = svc.clone();
             handles.push(std::thread::spawn(move || {
-                svc.enqueue(format!("/tmp/file_{i}.pdf"));
+                svc.enqueue(format!("/tmp/file_{i}.pdf"), None);
             }));
         }
 
@@ -889,7 +900,7 @@ mod tests {
     #[test]
     fn update_job_progress_updates_pct() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         svc.next_queued(); // → Importing
 
         svc.update_job_progress(&id, Some(42), None).unwrap();
@@ -902,7 +913,7 @@ mod tests {
     #[test]
     fn update_job_progress_sets_model() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         svc.next_queued();
 
         svc.update_job_progress(&id, None, Some("medgemma-4b".into())).unwrap();
@@ -915,7 +926,7 @@ mod tests {
     #[test]
     fn update_job_progress_rejects_terminal() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         svc.next_queued();
         svc.update_job_state(&id, JobState::Failed, None, None, None, Some("err".into())).unwrap();
 
@@ -928,7 +939,7 @@ mod tests {
     #[test]
     fn create_cancellation_token_returns_shared_arc() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         let token = svc.create_cancellation_token(&id);
 
         assert!(!token.load(Ordering::Relaxed));
@@ -937,7 +948,7 @@ mod tests {
     #[test]
     fn cancel_signals_cancellation_token() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         svc.next_queued(); // → Importing
         let token = svc.create_cancellation_token(&id);
 
@@ -950,7 +961,7 @@ mod tests {
     #[test]
     fn remove_cancellation_token_cleans_up() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         let token = svc.create_cancellation_token(&id);
 
         svc.remove_cancellation_token(&id);
@@ -966,9 +977,50 @@ mod tests {
     #[test]
     fn cancel_without_token_still_works() {
         let svc = service();
-        let id = svc.enqueue("/tmp/scan.pdf".into());
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
         // No cancellation token created — cancel should still work
         svc.cancel(&id).unwrap();
         assert_eq!(svc.get_job(&id).unwrap().state, JobState::Cancelled);
+    }
+
+    // -- UC-01: User document type --
+
+    #[test]
+    fn enqueue_with_document_type() {
+        let svc = service();
+        let id = svc.enqueue("/tmp/lab.pdf".into(), Some("lab_report".into()));
+
+        let job = svc.get_job(&id).unwrap();
+        assert_eq!(job.user_document_type.as_deref(), Some("lab_report"));
+    }
+
+    #[test]
+    fn enqueue_without_document_type() {
+        let svc = service();
+        let id = svc.enqueue("/tmp/scan.pdf".into(), None);
+
+        let job = svc.get_job(&id).unwrap();
+        assert!(job.user_document_type.is_none());
+    }
+
+    #[test]
+    fn retry_preserves_document_type() {
+        let svc = service();
+        let id = svc.enqueue("/tmp/lab.pdf".into(), Some("prescription".into()));
+        svc.next_queued();
+        svc.update_job_state(&id, JobState::Failed, None, None, None, Some("error".into())).unwrap();
+
+        let new_id = svc.retry(&id).unwrap();
+        let new_job = svc.get_job(&new_id).unwrap();
+        assert_eq!(new_job.user_document_type.as_deref(), Some("prescription"));
+    }
+
+    #[test]
+    fn snapshot_includes_document_type() {
+        let svc = service();
+        svc.enqueue("/tmp/a.pdf".into(), Some("medical_image".into()));
+
+        let snap = svc.snapshot();
+        assert_eq!(snap.jobs[0].user_document_type.as_deref(), Some("medical_image"));
     }
 }

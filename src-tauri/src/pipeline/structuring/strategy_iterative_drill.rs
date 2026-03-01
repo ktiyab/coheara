@@ -10,6 +10,7 @@
 //! Evidence: BM-06 (iterative drill), MF-44 (prompt complexity dominant).
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::butler_service::{SessionError, ValidatedOutput, VisionSession};
 use crate::pipeline::domain_contracts::{contract_for_document_domain, InputMode};
@@ -52,32 +53,59 @@ impl IterativeDrillStrategy {
     ///
     /// Uses `VisionSession` for enforced sanitize + quality gate on every call.
     /// Handles degeneration gracefully: uses partial output if available, skips field otherwise.
+    ///
+    /// C4: When `progress_path` is Some, writes a JSONL entry after each LLM call.
+    /// This makes extraction progression visible in real-time (`tail -f`).
+    ///
+    /// 09-CAE: When `user_doc_type` is Some, only relevant domains are queried
+    /// (e.g., LabReport → LabResults + Diagnoses). When None, all 7 domains
+    /// run (legacy/chat fallback).
     pub fn extract_from_image(
         &self,
         session: &dyn VisionSession,
         client: &dyn VisionClient,
         images: &[String],
         system_prompt: &str,
+        progress_path: Option<&Path>,
+        user_doc_type: Option<crate::pipeline::extraction::vision_classifier::UserDocumentType>,
     ) -> Result<StrategyOutput, SessionError> {
-        let domains = DocumentDomain::all();
+        use crate::pipeline::diagnostic;
+
+        // 09-CAE: Filter domains by user category, or run all 7 (legacy/chat fallback)
+        let domains: &[DocumentDomain] = match user_doc_type {
+            Some(dt) => crate::pipeline::domain_contracts::domains_for_document_type(dt),
+            None => DocumentDomain::all(),
+        };
         let mut entities = ExtractedEntities::default();
         let mut markdown_sections = Vec::new();
         let mut raw_responses = Vec::new();
+        let mut call_num: u32 = 0;
+        let extraction_start = std::time::Instant::now();
 
-        for &domain in domains {
+        for (domain_idx, &domain) in domains.iter().enumerate() {
             let contract = contract_for_document_domain(domain);
 
             // Phase 0: Enumerate items for this domain via vision
-            let enumerate_prompt = contract.enumerate_prompt_for(InputMode::Vision, "");
+            // 09-CAE: Category context for focused prompts
+            let cat_ctx = user_doc_type
+                .map(crate::pipeline::domain_contracts::category_context)
+                .unwrap_or("");
+            let enumerate_prompt = contract.enumerate_prompt_for(InputMode::Vision, "", cat_ctx);
+            call_num += 1;
+            let call_start = std::time::Instant::now();
+
             let enumerate_result = match session.chat_with_images(
                 client,
                 &enumerate_prompt,
                 images,
                 Some(system_prompt),
             ) {
-                Ok(result) => result,
-                Err(SessionError::Degeneration { partial_output, .. }) => {
-                    // Try to salvage item names from partial output
+                Ok(result) => {
+                    Self::log_progress(progress_path, call_num, "enumerate", domain_idx, &domain.to_string(), "", "", "ok", &result.text, result.tokens_generated, call_start.elapsed().as_millis());
+                    result
+                }
+                Err(SessionError::Degeneration { partial_output, tokens_before_abort, pattern, .. }) => {
+                    Self::log_progress(progress_path, call_num, "enumerate", domain_idx, &domain.to_string(), "", "", &format!("degen:{pattern}"), &partial_output, tokens_before_abort, call_start.elapsed().as_millis());
                     if partial_output.trim().is_empty() {
                         tracing::warn!(domain = %domain, "Vision enumerate degenerated with no output, skipping");
                         continue;
@@ -89,8 +117,8 @@ impl IterativeDrillStrategy {
                         model: session.model().to_string(),
                     }
                 }
-                Err(SessionError::QualityGate { raw_output, .. }) => {
-                    // Quality gate rejected but raw might still have item names
+                Err(SessionError::QualityGate { raw_output, reason, .. }) => {
+                    Self::log_progress(progress_path, call_num, "enumerate", domain_idx, &domain.to_string(), "", "", &format!("quality_gate:{reason}"), &raw_output, 0, call_start.elapsed().as_millis());
                     if raw_output.trim().is_empty() {
                         continue;
                     }
@@ -100,7 +128,10 @@ impl IterativeDrillStrategy {
                         model: session.model().to_string(),
                     }
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    Self::log_progress(progress_path, call_num, "enumerate", domain_idx, &domain.to_string(), "", "", &format!("error:{e}"), "", 0, call_start.elapsed().as_millis());
+                    return Err(e);
+                }
             };
 
             raw_responses.push(enumerate_result.text.clone());
@@ -120,6 +151,8 @@ impl IterativeDrillStrategy {
                 for field_desc in contract.fields {
                     let drill_prompt =
                         contract.drill_prompt_for(InputMode::Vision, item_name, field_desc, "");
+                    call_num += 1;
+                    let call_start = std::time::Instant::now();
 
                     match session.chat_with_images(
                         client,
@@ -128,6 +161,7 @@ impl IterativeDrillStrategy {
                         Some(system_prompt),
                     ) {
                         Ok(result) => {
+                            Self::log_progress(progress_path, call_num, "drill", domain_idx, &domain.to_string(), item_name, field_desc.name, "ok", &result.text, result.tokens_generated, call_start.elapsed().as_millis());
                             raw_responses.push(result.text.clone());
                             let value = result.text.trim().to_string();
                             if !value.is_empty() && !is_not_specified(&value) {
@@ -138,9 +172,9 @@ impl IterativeDrillStrategy {
                             }
                         }
                         Err(SessionError::Degeneration {
-                            partial_output, ..
+                            partial_output, tokens_before_abort, pattern, ..
                         }) => {
-                            // Use partial if non-empty, else skip field
+                            Self::log_progress(progress_path, call_num, "drill", domain_idx, &domain.to_string(), item_name, field_desc.name, &format!("degen:{pattern}"), &partial_output, tokens_before_abort, call_start.elapsed().as_millis());
                             let trimmed = partial_output.trim().to_string();
                             if !trimmed.is_empty() && !is_not_specified(&trimmed) {
                                 field_values
@@ -149,8 +183,8 @@ impl IterativeDrillStrategy {
                                     .push_str(&format!("\n  - {}: {trimmed}", field_desc.name));
                             }
                         }
-                        Err(SessionError::QualityGate { .. }) => {
-                            // Quality gate rejected — skip this field
+                        Err(SessionError::QualityGate { reason, .. }) => {
+                            Self::log_progress(progress_path, call_num, "drill", domain_idx, &domain.to_string(), item_name, field_desc.name, &format!("quality_gate:{reason}"), "", 0, call_start.elapsed().as_millis());
                             tracing::debug!(
                                 domain = %domain,
                                 item = %item_name,
@@ -158,7 +192,10 @@ impl IterativeDrillStrategy {
                                 "Vision drill quality gate rejected, skipping field"
                             );
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => {
+                            Self::log_progress(progress_path, call_num, "drill", domain_idx, &domain.to_string(), item_name, field_desc.name, &format!("error:{e}"), "", 0, call_start.elapsed().as_millis());
+                            return Err(e);
+                        }
                     }
                 }
 
@@ -175,6 +212,25 @@ impl IterativeDrillStrategy {
 
         let markdown = markdown_sections.join("\n\n");
 
+        // C4: Write summary entry
+        if let Some(path) = progress_path {
+            if let Some(dir) = path.parent() {
+                diagnostic::dump_jsonl_append(dir, path.file_name().unwrap().to_str().unwrap_or("progress.jsonl"), &serde_json::json!({
+                    "call": call_num + 1,
+                    "phase": "summary",
+                    "total_calls": call_num,
+                    "total_elapsed_ms": extraction_start.elapsed().as_millis() as u64,
+                    "lab_results": entities.lab_results.len(),
+                    "medications": entities.medications.len(),
+                    "diagnoses": entities.diagnoses.len(),
+                    "allergies": entities.allergies.len(),
+                    "procedures": entities.procedures.len(),
+                    "referrals": entities.referrals.len(),
+                    "instructions": entities.instructions.len(),
+                }));
+            }
+        }
+
         Ok(StrategyOutput {
             entities,
             markdown,
@@ -183,6 +239,50 @@ impl IterativeDrillStrategy {
             professional: None,
             raw_responses,
         })
+    }
+
+    /// C4: Append a progress entry to the JSONL diagnostic file.
+    #[allow(clippy::too_many_arguments)]
+    fn log_progress(
+        progress_path: Option<&Path>,
+        call: u32,
+        phase: &str,
+        domain_idx: usize,
+        domain: &str,
+        item: &str,
+        field: &str,
+        status: &str,
+        response: &str,
+        tokens: usize,
+        elapsed_ms: u128,
+    ) {
+        let Some(path) = progress_path else { return };
+        let Some(dir) = path.parent() else { return };
+        let Some(filename) = path.file_name().and_then(|f| f.to_str()) else { return };
+
+        use crate::pipeline::diagnostic;
+
+        let mut entry = serde_json::json!({
+            "call": call,
+            "phase": phase,
+            "domain_idx": domain_idx,
+            "domain": domain,
+            "status": status,
+            "tokens": tokens,
+            "elapsed_ms": elapsed_ms as u64,
+        });
+
+        if !item.is_empty() {
+            entry["item"] = serde_json::json!(item);
+        }
+        if !field.is_empty() {
+            entry["field"] = serde_json::json!(field);
+        }
+        // Truncate response for readability (drill answers are short, but enumerate can be longer)
+        let truncated: String = response.chars().take(200).collect();
+        entry["response"] = serde_json::json!(truncated);
+
+        diagnostic::dump_jsonl_append(dir, filename, &entry);
     }
 }
 
@@ -290,19 +390,41 @@ impl ExtractionStrategy for IterativeDrillStrategy {
 // Enumerate response parser
 // ═══════════════════════════════════════════════════════════
 
+/// Maximum length for a medical item name (test, medication, diagnosis, etc.).
+/// No real name exceeds 60 characters. Chain-of-thought sentences are 80+ chars.
+const MAX_ITEM_NAME_LEN: usize = 60;
+
+/// Maximum number of items from a single enumerate response.
+/// No single page of a medical document has > 30 distinct items.
+const MAX_ITEMS: usize = 30;
+
 /// Parse enumerate response into a list of item names.
 ///
 /// Handles bullet lists, comma-separated lists, and newline-separated lists.
 /// Filters out empty items and "not specified"/"none" responses.
+///
+/// Hardening (09-CAE):
+/// - Explicit "NONE" response → empty vec (deterministic empty-case handling)
+/// - Lines > 60 chars skipped (chain-of-thought sentences, not item names)
+/// - Max 30 items returned (no single page has more)
 pub fn parse_enumerate_response(response: &str) -> Vec<String> {
     let trimmed = response.trim();
     if trimmed.is_empty() || is_not_specified(trimmed) {
         return vec![];
     }
 
+    // 09-CAE: Explicit empty response from category-aware prompt
+    if trimmed.eq_ignore_ascii_case("NONE") {
+        return vec![];
+    }
+
     let mut items = Vec::new();
 
     for line in trimmed.lines() {
+        if items.len() >= MAX_ITEMS {
+            break;
+        }
+
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -314,14 +436,23 @@ pub fn parse_enumerate_response(response: &str) -> Vec<String> {
         // Handle comma-separated on a single line
         if cleaned.contains(',') && !cleaned.contains('\n') {
             for part in cleaned.split(',') {
+                if items.len() >= MAX_ITEMS {
+                    break;
+                }
                 let name = part.trim().replace("**", "");
-                if !name.is_empty() && !is_not_specified(&name) {
+                if !name.is_empty()
+                    && !is_not_specified(&name)
+                    && name.len() <= MAX_ITEM_NAME_LEN
+                {
                     items.push(name);
                 }
             }
         } else {
             let name = cleaned.replace("**", "").trim().to_string();
-            if !name.is_empty() && !is_not_specified(&name) {
+            if !name.is_empty()
+                && !is_not_specified(&name)
+                && name.len() <= MAX_ITEM_NAME_LEN
+            {
                 items.push(name);
             }
         }
@@ -576,6 +707,66 @@ mod tests {
     fn enumerate_bold_names() {
         let items = parse_enumerate_response("- **Metformin**\n- **Aspirin**");
         assert_eq!(items, vec!["Metformin", "Aspirin"]);
+    }
+
+    // ── 09-CAE: Parser hardening tests ──────────────────
+
+    #[test]
+    fn parse_enumerate_none_explicit() {
+        assert!(parse_enumerate_response("NONE").is_empty());
+    }
+
+    #[test]
+    fn parse_enumerate_none_case_insensitive() {
+        assert!(parse_enumerate_response("none").is_empty());
+        assert!(parse_enumerate_response("None").is_empty());
+        assert!(parse_enumerate_response("  NONE  ").is_empty());
+    }
+
+    #[test]
+    fn parse_enumerate_long_lines_filtered() {
+        let long_line = "Here's my thought process for extracting the medication names from the provided image:";
+        let short_line = "Hemoglobin";
+        let input = format!("{long_line}\n{short_line}");
+        let items = parse_enumerate_response(&input);
+        assert_eq!(items, vec!["Hemoglobin"]);
+    }
+
+    #[test]
+    fn parse_enumerate_max_items_capped() {
+        let lines: Vec<String> = (1..=35).map(|i| format!("Item{i}")).collect();
+        let input = lines.join("\n");
+        let items = parse_enumerate_response(&input);
+        assert_eq!(items.len(), MAX_ITEMS);
+        assert_eq!(items[0], "Item1");
+        assert_eq!(items[29], "Item30");
+    }
+
+    #[test]
+    fn parse_enumerate_thinking_text_filtered() {
+        // Actual chain-of-thought from 002fd7e3 diagnostic — all lines > 60 chars
+        let thinking = "\
+Here's my thought process for extracting the medication names from the provided image:\n\
+Understand the Goal: The request asks for a list of *all visible medication names*\n\
+presented one per line.\n\
+Analyze the Image: I need to scan the image carefully\n\
+looking for text that appears to be drug names. I'll pay attention to:\n\
+Context: Is the text associated with a specific condition\n\
+or treatment?\n\
+Formatting: Are there specific labels like \"Medication:\"\n\
+Common Drug Names: Do I recognize any common medication names?";
+        let items = parse_enumerate_response(thinking);
+        // Most lines are > 60 chars (thinking text). Some short fragments like
+        // "or treatment?" (14 chars) pass the length filter but get through
+        // as noise. The key assertion: no 80+ char reasoning sentences pass.
+        for item in &items {
+            assert!(
+                item.len() <= MAX_ITEM_NAME_LEN,
+                "Item '{}' ({} chars) exceeds MAX_ITEM_NAME_LEN",
+                item,
+                item.len(),
+            );
+        }
     }
 
     // ── Assembler tests ──────────────────────────────────
@@ -841,10 +1032,17 @@ mod tests {
     fn run_vision_drill(
         vision: &dyn VisionClient,
     ) -> Result<StrategyOutput, SessionError> {
+        run_vision_drill_with_doc_type(vision, None)
+    }
+
+    fn run_vision_drill_with_doc_type(
+        vision: &dyn VisionClient,
+        doc_type: Option<crate::pipeline::extraction::vision_classifier::UserDocumentType>,
+    ) -> Result<StrategyOutput, SessionError> {
         let session = FallbackSession::new("medgemma:4b", ContextType::NightBatch, false);
         let strategy = IterativeDrillStrategy::new(0);
         let images = vec!["base64_image_data".to_string()];
-        strategy.extract_from_image(&session, vision, &images, "You are a medical document extractor.")
+        strategy.extract_from_image(&session, vision, &images, "You are a medical document extractor.", None, doc_type)
     }
 
     #[test]
@@ -1084,5 +1282,137 @@ mod tests {
         let _ = run_vision_drill(&mock).unwrap();
 
         assert_eq!(mock.enumerate_count.load(Ordering::Relaxed), 7);
+    }
+
+    // ── 09-CAE: Domain filtering integration tests ──────
+
+    #[test]
+    fn vision_drill_filters_domains_lab_report() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use crate::pipeline::extraction::vision_classifier::UserDocumentType;
+
+        struct CountingVision {
+            enumerate_count: AtomicUsize,
+        }
+
+        impl VisionClient for CountingVision {
+            fn generate_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(&self, _: &str, prompt: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                if prompt.to_lowercase().contains("are visible") {
+                    self.enumerate_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok("NONE".into())
+            }
+        }
+
+        let mock = CountingVision { enumerate_count: AtomicUsize::new(0) };
+        let _ = run_vision_drill_with_doc_type(&mock, Some(UserDocumentType::LabReport)).unwrap();
+
+        // LabReport → [LabResults, Diagnoses] → 2 enumerate calls
+        assert_eq!(mock.enumerate_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn vision_drill_filters_domains_prescription() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use crate::pipeline::extraction::vision_classifier::UserDocumentType;
+
+        struct CountingVision {
+            enumerate_count: AtomicUsize,
+        }
+
+        impl VisionClient for CountingVision {
+            fn generate_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(&self, _: &str, prompt: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                if prompt.to_lowercase().contains("are visible") {
+                    self.enumerate_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok("NONE".into())
+            }
+        }
+
+        let mock = CountingVision { enumerate_count: AtomicUsize::new(0) };
+        let _ = run_vision_drill_with_doc_type(&mock, Some(UserDocumentType::Prescription)).unwrap();
+
+        // Prescription → [Medications, Instructions, Diagnoses] → 3 enumerate calls
+        assert_eq!(mock.enumerate_count.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn vision_drill_no_filter_when_none() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingVision {
+            enumerate_count: AtomicUsize,
+        }
+
+        impl VisionClient for CountingVision {
+            fn generate_with_images(&self, _: &str, _: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                Ok(String::new())
+            }
+            fn chat_with_images(&self, _: &str, prompt: &str, _: &[String], _: Option<&str>) -> Result<String, OllamaError> {
+                if prompt.to_lowercase().contains("are visible") {
+                    self.enumerate_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok("NONE".into())
+            }
+        }
+
+        let mock = CountingVision { enumerate_count: AtomicUsize::new(0) };
+        let _ = run_vision_drill_with_doc_type(&mock, None).unwrap();
+
+        // None (legacy fallback) → all 7 domains
+        assert_eq!(mock.enumerate_count.load(Ordering::Relaxed), 7);
+    }
+
+    #[test]
+    fn vision_drill_writes_progress_diagnostic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let progress_path = tmp.path().join("drill-progress.jsonl");
+
+        let session = FallbackSession::new("medgemma:4b", ContextType::NightBatch, false);
+        let strategy = IterativeDrillStrategy::new(0);
+        let images = vec!["base64_image_data".to_string()];
+        let mock = VisionDrillMock;
+
+        let output = strategy.extract_from_image(
+            &session,
+            &mock,
+            &images,
+            "You are a medical document extractor.",
+            Some(&progress_path),
+            None,
+        ).unwrap();
+
+        assert!(!output.entities.lab_results.is_empty());
+
+        // Verify JSONL file was written
+        let content = std::fs::read_to_string(&progress_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+
+        // 7 enumerate + N drill calls + 1 summary
+        assert!(lines.len() > 7, "Expected > 7 lines, got {}", lines.len());
+
+        // First line should be an enumerate call
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["phase"], "enumerate");
+        assert_eq!(first["call"], 1);
+
+        // Last line should be summary
+        let last: serde_json::Value = serde_json::from_str(lines[lines.len() - 1]).unwrap();
+        assert_eq!(last["phase"], "summary");
+        assert!(last["total_calls"].as_u64().unwrap() > 0);
+        assert!(last["lab_results"].as_u64().unwrap() >= 2);
+
+        // Verify a drill entry has item and field
+        let has_drill = lines.iter().any(|line| {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+            v["phase"] == "drill" && v.get("item").is_some() && v.get("field").is_some()
+        });
+        assert!(has_drill, "Expected at least one drill entry with item+field");
     }
 }

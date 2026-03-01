@@ -103,6 +103,64 @@ fn parse_classification_response(response: &str) -> ImageContentType {
 }
 
 // ──────────────────────────────────────────────
+// User-provided classification (UC-01)
+// ──────────────────────────────────────────────
+
+/// Document type selected by the user at import time.
+///
+/// UC-01: The user always knows what they're importing.
+/// One click, 2 seconds, 100% accurate — replaces LLM classifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserDocumentType {
+    LabReport,
+    Prescription,
+    MedicalImage,
+}
+
+impl UserDocumentType {
+    /// Map to the pipeline's content type for routing.
+    pub fn to_content_type(self) -> ImageContentType {
+        match self {
+            Self::LabReport => ImageContentType::Document,
+            Self::Prescription => ImageContentType::Document,
+            Self::MedicalImage => ImageContentType::MedicalImage,
+        }
+    }
+
+    /// Parse from the string sent over IPC (e.g. `"lab_report"`).
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "lab_report" => Some(Self::LabReport),
+            "prescription" => Some(Self::Prescription),
+            "medical_image" => Some(Self::MedicalImage),
+            _ => None,
+        }
+    }
+}
+
+/// Classifier backed by user selection — no LLM call, instant, infallible.
+pub struct UserProvidedClassifier {
+    content_type: ImageContentType,
+}
+
+impl UserProvidedClassifier {
+    pub fn new(doc_type: UserDocumentType) -> Self {
+        Self {
+            content_type: doc_type.to_content_type(),
+        }
+    }
+}
+
+impl VisionClassifier for UserProvidedClassifier {
+    fn classify_image(
+        &self,
+        _image_bytes: &[u8],
+    ) -> Result<ImageContentType, ExtractionError> {
+        Ok(self.content_type)
+    }
+}
+
+// ──────────────────────────────────────────────
 // Mock for testing
 // ──────────────────────────────────────────────
 
@@ -237,5 +295,49 @@ mod tests {
     fn classify_prompt_asks_one_word() {
         assert!(CLASSIFY_USER.contains("exactly one word"));
         assert!(CLASSIFY_USER.contains("DOCUMENT or IMAGE"));
+    }
+
+    // -- UserDocumentType (UC-01) --
+
+    #[test]
+    fn user_doc_type_lab_report_maps_to_document() {
+        assert_eq!(
+            UserDocumentType::LabReport.to_content_type(),
+            ImageContentType::Document,
+        );
+    }
+
+    #[test]
+    fn user_doc_type_prescription_maps_to_document() {
+        assert_eq!(
+            UserDocumentType::Prescription.to_content_type(),
+            ImageContentType::Document,
+        );
+    }
+
+    #[test]
+    fn user_doc_type_medical_image_maps_to_medical_image() {
+        assert_eq!(
+            UserDocumentType::MedicalImage.to_content_type(),
+            ImageContentType::MedicalImage,
+        );
+    }
+
+    #[test]
+    fn user_doc_type_from_str_parses_valid() {
+        assert_eq!(UserDocumentType::from_str("lab_report"), Some(UserDocumentType::LabReport));
+        assert_eq!(UserDocumentType::from_str("prescription"), Some(UserDocumentType::Prescription));
+        assert_eq!(UserDocumentType::from_str("medical_image"), Some(UserDocumentType::MedicalImage));
+        assert_eq!(UserDocumentType::from_str("unknown"), None);
+        assert_eq!(UserDocumentType::from_str(""), None);
+    }
+
+    #[test]
+    fn user_provided_classifier_returns_fixed_type() {
+        let classifier = UserProvidedClassifier::new(UserDocumentType::LabReport);
+        assert_eq!(classifier.classify_image(b"any").unwrap(), ImageContentType::Document);
+
+        let classifier = UserProvidedClassifier::new(UserDocumentType::MedicalImage);
+        assert_eq!(classifier.classify_image(b"any").unwrap(), ImageContentType::MedicalImage);
     }
 }
