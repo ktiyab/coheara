@@ -1121,9 +1121,11 @@ pub fn update_document_rejected(
 }
 
 /// Determine the original file type from the source filename.
+/// Handles encrypted paths like `{uuid}.pdf.enc` by stripping the `.enc` suffix.
 pub fn detect_file_type(source_file: &str) -> OriginalFileType {
     let lower = source_file.to_lowercase();
-    if lower.ends_with(".pdf") {
+    let effective = lower.strip_suffix(".enc").unwrap_or(&lower);
+    if effective.ends_with(".pdf") {
         OriginalFileType::Pdf
     } else {
         OriginalFileType::Image
@@ -1556,10 +1558,22 @@ mod tests {
     }
 
     #[test]
+    fn detect_pdf_type_encrypted() {
+        assert_eq!(detect_file_type("abc-123.pdf.enc"), OriginalFileType::Pdf);
+        assert_eq!(detect_file_type("DOC.PDF.ENC"), OriginalFileType::Pdf);
+    }
+
+    #[test]
     fn detect_image_type() {
         assert_eq!(detect_file_type("photo.jpg"), OriginalFileType::Image);
         assert_eq!(detect_file_type("scan.png"), OriginalFileType::Image);
         assert_eq!(detect_file_type("xray.tiff"), OriginalFileType::Image);
+    }
+
+    #[test]
+    fn detect_image_type_encrypted() {
+        assert_eq!(detect_file_type("photo.jpg.enc"), OriginalFileType::Image);
+        assert_eq!(detect_file_type("scan.png.enc"), OriginalFileType::Image);
     }
 
     // --- Database integration tests ---

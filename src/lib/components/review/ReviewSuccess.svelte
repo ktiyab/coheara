@@ -29,7 +29,7 @@
   });
 </script>
 
-<div class="flex flex-col items-center justify-center h-screen bg-stone-50 dark:bg-gray-950 px-6">
+<div class="flex flex-col items-center justify-center h-full bg-stone-50 dark:bg-gray-950 px-6">
   <div class="max-w-md w-full text-center">
     <div class="mb-6" aria-hidden="true">
       <CheckIcon class="w-16 h-16 text-[var(--color-success)]" />

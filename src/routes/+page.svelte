@@ -173,7 +173,7 @@
       {/if}
     </div>
   {:else if navigation.activeScreen === 'documents'}
-    <DocumentListScreen droppedFiles={navigation.screenParams.droppedFiles ? JSON.parse(navigation.screenParams.droppedFiles) : undefined} />
+    <DocumentListScreen />
   {:else if navigation.activeScreen === 'document-detail' && navigation.screenParams.documentId}
     <DocumentDetailScreen
       documentId={navigation.screenParams.documentId}

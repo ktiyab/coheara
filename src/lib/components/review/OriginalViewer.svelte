@@ -1,5 +1,6 @@
 <!-- L3-04: Original document viewer with zoom, pan, rotate (image/PDF). -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { RefreshIcon } from '$lib/components/icons/md';
 
@@ -62,19 +63,33 @@
     isDragging = false;
   }
 
-  let mimePrefix = $derived(
-    fileType === 'Pdf' ? 'data:application/pdf;base64,' : 'data:image/jpeg;base64,'
-  );
+  /** Convert base64 to a blob URL (reliable in WebViews, unlike data URIs for PDFs). */
+  function base64ToBlobUrl(b64: string, mime: string): string {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: mime });
+    return URL.createObjectURL(blob);
+  }
 
-  let dataUrl = $derived(fileBase64 ? `${mimePrefix}${fileBase64}` : null);
+  let blobUrl: string | null = $state(null);
+
+  // Create blob URL when base64 data arrives; revoke old one to prevent leaks.
+  $effect(() => {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    if (!fileBase64) { blobUrl = null; return; }
+    const mime = fileType === 'Pdf' ? 'application/pdf' : 'image/jpeg';
+    blobUrl = base64ToBlobUrl(fileBase64, mime);
+  });
+
+  // Clean up blob URL on unmount.
+  onMount(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); });
 </script>
 
 <div class="flex flex-col h-full">
   <!-- Toolbar -->
-  <div class="flex items-center gap-2 px-3 py-2 bg-stone-100 dark:bg-gray-800 border-b border-stone-200 dark:border-gray-700 shrink-0">
+  <div class="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border-b border-stone-100 dark:border-gray-800 shrink-0">
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300"
+             rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300"
       onclick={zoomOut}
       aria-label={$t('review.viewer_zoom_out')}
     >
@@ -83,7 +98,7 @@
     <span class="text-sm text-stone-500 dark:text-gray-400 w-12 text-center">{Math.round(zoom * 100)}%</span>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300"
+             rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300"
       onclick={zoomIn}
       aria-label={$t('review.viewer_zoom_in')}
     >
@@ -91,7 +106,7 @@
     </button>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
+             rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300 text-xs"
       onclick={fitToWidth}
       aria-label={$t('review.viewer_fit_width')}
     >
@@ -99,7 +114,7 @@
     </button>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center
-             rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
+             rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300 text-xs"
       onclick={rotate90}
       aria-label={$t('review.viewer_rotate')}
     >
@@ -110,7 +125,7 @@
       <div class="ml-auto flex items-center gap-2">
         <button
           class="min-h-[44px] min-w-[44px] flex items-center justify-center
-                 rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
+                 rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300 text-xs"
           onclick={() => currentPage = Math.max(1, currentPage - 1)}
           disabled={currentPage <= 1}
           aria-label={$t('review.viewer_prev_page')}
@@ -120,7 +135,7 @@
         <span class="text-sm text-stone-500 dark:text-gray-400">{currentPage} / {totalPages}</span>
         <button
           class="min-h-[44px] min-w-[44px] flex items-center justify-center
-                 rounded-lg hover:bg-stone-200 dark:hover:bg-gray-700 text-stone-600 dark:text-gray-300 text-xs"
+                 rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 text-stone-600 dark:text-gray-300 text-xs"
           onclick={() => currentPage = Math.min(totalPages, currentPage + 1)}
           disabled={currentPage >= totalPages}
           aria-label={$t('review.viewer_next_page')}
@@ -133,7 +148,7 @@
 
   <!-- Viewer area -->
   <div
-    class="flex-1 overflow-hidden bg-stone-200 dark:bg-gray-700 flex items-center justify-center
+    class="flex-1 overflow-hidden bg-white dark:bg-gray-900 flex items-center justify-center
            {isDragging ? 'cursor-grabbing' : zoom > 1.0 ? 'cursor-grab' : 'cursor-default'}"
     onwheel={handleWheel}
     onmousedown={handleMouseDown}
@@ -143,11 +158,11 @@
     role="img"
     aria-label={$t('review.viewer_aria')}
   >
-    {#if !dataUrl}
+    {#if !blobUrl}
       <p class="text-stone-500 dark:text-gray-400">{$t('review.viewer_loading')}</p>
     {:else if fileType === 'Image'}
       <img
-        src={dataUrl}
+        src={blobUrl}
         alt={$t('review.viewer_alt_image')}
         class="max-w-full max-h-full object-contain select-none"
         style="transform: scale({zoom}) rotate({rotation}deg) translate({panX / zoom}px, {panY / zoom}px);
@@ -157,7 +172,7 @@
       />
     {:else}
       <iframe
-        src={dataUrl}
+        src={blobUrl}
         title={$t('review.viewer_alt_pdf')}
         class="w-full h-full border-none"
         style="transform: scale({zoom}); transform-origin: top left;"

@@ -29,7 +29,7 @@
   import CaregiverDashboard from './CaregiverDashboard.svelte';
   import UpcomingAppointments from './UpcomingAppointments.svelte';
   import ActiveMedsSummary from './ActiveMedsSummary.svelte';
-  import DropZoneOverlay from './DropZoneOverlay.svelte';
+
   import ExtractionReview from './ExtractionReview.svelte';
   import CompanionUnlockPrompt from './CompanionUnlockPrompt.svelte';
   import NudgeCard from './NudgeCard.svelte';
@@ -155,9 +155,6 @@
     return date.toLocaleDateString($locale ?? 'en');
   }
 </script>
-
-<!-- Spec 49 [FE-04]: Global drop zone for file import -->
-<DropZoneOverlay />
 
 <div class="flex flex-col bg-stone-50 dark:bg-gray-950">
   <!-- Header -->

@@ -71,6 +71,15 @@
     "tab_original": "Original",
     "tab_extracted": "Extrait",
     "tab_corrected_count": "{count} corrigé(s)",
-    "tab_review_suffix": "vérification"
+    "tab_review_suffix": "vérification",
+    "section_confidence_banner": "Certaines valeurs peuvent nécessiter une vérification — repérez les points orange",
+    "entity_count": "{count, plural, one {# résultat} other {# résultats}}",
+    "summary_all_good_entities": "Les {count} résultats extraits semblent corrects",
+    "summary_mixed_entities": "{total} résultats extraits · {confident} confirmés · {flagged} à vérifier",
+    "flagged_heading_entities": "Certains résultats nécessitent une vérification",
+    "flagged_description_entities": "Il y a {count, plural, one {# résultat} other {# résultats}} dont je ne suis pas sûr. Souhaitez-vous {count, plural, one {le} other {les}} vérifier d'abord ?",
+    "entity_edited_count": "{count} modifié(s)",
+    "entity_edit_done": "Terminé",
+    "entity_no_value": "—"
   }
 }

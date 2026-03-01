@@ -169,7 +169,8 @@ pub fn fetch_recent_documents(
     let mut stmt = conn.prepare(
         "SELECT d.id, d.type, d.source_file, d.document_date, d.ingestion_date,
                 d.pipeline_status,
-                p.name AS prof_name, p.specialty AS prof_specialty
+                p.name AS prof_name, p.specialty AS prof_specialty,
+                d.title
          FROM documents d
          LEFT JOIN professionals p ON d.professional_id = p.id
          ORDER BY d.ingestion_date DESC
@@ -185,11 +186,12 @@ pub fn fetch_recent_documents(
         let pipeline_status: Option<String> = row.get(5)?;
         let prof_name: Option<String> = row.get(6)?;
         let prof_specialty: Option<String> = row.get(7)?;
+        let title: Option<String> = row.get(8)?;
 
         Ok(DocumentCard {
             id,
             document_type: format_document_type(&doc_type),
-            source_filename: extract_filename(&source_file),
+            source_filename: title.filter(|t| !t.is_empty()).unwrap_or_else(|| extract_filename(&source_file)),
             professional_name: prof_name,
             professional_specialty: prof_specialty,
             document_date,
@@ -735,8 +737,8 @@ pub fn fetch_document_detail(
     Ok(DocumentDetail {
         id,
         document_type: format_document_type(&doc_type),
-        title,
-        source_filename: extract_filename(&source_file),
+        title: title.clone(),
+        source_filename: if title.is_empty() { extract_filename(&source_file) } else { title },
         professional_name: prof_name,
         professional_specialty: prof_specialty,
         document_date,
@@ -1129,13 +1131,29 @@ mod tests {
     }
 
     #[test]
-    fn fetch_recent_documents_filename_extraction() {
+    fn fetch_recent_documents_uses_title_as_filename() {
         let conn = open_memory_database().unwrap();
         let id = Uuid::new_v4().to_string();
         insert_test_document(&conn, &id, "prescription", false, "/home/user/docs/blood_work.pdf");
 
         let docs = fetch_recent_documents(&conn, 20, 0).unwrap();
-        assert_eq!(docs[0].source_filename, "blood_work.pdf");
+        // source_filename should use `title` column (original filename), not the encrypted path
+        assert_eq!(docs[0].source_filename, "Test Doc");
+    }
+
+    #[test]
+    fn fetch_recent_documents_fallback_to_source_file() {
+        let conn = open_memory_database().unwrap();
+        let id = Uuid::new_v4().to_string();
+        // Insert with empty title — should fall back to extract_filename
+        conn.execute(
+            "INSERT INTO documents (id, type, title, ingestion_date, source_file, verified, pipeline_status)
+             VALUES (?1, 'prescription', '', datetime('now'), '/originals/abc.pdf.enc', 0, 'imported')",
+            params![id],
+        ).unwrap();
+
+        let docs = fetch_recent_documents(&conn, 20, 0).unwrap();
+        assert_eq!(docs[0].source_filename, "abc.pdf.enc");
     }
 
     #[test]
@@ -1352,7 +1370,8 @@ mod tests {
         let detail = fetch_document_detail(&conn, &doc_id).unwrap();
         assert_eq!(detail.id, doc_id);
         assert_eq!(detail.document_type, "Lab Report");
-        assert_eq!(detail.source_filename, "labs.pdf");
+        // source_filename uses title ("Test Doc"), not encrypted source_file path
+        assert_eq!(detail.source_filename, "Test Doc");
         assert_eq!(detail.status, DocumentStatus::Confirmed);
         assert!(detail.medications.is_empty());
         assert!(detail.lab_results.is_empty());

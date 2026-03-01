@@ -71,6 +71,15 @@
     "tab_original": "Original",
     "tab_extracted": "Extracted",
     "tab_corrected_count": "{count} corrected",
-    "tab_review_suffix": "review"
+    "tab_review_suffix": "review",
+    "section_confidence_banner": "Some values may need checking — look for orange dots",
+    "entity_count": "{count, plural, one {# result} other {# results}}",
+    "summary_all_good_entities": "All {count} extracted results look good",
+    "summary_mixed_entities": "{total} results extracted · {confident} confident · {flagged} need checking",
+    "flagged_heading_entities": "Some results need checking",
+    "flagged_description_entities": "There {count, plural, one {is # result} other {are # results}} I wasn't sure about. Would you like to check {count, plural, one {it} other {them}} first?",
+    "entity_edited_count": "{count} edited",
+    "entity_edit_done": "Done",
+    "entity_no_value": "—"
   }
 }

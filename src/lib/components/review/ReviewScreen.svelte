@@ -4,8 +4,9 @@
   import { t } from 'svelte-i18n';
   import { getReviewData, getOriginalFile } from '$lib/api/review';
   import type { ReviewData, FieldCorrection, EntitiesStoredSummary } from '$lib/types/review';
+  import { groupFieldsIntoEntities, SECTIONS_BY_DOC_TYPE } from '$lib/types/review';
   import OriginalViewer from './OriginalViewer.svelte';
-  import ExtractedView from './ExtractedView.svelte';
+  import EntitySection from './EntitySection.svelte';
   import ConfidenceSummary from './ConfidenceSummary.svelte';
   import ReviewActions from './ReviewActions.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
@@ -33,17 +34,31 @@
 
   let isNarrow = $derived(windowWidth < 768);
 
-  // Confidence summary
-  let totalFields = $derived.by(() => {
-    const data: ReviewData | null = reviewData;
-    return data?.extracted_fields?.length ?? 0;
+  // Entity grouping (client-side, no backend changes)
+  let allEntities = $derived.by(() => {
+    if (!reviewData) return [];
+    return groupFieldsIntoEntities(
+      reviewData.extracted_fields,
+      reviewData.document_type,
+    );
   });
-  let flaggedFields = $derived.by(() => {
-    const data: ReviewData | null = reviewData;
-    if (!data) return 0;
-    return data.extracted_fields.filter((f) => f.is_flagged).length;
+
+  let visibleSections = $derived.by(() => {
+    const docType = reviewData?.document_type ?? 'Other';
+    const allowedCategories = SECTIONS_BY_DOC_TYPE[docType]
+      ?? SECTIONS_BY_DOC_TYPE['Other'];
+    return allowedCategories
+      .map(cat => ({
+        category: cat,
+        entities: allEntities.filter(e => e.category === cat),
+      }))
+      .filter(s => s.entities.length > 0);
   });
-  let confidentFields = $derived(totalFields - flaggedFields);
+
+  // Entity-level confidence counts
+  let totalEntities = $derived(allEntities.length);
+  let flaggedEntities = $derived(allEntities.filter(e => e.isFlagged).length);
+  let confidentEntities = $derived(totalEntities - flaggedEntities);
 
   async function loadReviewData() {
     try {
@@ -99,7 +114,7 @@
     }}
   />
 {:else}
-  <div class="flex flex-col h-screen bg-stone-50 dark:bg-gray-950">
+  <div class="flex flex-col h-full bg-stone-50 dark:bg-gray-950">
     <!-- Header -->
     <header class="flex items-center gap-3 px-4 py-3 bg-stone-50 dark:bg-gray-950 shrink-0">
       <BackButton />
@@ -130,58 +145,73 @@
         retryLabel={$t('common.try_again')}
       />
     {:else if reviewData}
-      <!-- Tab switcher for narrow screens -->
-      {#if isNarrow}
-        <div class="flex bg-stone-50 dark:bg-gray-950 shrink-0">
-          <button
-            class="flex-1 py-3 text-sm font-medium min-h-[44px]
-                   {activeTab === 'original'
-                     ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
-                     : 'text-stone-500 dark:text-gray-400'}"
-            onclick={() => activeTab = 'original'}
-          >
-            {$t('review.tab_original')}
-          </button>
-          <button
-            class="flex-1 py-3 text-sm font-medium min-h-[44px]
-                   {activeTab === 'extracted'
-                     ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
-                     : 'text-stone-500 dark:text-gray-400'}"
-            onclick={() => activeTab = 'extracted'}
-          >
-            {$t('review.tab_extracted')} ({corrections.length > 0 ? $t('review.tab_corrected_count', { values: { count: corrections.length } }) : $t('review.tab_review_suffix')})
-          </button>
+      <!-- Unified review container: original + extracted side-by-side -->
+      <div class="flex-1 mx-4 mb-3 overflow-hidden bg-white dark:bg-gray-900 rounded-xl border border-stone-100 dark:border-gray-800 shadow-sm flex flex-col">
+        <!-- Tab switcher for narrow screens -->
+        {#if isNarrow}
+          <div class="flex border-b border-stone-100 dark:border-gray-800 shrink-0">
+            <button
+              class="flex-1 py-3 text-sm font-medium min-h-[44px]
+                     {activeTab === 'original'
+                       ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
+                       : 'text-stone-500 dark:text-gray-400'}"
+              onclick={() => activeTab = 'original'}
+            >
+              {$t('review.tab_original')}
+            </button>
+            <button
+              class="flex-1 py-3 text-sm font-medium min-h-[44px]
+                     {activeTab === 'extracted'
+                       ? 'text-[var(--color-success)] border-b-2 border-[var(--color-success)]'
+                       : 'text-stone-500 dark:text-gray-400'}"
+              onclick={() => activeTab = 'extracted'}
+            >
+              {$t('review.tab_extracted')} ({corrections.length > 0 ? $t('review.tab_corrected_count', { values: { count: corrections.length } }) : $t('review.tab_review_suffix')})
+            </button>
+          </div>
+        {/if}
+
+        <!-- Side-by-side / tabbed content -->
+        <div class="flex-1 overflow-hidden {isNarrow ? '' : 'flex'}">
+          {#if !isNarrow || activeTab === 'original'}
+            <div class="{isNarrow ? 'h-full' : 'w-[45%] min-w-[300px]'} border-r border-stone-100 dark:border-gray-800 overflow-auto">
+              <OriginalViewer
+                fileBase64={originalFileBase64}
+                fileType={reviewData.original_file_type}
+              />
+            </div>
+          {/if}
+
+          {#if !isNarrow || activeTab === 'extracted'}
+            <div class="{isNarrow ? 'h-full' : 'flex-1 min-w-[300px]'} overflow-auto pb-40">
+              <div class="flex flex-col gap-4 p-4">
+                {#each visibleSections as section (section.category)}
+                  <EntitySection
+                    category={section.category}
+                    entities={section.entities}
+                    warnings={reviewData.plausibility_warnings}
+                    {corrections}
+                    onCorrection={handleFieldCorrection}
+                  />
+                {/each}
+
+                {#if visibleSections.length === 0}
+                  <div class="text-center py-12 text-stone-500 dark:text-gray-400">
+                    <p>{$t('review.no_fields_title')}</p>
+                    <p class="text-sm mt-2">{$t('review.no_fields_description')}</p>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
         </div>
-      {/if}
-
-      <!-- Side-by-side / tabbed content -->
-      <div class="flex-1 overflow-hidden {isNarrow ? '' : 'flex'}">
-        {#if !isNarrow || activeTab === 'original'}
-          <div class="{isNarrow ? 'h-full' : 'w-[45%] min-w-[300px]'} border-r border-stone-200 dark:border-gray-700 overflow-auto">
-            <OriginalViewer
-              fileBase64={originalFileBase64}
-              fileType={reviewData.original_file_type}
-            />
-          </div>
-        {/if}
-
-        {#if !isNarrow || activeTab === 'extracted'}
-          <div class="{isNarrow ? 'h-full' : 'flex-1 min-w-[300px]'} overflow-auto pb-40">
-            <ExtractedView
-              fields={reviewData.extracted_fields}
-              warnings={reviewData.plausibility_warnings}
-              {corrections}
-              onCorrection={handleFieldCorrection}
-            />
-          </div>
-        {/if}
       </div>
 
       <!-- Confidence summary bar -->
       <ConfidenceSummary
-        {totalFields}
-        {confidentFields}
-        {flaggedFields}
+        {totalEntities}
+        {confidentEntities}
+        {flaggedEntities}
         overallConfidence={reviewData.overall_confidence}
       />
 
@@ -189,7 +219,7 @@
       <ReviewActions
         {documentId}
         {corrections}
-        {flaggedFields}
+        {flaggedEntities}
         onConfirmSuccess={handleConfirmSuccess}
         onReject={() => navigation.goBack()}
       />

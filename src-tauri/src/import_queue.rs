@@ -690,6 +690,27 @@ mod tests {
         assert_eq!(svc.active_count(), 1);
     }
 
+    /// 12-ERC race: StageWatcher misses near-instant Structuring → queue stuck at Extracting.
+    /// Direct PendingReview transition is invalid, must catch up through Structuring first.
+    #[test]
+    fn extracting_to_pending_review_requires_catchup() {
+        let svc = service();
+        let id = svc.enqueue("/tmp/a.pdf".into(), None);
+        svc.next_queued();
+        svc.update_job_state(&id, JobState::Extracting, Some(30), None, None, None).unwrap();
+
+        // Direct Extracting → PendingReview is invalid (the race condition bug)
+        let err = svc.update_job_state(&id, JobState::PendingReview, Some(95), None, None, None)
+            .unwrap_err();
+        assert!(matches!(err, QueueError::InvalidTransition { .. }));
+
+        // Catch-up: Extracting → Structuring → PendingReview → Done (the fix)
+        svc.update_job_state(&id, JobState::Structuring, Some(50), None, None, None).unwrap();
+        svc.update_job_state(&id, JobState::PendingReview, Some(95), None, None, None).unwrap();
+        svc.update_job_state(&id, JobState::Done, Some(100), None, None, None).unwrap();
+        assert_eq!(svc.get_job(&id).unwrap().state, JobState::Done);
+    }
+
     #[test]
     fn failed_to_cancelled_is_valid_transition() {
         assert!(JobState::Failed.can_transition_to(&JobState::Cancelled));

@@ -11,11 +11,11 @@
   interface Props {
     documentId: string;
     corrections: FieldCorrection[];
-    flaggedFields: number;
+    flaggedEntities: number;
     onConfirmSuccess: (result: { status: string; entities: EntitiesStoredSummary }) => void;
     onReject: () => void;
   }
-  let { documentId, corrections, flaggedFields, onConfirmSuccess, onReject }: Props = $props();
+  let { documentId, corrections, flaggedEntities, onConfirmSuccess, onReject }: Props = $props();
 
   let confirming = $state(false);
   let rejecting = $state(false);
@@ -42,7 +42,7 @@
   });
 
   async function handleConfirm() {
-    if (flaggedFields > 0 && !showFlaggedWarning) {
+    if (flaggedEntities > 0 && !showFlaggedWarning) {
       showFlaggedWarning = true;
       return;
     }
@@ -92,10 +92,10 @@
        onkeydown={(e) => { if (e.key === 'Escape') showFlaggedWarning = false; if (flaggedDialogEl) trapFocus(e, flaggedDialogEl); }}>
     <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 max-w-md w-full shadow-xl">
       <h3 class="text-lg font-semibold text-stone-800 dark:text-gray-100 mb-2">
-        {$t('review.flagged_heading')}
+        {$t('review.flagged_heading_entities')}
       </h3>
       <p class="text-stone-600 dark:text-gray-300 text-sm mb-4">
-        {$t('review.flagged_description', { values: { count: flaggedFields } })}
+        {$t('review.flagged_description_entities', { values: { count: flaggedEntities } })}
       </p>
       <div class="flex gap-3">
         <Button variant="secondary" onclick={() => showFlaggedWarning = false}>

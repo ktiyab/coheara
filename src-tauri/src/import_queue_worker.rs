@@ -543,6 +543,11 @@ fn finalize_job(
     let queue = state.import_queue();
     let doc_id_str = output.outcome.document_id.to_string();
 
+    // 12-ERC race fix: StageWatcher may not have detected the near-instant
+    // Structuring stage (direct entity path completes in <500ms poll interval).
+    // Catch up the state machine through any skipped intermediate states.
+    catch_up_queue_state(app, state, job_id);
+
     if let Some(ref structuring) = output.structuring_result {
         crate::commands::review::save_pending_structuring(session, structuring)
             .map_err(|e| format!("Failed to save for review: {e}"))?;
@@ -594,6 +599,53 @@ fn finalize_job(
 
     emit_current_state(app, state, job_id);
     Ok(())
+}
+
+/// Advance the queue state through any intermediate states that the StageWatcher
+/// may have missed due to near-instant processing (e.g., 12-ERC direct entity path
+/// completes structuring in <1ms, while StageWatcher polls every 500ms).
+///
+/// Without this, `finalize_job` would attempt invalid transitions like
+/// `Extracting → PendingReview` which the state machine silently rejects.
+fn catch_up_queue_state(app: &AppHandle, state: &CoreState, job_id: &str) {
+    let queue = state.import_queue();
+    let current = match queue.get_job(job_id) {
+        Some(job) => job.state,
+        None => return,
+    };
+
+    // Walk through intermediate states the watcher may have skipped.
+    let catchup_path: &[JobState] = match current {
+        JobState::Importing => &[JobState::Extracting, JobState::Structuring],
+        JobState::Extracting => &[JobState::Structuring],
+        _ => &[],
+    };
+
+    for target in catchup_path {
+        let (pct, _) = crate::pipeline::processor::stage_pct_range(match target {
+            JobState::Extracting => STAGE_EXTRACTING,
+            JobState::Structuring => STAGE_STRUCTURING,
+            _ => 0,
+        });
+
+        if let Err(e) = queue.update_job_state(job_id, target.clone(), Some(pct), None, None, None)
+        {
+            tracing::warn!(
+                job_id = %job_id,
+                target = ?target,
+                error = %e,
+                "Queue catch-up failed"
+            );
+            break;
+        }
+
+        tracing::debug!(
+            job_id = %job_id,
+            target = ?target,
+            "Queue catch-up: advanced through missed stage"
+        );
+        emit_current_state(app, state, job_id);
+    }
 }
 
 // ---------------------------------------------------------------------------

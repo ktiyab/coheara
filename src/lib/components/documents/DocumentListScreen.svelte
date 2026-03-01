@@ -1,8 +1,8 @@
 <!--
   BTL-10 C7: DocumentListScreen v2 — Unified Documents screen.
   Integrates: ImportDropZone, ImportQueueSection, extended filter pills,
-  delete modal, retry action, droppedFiles prop.
-  Layout: Header → Drop zone → Queue section → Filter pills → Document list.
+  delete modal, retry action.
+  Layout: Header → Import bar → Queue section → Filter pills → Document list.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -23,12 +23,6 @@
   import Button from '$lib/components/ui/Button.svelte';
   import EmptyStateUI from '$lib/components/ui/EmptyState.svelte';
   import { DocsIcon, SearchIcon } from '$lib/components/icons/md';
-
-  interface Props {
-    /** File paths dropped from DropZoneOverlay. */
-    droppedFiles?: string[];
-  }
-  let { droppedFiles }: Props = $props();
 
   let documents: DocumentCard[] = $state([]);
   let loading = $state(true);
@@ -256,7 +250,7 @@
   </header>
 
   <!-- Import drop zone -->
-  <ImportDropZone hasDocuments={documents.length > 0} {droppedFiles} />
+  <ImportDropZone />
 
   <!-- Import queue section (active + failed jobs) -->
   <ImportQueueSection />

@@ -71,6 +71,15 @@
     "tab_original": "Original",
     "tab_extracted": "Extrahiert",
     "tab_corrected_count": "{count} korrigiert",
-    "tab_review_suffix": "Überprüfung"
+    "tab_review_suffix": "Überprüfung",
+    "section_confidence_banner": "Einige Werte müssen möglicherweise überprüft werden — achten Sie auf orange Punkte",
+    "entity_count": "{count, plural, one {# Ergebnis} other {# Ergebnisse}}",
+    "summary_all_good_entities": "Alle {count} extrahierten Ergebnisse sehen gut aus",
+    "summary_mixed_entities": "{total} Ergebnisse extrahiert · {confident} zuverlässig · {flagged} zu prüfen",
+    "flagged_heading_entities": "Einige Ergebnisse müssen überprüft werden",
+    "flagged_description_entities": "Es {count, plural, one {gibt # Ergebnis, bei dem} other {gibt # Ergebnisse, bei denen}} ich mir nicht sicher war. Möchten Sie {count, plural, one {es} other {sie}} zuerst überprüfen?",
+    "entity_edited_count": "{count} bearbeitet",
+    "entity_edit_done": "Fertig",
+    "entity_no_value": "—"
   }
 }

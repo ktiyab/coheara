@@ -3,27 +3,27 @@
   import { t } from 'svelte-i18n';
 
   interface Props {
-    totalFields: number;
-    confidentFields: number;
-    flaggedFields: number;
+    totalEntities: number;
+    confidentEntities: number;
+    flaggedEntities: number;
     overallConfidence: number;
   }
-  let { totalFields, confidentFields, flaggedFields, overallConfidence }: Props = $props();
+  let { totalEntities, confidentEntities, flaggedEntities, overallConfidence }: Props = $props();
 
   let summaryText = $derived.by(() => {
-    if (totalFields === 0) return $t('review.summary_no_fields');
-    if (flaggedFields === 0) return $t('review.summary_all_good', { values: { count: totalFields } });
-    return $t('review.summary_mixed', { values: { total: totalFields, confident: confidentFields, flagged: flaggedFields } });
+    if (totalEntities === 0) return $t('review.summary_no_fields');
+    if (flaggedEntities === 0) return $t('review.summary_all_good_entities', { values: { count: totalEntities } });
+    return $t('review.summary_mixed_entities', { values: { total: totalEntities, confident: confidentEntities, flagged: flaggedEntities } });
   });
 
   let barColor = $derived(
-    flaggedFields === 0 ? 'bg-[var(--color-success)]' :
-    flaggedFields <= 2 ? 'bg-[var(--color-warning)]' :
+    flaggedEntities === 0 ? 'bg-[var(--color-success)]' :
+    flaggedEntities <= 2 ? 'bg-[var(--color-warning)]' :
     'bg-[var(--color-danger)]'
   );
 
   let fillPercent = $derived(
-    totalFields > 0 ? Math.round((confidentFields / totalFields) * 100) : 0
+    totalEntities > 0 ? Math.round((confidentEntities / totalEntities) * 100) : 0
   );
 </script>
 

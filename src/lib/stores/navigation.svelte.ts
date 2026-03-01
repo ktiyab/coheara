@@ -16,6 +16,8 @@ const SIDEBAR_SCREENS = new Set([
 	'chat',
 	'history',
 	'documents',
+	'review',
+	'document-detail',
 	'timeline',
 	'companion',
 	'settings',

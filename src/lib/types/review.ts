@@ -71,3 +71,64 @@ export interface ReviewRejectResult {
   document_id: string;
   reason: string | null;
 }
+
+/** An entity groups related fields from the same extracted item. */
+export interface ReviewEntity {
+  category: EntityCategory;
+  entityIndex: number;
+  fields: ExtractedField[];
+  /** Minimum confidence across all fields in this entity. */
+  confidence: number;
+  /** True if any field is flagged (confidence < threshold). */
+  isFlagged: boolean;
+}
+
+/** Visible entity sections per document type. */
+export const SECTIONS_BY_DOC_TYPE: Record<string, EntityCategory[]> = {
+  'Lab Report': ['LabResult', 'Professional', 'Date'],
+  'Prescription': ['Medication', 'Professional', 'Date'],
+  'Clinical Note': [
+    'Diagnosis', 'Medication', 'LabResult', 'Allergy',
+    'Procedure', 'Referral', 'Professional', 'Date',
+  ],
+  'Discharge Summary': [
+    'Diagnosis', 'Medication', 'LabResult', 'Procedure',
+    'Referral', 'Professional', 'Date',
+  ],
+  'Radiology Report': ['Diagnosis', 'Procedure', 'Professional', 'Date'],
+  'Pharmacy Record': ['Medication', 'Professional', 'Date'],
+  'Other': [
+    'Medication', 'LabResult', 'Diagnosis', 'Allergy',
+    'Procedure', 'Referral', 'Professional', 'Date',
+  ],
+};
+
+/** Group flat fields into entities. Client-side only — no backend changes. */
+export function groupFieldsIntoEntities(
+  fields: ExtractedField[],
+  documentType: string,
+): ReviewEntity[] {
+  const allowedCategories = SECTIONS_BY_DOC_TYPE[documentType]
+    ?? SECTIONS_BY_DOC_TYPE['Other'];
+
+  const entityMap = new Map<string, ReviewEntity>();
+  for (const field of fields) {
+    if (!allowedCategories.includes(field.entity_type)) continue;
+    const key = `${field.entity_type}:${field.entity_index}`;
+    if (!entityMap.has(key)) {
+      entityMap.set(key, {
+        category: field.entity_type,
+        entityIndex: field.entity_index,
+        fields: [],
+        confidence: 1.0,
+        isFlagged: false,
+      });
+    }
+    const entity = entityMap.get(key)!;
+    entity.fields.push(field);
+    entity.confidence = Math.min(entity.confidence, field.confidence);
+    if (field.is_flagged) entity.isFlagged = true;
+  }
+
+  return Array.from(entityMap.values());
+}
