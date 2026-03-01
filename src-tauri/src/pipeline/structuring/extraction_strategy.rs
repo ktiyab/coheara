@@ -7,6 +7,8 @@
 //! Principle: The SLM does ONE thing per call. The CODE orchestrates.
 //! Evidence: MF-44 (prompt complexity is the dominant degeneration factor).
 
+use serde::{Deserialize, Serialize};
+
 use crate::pipeline::prompt_templates::PromptStrategyKind;
 use crate::pipeline::strategy::PromptStrategy;
 use crate::pipeline::structuring::strategy_iterative_drill::IterativeDrillStrategy;
@@ -23,7 +25,7 @@ use crate::pipeline::structuring::StructuringError;
 /// Carries extracted entities, combined markdown, and metadata.
 /// The orchestrator applies shared post-processing (validate, classify,
 /// confidence, sanitize) on this output regardless of which strategy produced it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyOutput {
     /// Extracted entities across all 7 domains.
     pub entities: ExtractedEntities,

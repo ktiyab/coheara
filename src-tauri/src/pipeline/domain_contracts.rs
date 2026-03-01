@@ -1148,6 +1148,65 @@ pub fn locale_for_domain(domain: &str, lang: &str) -> &'static PromptLocale {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 12-ERC B4: Pre-domain metadata extraction prompts
+// ═══════════════════════════════════════════════════════════
+
+/// System prompt for pre-domain metadata extraction (professional, date).
+/// Follows 11-SRP answer token architecture for consistency with domain calls.
+pub const META_SYSTEM_PROMPT_EN: &str = "\
+You are a medical document metadata extractor.\n\
+Reason inside <think>...</think>, then give your answer inside <answer>...</answer>.\n\
+Rules:\n\
+- Only extract what is asked\n\
+- If not visible, respond: <answer>NONE</answer>\n\
+- Close all tags";
+
+/// French meta system prompt.
+pub const META_SYSTEM_PROMPT_FR: &str = "\
+Tu es un extracteur de métadonnées de documents médicaux.\n\
+Raisonne dans <think>...</think>, puis donne ta réponse dans <answer>...</answer>.\n\
+Règles :\n\
+- N'extrais que ce qui est demandé\n\
+- Si non visible, réponds : <answer>AUCUN</answer>\n\
+- Ferme toutes les balises";
+
+/// Select meta system prompt by language.
+pub fn meta_system_prompt(lang: &str) -> &'static str {
+    match lang {
+        "fr" => META_SYSTEM_PROMPT_FR,
+        _ => META_SYSTEM_PROMPT_EN,
+    }
+}
+
+/// Prompt to extract the healthcare professional's name and specialty from a document.
+pub fn professional_prompt(lang: &str) -> &'static str {
+    match lang {
+        "fr" => "\
+Quel est le nom et la spécialité du professionnel de santé sur ce document ?\n\
+Format: Nom | Spécialité\n\
+Si absent, réponds AUCUN.",
+        _ => "\
+What is the healthcare professional's name and specialty on this document?\n\
+Format: Name | Specialty\n\
+If not visible, respond NONE.",
+    }
+}
+
+/// Prompt to extract the document date.
+pub fn document_date_prompt(lang: &str) -> &'static str {
+    match lang {
+        "fr" => "\
+Quelle est la date de ce document médical ?\n\
+Format: AAAA-MM-JJ\n\
+Si absente, réponds AUCUN.",
+        _ => "\
+What is the date of this medical document?\n\
+Format: YYYY-MM-DD\n\
+If not visible, respond NONE.",
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════
 

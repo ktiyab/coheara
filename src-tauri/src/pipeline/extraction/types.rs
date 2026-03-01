@@ -43,6 +43,11 @@ pub struct PageExtraction {
     /// `Some(Document)` for text documents, `Some(MedicalImage)` for medical imagery.
     #[serde(default)]
     pub content_type: Option<ImageContentType>,
+    /// 12-ERC B2: Pre-extracted entities from iterative drill (vision path).
+    /// When `Some`, the structurer LLM call is bypassed — entities flow directly
+    /// through post-processing (B3: direct entity path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drill_output: Option<crate::pipeline::structuring::extraction_strategy::StrategyOutput>,
 }
 
 /// Confidence for a specific region of a page
@@ -185,4 +190,72 @@ pub trait TextExtractor: Send + Sync {
         session: &ProfileSession,
         progress: Option<&crate::pipeline::processor::ProgressTracker>,
     ) -> Result<ExtractionResult, ExtractionError>;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipeline::structuring::extraction_strategy::StrategyOutput;
+    use crate::pipeline::structuring::types::{ExtractedEntities, ExtractedProfessional};
+
+    fn make_page_extraction(drill: Option<StrategyOutput>) -> PageExtraction {
+        PageExtraction {
+            page_number: 1,
+            text: "Test text".into(),
+            confidence: 0.85,
+            regions: vec![],
+            warnings: vec![],
+            content_type: None,
+            drill_output: drill,
+        }
+    }
+
+    fn make_strategy_output() -> StrategyOutput {
+        StrategyOutput {
+            entities: ExtractedEntities::default(),
+            markdown: "# Test".into(),
+            document_type: Some("prescription".into()),
+            document_date: Some("2024-01-15".into()),
+            professional: Some(ExtractedProfessional {
+                name: "Dr. Test".into(),
+                specialty: None,
+                institution: None,
+            }),
+            raw_responses: vec!["raw1".into()],
+        }
+    }
+
+    #[test]
+    fn page_extraction_with_drill_output() {
+        let page = make_page_extraction(Some(make_strategy_output()));
+        assert!(page.drill_output.is_some());
+        let drill = page.drill_output.unwrap();
+        assert_eq!(drill.document_type, Some("prescription".into()));
+        assert!(drill.professional.is_some());
+    }
+
+    #[test]
+    fn page_extraction_without_drill_output() {
+        let page = make_page_extraction(None);
+        assert!(page.drill_output.is_none());
+        let json = serde_json::to_string(&page).unwrap();
+        // drill_output should be skipped when None (skip_serializing_if)
+        assert!(!json.contains("drill_output"));
+    }
+
+    #[test]
+    fn page_extraction_serde_roundtrip() {
+        let page = make_page_extraction(Some(make_strategy_output()));
+        let json = serde_json::to_string(&page).unwrap();
+        let deserialized: PageExtraction = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.drill_output.is_some());
+        let drill = deserialized.drill_output.unwrap();
+        assert_eq!(drill.markdown, "# Test");
+        assert_eq!(drill.document_date, Some("2024-01-15".into()));
+        assert_eq!(drill.professional.unwrap().name, "Dr. Test");
+    }
 }

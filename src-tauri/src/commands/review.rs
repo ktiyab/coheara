@@ -263,7 +263,7 @@ pub fn confirm_review(
     // Step 2: Build field map for correction matching, then apply corrections
     let field_map = flatten_entities_to_fields(&structuring);
     let corrections_applied = apply_corrections(
-        &mut structuring.extracted_entities,
+        &mut structuring,
         &corrections,
         &field_map,
     );
@@ -333,7 +333,7 @@ pub fn confirm_review(
             .map_err(|e| e.to_string())?;
     }
 
-    let total_fields = count_extracted_fields(&structuring.extracted_entities);
+    let total_fields = count_extracted_fields(&structuring);
 
     // Step 7: Clean up the pending structuring file
     let _ = remove_pending_structuring(session, &doc_id);

@@ -21,8 +21,8 @@ use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::structuring::extraction_strategy::{ExtractionStrategy, StrategyOutput};
 use crate::pipeline::structuring::types::{
     ExtractedAllergy, ExtractedDiagnosis, ExtractedEntities, ExtractedInstruction,
-    ExtractedLabResult, ExtractedMedication, ExtractedProcedure, ExtractedReferral,
-    LlmClient, VisionClient,
+    ExtractedLabResult, ExtractedMedication, ExtractedProcedure, ExtractedProfessional,
+    ExtractedReferral, LlmClient, VisionClient,
 };
 use crate::pipeline::structuring::StructuringError;
 
@@ -85,6 +85,49 @@ impl IterativeDrillStrategy {
         let mut raw_responses = Vec::new();
         let mut call_num: u32 = 0;
         let extraction_start = std::time::Instant::now();
+
+        // 12-ERC B4: Pre-domain metadata extraction (professional + date)
+        let meta_sys = crate::pipeline::domain_contracts::meta_system_prompt(lang);
+
+        // Pre-domain: professional
+        let mut professional: Option<ExtractedProfessional> = None;
+        call_num += 1;
+        let call_start = std::time::Instant::now();
+        let prof_prompt = crate::pipeline::domain_contracts::professional_prompt(lang);
+        match Self::vision_drill_call(session, client, prof_prompt, images, meta_sys) {
+            Ok((text, tokens)) => {
+                Self::log_progress(
+                    progress_path, call_num, "meta", 0, "professional", "", "", "ok",
+                    &text, tokens, call_start.elapsed().as_millis(),
+                );
+                raw_responses.push(text.clone());
+                professional = parse_professional_response(&text);
+            }
+            Err(DrillError::Degeneration { .. } | DrillError::QualityGate { .. }) => {
+                tracing::debug!("Professional extraction: degeneration/quality gate, skipping");
+            }
+            Err(DrillError::Fatal(e)) => return Err(e),
+        }
+
+        // Pre-domain: document date
+        let mut document_date: Option<String> = None;
+        call_num += 1;
+        let call_start = std::time::Instant::now();
+        let date_prompt = crate::pipeline::domain_contracts::document_date_prompt(lang);
+        match Self::vision_drill_call(session, client, date_prompt, images, meta_sys) {
+            Ok((text, tokens)) => {
+                Self::log_progress(
+                    progress_path, call_num, "meta", 0, "date", "", "", "ok",
+                    &text, tokens, call_start.elapsed().as_millis(),
+                );
+                raw_responses.push(text.clone());
+                document_date = parse_date_response(&text);
+            }
+            Err(DrillError::Degeneration { .. } | DrillError::QualityGate { .. }) => {
+                tracing::debug!("Date extraction: degeneration/quality gate, skipping");
+            }
+            Err(DrillError::Fatal(e)) => return Err(e),
+        }
 
         for (domain_idx, &domain) in domains.iter().enumerate() {
             let contract = contract_for_document_domain(domain);
@@ -342,8 +385,8 @@ impl IterativeDrillStrategy {
             entities,
             markdown,
             document_type: None,
-            document_date: None,
-            professional: None,
+            document_date,
+            professional,
             raw_responses,
         })
     }
@@ -407,6 +450,29 @@ impl ExtractionStrategy for IterativeDrillStrategy {
         let mut entities = ExtractedEntities::default();
         let mut markdown_sections = Vec::new();
         let mut raw_responses = Vec::new();
+
+        // 12-ERC B4: Pre-domain metadata extraction (professional + date)
+        let meta_sys = crate::pipeline::domain_contracts::META_SYSTEM_PROMPT_EN;
+
+        let mut professional: Option<ExtractedProfessional> = None;
+        let prof_prompt = crate::pipeline::domain_contracts::professional_prompt("en");
+        match llm.generate(model, &format!("{}\n\n{}", prof_prompt, text), meta_sys) {
+            Ok(response) => {
+                raw_responses.push(response.clone());
+                professional = parse_professional_response(&response);
+            }
+            Err(e) => tracing::debug!("Professional extraction failed: {e}"),
+        }
+
+        let mut document_date: Option<String> = None;
+        let date_prompt_str = crate::pipeline::domain_contracts::document_date_prompt("en");
+        match llm.generate(model, &format!("{}\n\n{}", date_prompt_str, text), meta_sys) {
+            Ok(response) => {
+                raw_responses.push(response.clone());
+                document_date = parse_date_response(&response);
+            }
+            Err(e) => tracing::debug!("Date extraction failed: {e}"),
+        }
 
         for &domain in domains {
             let contract = contract_for_document_domain(domain);
@@ -482,8 +548,8 @@ impl ExtractionStrategy for IterativeDrillStrategy {
             entities,
             markdown,
             document_type: None,
-            document_date: None,
-            professional: None,
+            document_date,
+            professional,
             raw_responses,
         })
     }
@@ -1053,6 +1119,62 @@ fn domain_header(domain: DocumentDomain) -> &'static str {
         DocumentDomain::Procedures => "Procedures",
         DocumentDomain::Referrals => "Referrals",
         DocumentDomain::Instructions => "Instructions",
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 12-ERC B4: Pre-domain metadata parsers
+// ═══════════════════════════════════════════════════════════
+
+/// Parse professional name and specialty from LLM response.
+///
+/// Expected format inside `<answer>`: `Name | Specialty` or just `Name`.
+/// Returns `None` if the response indicates no professional found.
+pub fn parse_professional_response(response: &str) -> Option<ExtractedProfessional> {
+    let answer = extract_answer(response, "<answer>", "</answer>")
+        .unwrap_or_else(|| response.trim().to_string());
+    let answer = answer.trim();
+
+    if answer.is_empty() || is_not_specified(answer) {
+        return None;
+    }
+
+    let parts: Vec<&str> = answer.splitn(2, '|').map(|s| s.trim()).collect();
+    let name = parts[0].to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    let specialty = parts.get(1).filter(|s| !s.is_empty()).map(|s| s.to_string());
+
+    Some(ExtractedProfessional {
+        name,
+        specialty,
+        institution: None,
+    })
+}
+
+/// Parse document date from LLM response.
+///
+/// Expected format inside `<answer>`: `YYYY-MM-DD`.
+/// Returns `None` if the response indicates no date found or date is unparseable.
+pub fn parse_date_response(response: &str) -> Option<String> {
+    let answer = extract_answer(response, "<answer>", "</answer>")
+        .unwrap_or_else(|| response.trim().to_string());
+    let answer = answer.trim();
+
+    if answer.is_empty() || is_not_specified(answer) {
+        return None;
+    }
+
+    // Validate ISO date format (YYYY-MM-DD)
+    let date_re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").ok()?;
+    if date_re.is_match(answer) {
+        Some(answer.to_string())
+    } else {
+        // Try to extract a date pattern from a longer response
+        let extract_re = regex::Regex::new(r"\d{4}-\d{2}-\d{2}").ok()?;
+        extract_re.find(answer).map(|m| m.as_str().to_string())
     }
 }
 
@@ -1773,13 +1895,20 @@ Common Drug Names: Do I recognize any common medication names?";
         let content = std::fs::read_to_string(&progress_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
 
-        // 7 enumerate + N drill calls + 1 summary
-        assert!(lines.len() > 7, "Expected > 7 lines, got {}", lines.len());
+        // 2 meta + 7 enumerate + N drill calls + 1 summary
+        assert!(lines.len() > 9, "Expected > 9 lines, got {}", lines.len());
 
-        // First line should be an enumerate call
+        // First lines are pre-domain meta calls (12-ERC B4: professional + date)
         let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(first["phase"], "enumerate");
+        assert_eq!(first["phase"], "meta");
         assert_eq!(first["call"], 1);
+
+        // First enumerate call follows the 2 meta calls
+        let first_enum = lines.iter().position(|line| {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+            v["phase"] == "enumerate"
+        });
+        assert!(first_enum.is_some(), "Expected at least one enumerate entry");
 
         // Last line should be summary
         let last: serde_json::Value = serde_json::from_str(lines[lines.len() - 1]).unwrap();
@@ -2017,6 +2146,12 @@ Common Drug Names: Do I recognize any common medication names?";
         fn chat_with_images(&self, _: &str, prompt: &str, _: &[String], system: Option<&str>) -> Result<String, OllamaError> {
             let lower = prompt.to_lowercase();
 
+            // 12-ERC B4: pre-domain meta calls (professional, date) — respond AUCUN
+            if lower.contains("professionnel") || lower.contains("professional")
+                || lower.contains("date de ce") || lower.contains("date of this") {
+                return Ok("AUCUN".into());
+            }
+
             // Enumerate: verify French prompt pattern
             if lower.contains("par ligne") || lower.contains("per line") || lower.contains("are visible") {
                 if lower.contains("analyses biologiques") {
@@ -2112,7 +2247,12 @@ Common Drug Names: Do I recognize any common medication names?";
                     }
                     return Ok("NONE".into());
                 }
-                // Count drill calls
+                // 12-ERC B4: pre-domain meta calls (professional, date) — not counted as drill
+                if lower.contains("professional") || lower.contains("specialty")
+                    || lower.contains("date of this") || lower.contains("date de ce") {
+                    return Ok("NONE".into());
+                }
+                // Count domain drill calls
                 self.drill_count.fetch_add(1, Ordering::Relaxed);
                 if lower.contains("value and unit") || lower.contains("measured value") {
                     return Ok("5.4 mmol/L".into());
@@ -2537,5 +2677,54 @@ Common Drug Names: Do I recognize any common medication names?";
         }
         // No phantom diagnoses
         assert!(output.entities.diagnoses.is_empty());
+    }
+
+    // --- 12-ERC Brick 4: parse_professional_response ---
+
+    #[test]
+    fn parse_professional_with_specialty() {
+        let response = "<think>I see a doctor name.</think><answer>Dr. Martin | Cardiology</answer>";
+        let prof = parse_professional_response(response).unwrap();
+        assert_eq!(prof.name, "Dr. Martin");
+        assert_eq!(prof.specialty, Some("Cardiology".into()));
+    }
+
+    #[test]
+    fn parse_professional_name_only() {
+        let response = "<answer>Dr. Dupont</answer>";
+        let prof = parse_professional_response(response).unwrap();
+        assert_eq!(prof.name, "Dr. Dupont");
+        assert_eq!(prof.specialty, None);
+    }
+
+    #[test]
+    fn parse_professional_none() {
+        assert!(parse_professional_response("<answer>NONE</answer>").is_none());
+        assert!(parse_professional_response("<answer>Not specified</answer>").is_none());
+        assert!(parse_professional_response("<answer></answer>").is_none());
+    }
+
+    #[test]
+    fn parse_professional_raw_no_tags() {
+        // Fallback: no tags, raw text
+        let prof = parse_professional_response("Dr. Smith | Radiology").unwrap();
+        assert_eq!(prof.name, "Dr. Smith");
+        assert_eq!(prof.specialty, Some("Radiology".into()));
+    }
+
+    // --- 12-ERC Brick 4: parse_date_response ---
+
+    #[test]
+    fn parse_date_iso() {
+        let response = "<think>The date is visible.</think><answer>2024-03-15</answer>";
+        let date = parse_date_response(response).unwrap();
+        assert_eq!(date, "2024-03-15");
+    }
+
+    #[test]
+    fn parse_date_none() {
+        assert!(parse_date_response("<answer>NONE</answer>").is_none());
+        assert!(parse_date_response("<answer>Not specified</answer>").is_none());
+        assert!(parse_date_response("<answer>AUCUN</answer>").is_none());
     }
 }

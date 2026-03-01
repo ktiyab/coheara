@@ -57,6 +57,7 @@ impl TextExtractor for PlainTextExtractor {
                     regions: vec![],
                     warnings: vec![],
                     content_type: None,
+                    drill_output: None,
                 };
                 (ExtractionMethod::PlainTextRead, vec![page])
             }
@@ -142,6 +143,7 @@ fn extract_pdf_text_layer(
             regions: vec![],
             warnings: vec![],
             content_type: None,
+            drill_output: None,
         });
     }
 

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::DatabaseError;
-use crate::pipeline::structuring::types::{ExtractedEntities, StructuringResult};
+use crate::pipeline::structuring::classify::parse_document_date;
+use crate::pipeline::structuring::types::{ExtractedProfessional, StructuringResult};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,6 +141,50 @@ pub struct ReviewRejectResult {
 /// Confidence threshold below which fields are flagged.
 pub const CONFIDENCE_THRESHOLD: f32 = 0.70;
 
+/// 12-ERC B5: Humanize abnormal flag values for display.
+fn humanize_abnormal_flag(flag: &str) -> String {
+    match flag.to_lowercase().as_str() {
+        "high" | "h" => "High".into(),
+        "low" | "l" => "Low".into(),
+        "critical_high" | "ch" | "critical high" => "Critical high".into(),
+        "critical_low" | "cl" | "critical low" => "Critical low".into(),
+        "normal" | "n" | "" => "Normal".into(),
+        other => other.to_string(),
+    }
+}
+
+/// 12-ERC B5: Parse a reference range display string into (low, high).
+/// Handles formats: "4.28 - 6.00", "(4.28-6.00)", "4,28 – 6,00".
+fn parse_reference_range_display(text: &str) -> Option<(f64, f64)> {
+    let cleaned = text.trim().trim_matches(|c| c == '(' || c == ')');
+    let parts: Vec<&str> = cleaned
+        .split(|c: char| c == '-' || c == '–')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.len() == 2 {
+        let low = parts[0].replace(',', ".").parse::<f64>().ok()?;
+        let high = parts[1].replace(',', ".").parse::<f64>().ok()?;
+        Some((low, high))
+    } else {
+        None
+    }
+}
+
+/// 12-ERC B1: Namespace UUID for deterministic field IDs.
+/// Uses the DNS namespace UUID (RFC 4122) as a stable seed.
+const FIELD_ID_NAMESPACE: Uuid = uuid::uuid!("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+
+/// 12-ERC B1: Produce a stable field ID from entity type, index, and field name.
+/// Same entity always produces the same UUID across flatten calls,
+/// so corrections match even when the field list is recomputed.
+fn deterministic_field_id(entity_type: &EntityCategory, index: usize, field: &str) -> Uuid {
+    Uuid::new_v5(
+        &FIELD_ID_NAMESPACE,
+        format!("{:?}:{}:{}", entity_type, index, field).as_bytes(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Repository / Helper Functions
 // ---------------------------------------------------------------------------
@@ -155,7 +200,7 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
     for (i, med) in structuring.extracted_entities.medications.iter().enumerate() {
         if let Some(ref name) = med.generic_name {
             fields.push(ExtractedField {
-                id: Uuid::new_v4(),
+                id: deterministic_field_id(&EntityCategory::Medication, i, "generic_name"),
                 entity_type: EntityCategory::Medication,
                 entity_index: i,
                 field_name: "generic_name".into(),
@@ -167,7 +212,7 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             });
         }
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Medication, i, "dose"),
             entity_type: EntityCategory::Medication,
             entity_index: i,
             field_name: "dose".into(),
@@ -178,7 +223,7 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             source_hint: None,
         });
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Medication, i, "frequency"),
             entity_type: EntityCategory::Medication,
             entity_index: i,
             field_name: "frequency".into(),
@@ -188,12 +233,26 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: med.confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: route (when non-empty)
+        if !med.route.is_empty() {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Medication, i, "route"),
+                entity_type: EntityCategory::Medication,
+                entity_index: i,
+                field_name: "route".into(),
+                display_label: "Route".into(),
+                value: med.route.clone(),
+                confidence: med.confidence,
+                is_flagged: med.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
     // Lab results: test_name + value + unit
     for (i, lab) in structuring.extracted_entities.lab_results.iter().enumerate() {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::LabResult, i, "test_name"),
             entity_type: EntityCategory::LabResult,
             entity_index: i,
             field_name: "test_name".into(),
@@ -205,7 +264,7 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
         });
         if let Some(val) = lab.value {
             fields.push(ExtractedField {
-                id: Uuid::new_v4(),
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "value"),
                 entity_type: EntityCategory::LabResult,
                 entity_index: i,
                 field_name: "value".into(),
@@ -218,7 +277,7 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
         }
         if let Some(ref unit) = lab.unit {
             fields.push(ExtractedField {
-                id: Uuid::new_v4(),
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "unit"),
                 entity_type: EntityCategory::LabResult,
                 entity_index: i,
                 field_name: "unit".into(),
@@ -229,12 +288,72 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
                 source_hint: None,
             });
         }
+        // 12-ERC B5: reference_range (combined display)
+        if lab.reference_range_low.is_some() || lab.reference_range_high.is_some() {
+            let display = match (lab.reference_range_low, lab.reference_range_high) {
+                (Some(low), Some(high)) => format!("{low} - {high}"),
+                (Some(low), None) => format!(">= {low}"),
+                (None, Some(high)) => format!("<= {high}"),
+                (None, None) => unreachable!(),
+            };
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "reference_range"),
+                entity_type: EntityCategory::LabResult,
+                entity_index: i,
+                field_name: "reference_range".into(),
+                display_label: "Reference range".into(),
+                value: display,
+                confidence: lab.confidence,
+                is_flagged: lab.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        } else if let Some(ref text) = lab.reference_range_text {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "reference_range"),
+                entity_type: EntityCategory::LabResult,
+                entity_index: i,
+                field_name: "reference_range".into(),
+                display_label: "Reference range".into(),
+                value: text.clone(),
+                confidence: lab.confidence,
+                is_flagged: lab.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: abnormal_flag (humanized)
+        if let Some(ref flag) = lab.abnormal_flag {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "abnormal_flag"),
+                entity_type: EntityCategory::LabResult,
+                entity_index: i,
+                field_name: "abnormal_flag".into(),
+                display_label: "Abnormal flag".into(),
+                value: humanize_abnormal_flag(flag),
+                confidence: lab.confidence,
+                is_flagged: lab.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: collection_date
+        if let Some(ref date) = lab.collection_date {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::LabResult, i, "collection_date"),
+                entity_type: EntityCategory::LabResult,
+                entity_index: i,
+                field_name: "collection_date".into(),
+                display_label: "Collection date".into(),
+                value: date.clone(),
+                confidence: lab.confidence,
+                is_flagged: lab.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
-    // Diagnoses: name
+    // Diagnoses: name + date + status
     for (i, diag) in structuring.extracted_entities.diagnoses.iter().enumerate() {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Diagnosis, i, "name"),
             entity_type: EntityCategory::Diagnosis,
             entity_index: i,
             field_name: "name".into(),
@@ -244,12 +363,40 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: diag.confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: date
+        if let Some(ref date) = diag.date {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Diagnosis, i, "date"),
+                entity_type: EntityCategory::Diagnosis,
+                entity_index: i,
+                field_name: "date".into(),
+                display_label: "Date".into(),
+                value: date.clone(),
+                confidence: diag.confidence,
+                is_flagged: diag.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: status
+        if !diag.status.is_empty() {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Diagnosis, i, "status"),
+                entity_type: EntityCategory::Diagnosis,
+                entity_index: i,
+                field_name: "status".into(),
+                display_label: "Status".into(),
+                value: diag.status.clone(),
+                confidence: diag.confidence,
+                is_flagged: diag.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
-    // Allergies: allergen
+    // Allergies: allergen + reaction + severity
     for (i, allergy) in structuring.extracted_entities.allergies.iter().enumerate() {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Allergy, i, "allergen"),
             entity_type: EntityCategory::Allergy,
             entity_index: i,
             field_name: "allergen".into(),
@@ -259,12 +406,40 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: allergy.confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: reaction
+        if let Some(ref reaction) = allergy.reaction {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Allergy, i, "reaction"),
+                entity_type: EntityCategory::Allergy,
+                entity_index: i,
+                field_name: "reaction".into(),
+                display_label: "Reaction".into(),
+                value: reaction.clone(),
+                confidence: allergy.confidence,
+                is_flagged: allergy.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: severity
+        if let Some(ref severity) = allergy.severity {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Allergy, i, "severity"),
+                entity_type: EntityCategory::Allergy,
+                entity_index: i,
+                field_name: "severity".into(),
+                display_label: "Severity".into(),
+                value: severity.clone(),
+                confidence: allergy.confidence,
+                is_flagged: allergy.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
-    // Procedures: name
+    // Procedures: name + date + outcome
     for (i, proc) in structuring.extracted_entities.procedures.iter().enumerate() {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Procedure, i, "name"),
             entity_type: EntityCategory::Procedure,
             entity_index: i,
             field_name: "name".into(),
@@ -274,12 +449,40 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: proc.confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: date
+        if let Some(ref date) = proc.date {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Procedure, i, "date"),
+                entity_type: EntityCategory::Procedure,
+                entity_index: i,
+                field_name: "date".into(),
+                display_label: "Date".into(),
+                value: date.clone(),
+                confidence: proc.confidence,
+                is_flagged: proc.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: outcome
+        if let Some(ref outcome) = proc.outcome {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Procedure, i, "outcome"),
+                entity_type: EntityCategory::Procedure,
+                entity_index: i,
+                field_name: "outcome".into(),
+                display_label: "Outcome".into(),
+                value: outcome.clone(),
+                confidence: proc.confidence,
+                is_flagged: proc.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
-    // Referrals: referred_to
+    // Referrals: referred_to + specialty + reason
     for (i, referral) in structuring.extracted_entities.referrals.iter().enumerate() {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Referral, i, "referred_to"),
             entity_type: EntityCategory::Referral,
             entity_index: i,
             field_name: "referred_to".into(),
@@ -289,12 +492,40 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: referral.confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: specialty
+        if let Some(ref specialty) = referral.specialty {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Referral, i, "specialty"),
+                entity_type: EntityCategory::Referral,
+                entity_index: i,
+                field_name: "specialty".into(),
+                display_label: "Specialty".into(),
+                value: specialty.clone(),
+                confidence: referral.confidence,
+                is_flagged: referral.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
+        // 12-ERC B5: reason
+        if let Some(ref reason) = referral.reason {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Referral, i, "reason"),
+                entity_type: EntityCategory::Referral,
+                entity_index: i,
+                field_name: "reason".into(),
+                display_label: "Reason".into(),
+                value: reason.clone(),
+                confidence: referral.confidence,
+                is_flagged: referral.confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
-    // Professional: name
+    // Professional: name + specialty
     if let Some(ref prof) = structuring.professional {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Professional, 0, "name"),
             entity_type: EntityCategory::Professional,
             entity_index: 0,
             field_name: "name".into(),
@@ -304,12 +535,26 @@ pub fn flatten_entities_to_fields(structuring: &StructuringResult) -> Vec<Extrac
             is_flagged: structuring.structuring_confidence < CONFIDENCE_THRESHOLD,
             source_hint: None,
         });
+        // 12-ERC B5: specialty
+        if let Some(ref specialty) = prof.specialty {
+            fields.push(ExtractedField {
+                id: deterministic_field_id(&EntityCategory::Professional, 0, "specialty"),
+                entity_type: EntityCategory::Professional,
+                entity_index: 0,
+                field_name: "specialty".into(),
+                display_label: "Specialty".into(),
+                value: specialty.clone(),
+                confidence: structuring.structuring_confidence,
+                is_flagged: structuring.structuring_confidence < CONFIDENCE_THRESHOLD,
+                source_hint: None,
+            });
+        }
     }
 
     // Document date
     if let Some(date) = structuring.document_date {
         fields.push(ExtractedField {
-            id: Uuid::new_v4(),
+            id: deterministic_field_id(&EntityCategory::Date, 0, "document_date"),
             entity_type: EntityCategory::Date,
             entity_index: 0,
             field_name: "document_date".into(),
@@ -671,105 +916,170 @@ fn parse_dose_value(dose: &str) -> Option<f64> {
     numeric.replace(',', ".").parse::<f64>().ok()
 }
 
-/// Apply field corrections to extracted entities before storage.
+/// 12-ERC B5: Apply field corrections to the structuring result before storage.
 ///
 /// Matches each correction by `entity_type + entity_index + field_name` encoded
-/// in the field list. Returns the number of corrections successfully applied.
+/// in the field list. Supports ALL entity fields including Professional and Date
+/// (which live on StructuringResult, not ExtractedEntities).
+/// Returns the number of corrections successfully applied.
 pub fn apply_corrections(
-    entities: &mut ExtractedEntities,
+    structuring: &mut StructuringResult,
     corrections: &[FieldCorrection],
     field_map: &[ExtractedField],
 ) -> usize {
     let mut applied = 0;
 
     for correction in corrections {
-        // Find the corresponding field to know entity_type, entity_index, field_name
         let field = match field_map.iter().find(|f| f.id == correction.field_id) {
             Some(f) => f,
             None => continue,
         };
 
         let success = match (&field.entity_type, field.field_name.as_str()) {
+            // === Medications ===
             (EntityCategory::Medication, "generic_name") => {
-                if let Some(med) = entities.medications.get_mut(field.entity_index) {
-                    med.generic_name = Some(correction.corrected_value.clone());
-                    true
-                } else {
-                    false
-                }
+                if let Some(med) = structuring.extracted_entities.medications.get_mut(field.entity_index) {
+                    med.generic_name = Some(correction.corrected_value.clone()); true
+                } else { false }
             }
             (EntityCategory::Medication, "dose") => {
-                if let Some(med) = entities.medications.get_mut(field.entity_index) {
-                    med.dose = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+                if let Some(med) = structuring.extracted_entities.medications.get_mut(field.entity_index) {
+                    med.dose = correction.corrected_value.clone(); true
+                } else { false }
             }
             (EntityCategory::Medication, "frequency") => {
-                if let Some(med) = entities.medications.get_mut(field.entity_index) {
-                    med.frequency = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+                if let Some(med) = structuring.extracted_entities.medications.get_mut(field.entity_index) {
+                    med.frequency = correction.corrected_value.clone(); true
+                } else { false }
             }
+            (EntityCategory::Medication, "route") => {
+                if let Some(med) = structuring.extracted_entities.medications.get_mut(field.entity_index) {
+                    med.route = correction.corrected_value.clone(); true
+                } else { false }
+            }
+            // === Lab Results ===
             (EntityCategory::LabResult, "test_name") => {
-                if let Some(lab) = entities.lab_results.get_mut(field.entity_index) {
-                    lab.test_name = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
+                    lab.test_name = correction.corrected_value.clone(); true
+                } else { false }
             }
             (EntityCategory::LabResult, "value") => {
-                if let Some(lab) = entities.lab_results.get_mut(field.entity_index) {
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
                     lab.value = correction.corrected_value.parse::<f64>().ok();
-                    lab.value_text = Some(correction.corrected_value.clone());
-                    true
-                } else {
-                    false
-                }
+                    lab.value_text = Some(correction.corrected_value.clone()); true
+                } else { false }
             }
             (EntityCategory::LabResult, "unit") => {
-                if let Some(lab) = entities.lab_results.get_mut(field.entity_index) {
-                    lab.unit = Some(correction.corrected_value.clone());
-                    true
-                } else {
-                    false
-                }
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
+                    lab.unit = Some(correction.corrected_value.clone()); true
+                } else { false }
             }
+            (EntityCategory::LabResult, "reference_range") => {
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
+                    if let Some((low, high)) = parse_reference_range_display(&correction.corrected_value) {
+                        lab.reference_range_low = Some(low);
+                        lab.reference_range_high = Some(high);
+                    } else {
+                        lab.reference_range_text = Some(correction.corrected_value.clone());
+                    }
+                    true
+                } else { false }
+            }
+            (EntityCategory::LabResult, "abnormal_flag") => {
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
+                    lab.abnormal_flag = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            (EntityCategory::LabResult, "collection_date") => {
+                if let Some(lab) = structuring.extracted_entities.lab_results.get_mut(field.entity_index) {
+                    lab.collection_date = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            // === Diagnoses ===
             (EntityCategory::Diagnosis, "name") => {
-                if let Some(diag) = entities.diagnoses.get_mut(field.entity_index) {
-                    diag.name = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+                if let Some(d) = structuring.extracted_entities.diagnoses.get_mut(field.entity_index) {
+                    d.name = correction.corrected_value.clone(); true
+                } else { false }
             }
+            (EntityCategory::Diagnosis, "date") => {
+                if let Some(d) = structuring.extracted_entities.diagnoses.get_mut(field.entity_index) {
+                    d.date = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            (EntityCategory::Diagnosis, "status") => {
+                if let Some(d) = structuring.extracted_entities.diagnoses.get_mut(field.entity_index) {
+                    d.status = correction.corrected_value.clone(); true
+                } else { false }
+            }
+            // === Allergies ===
             (EntityCategory::Allergy, "allergen") => {
-                if let Some(allergy) = entities.allergies.get_mut(field.entity_index) {
-                    allergy.allergen = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+                if let Some(a) = structuring.extracted_entities.allergies.get_mut(field.entity_index) {
+                    a.allergen = correction.corrected_value.clone(); true
+                } else { false }
             }
+            (EntityCategory::Allergy, "reaction") => {
+                if let Some(a) = structuring.extracted_entities.allergies.get_mut(field.entity_index) {
+                    a.reaction = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            (EntityCategory::Allergy, "severity") => {
+                if let Some(a) = structuring.extracted_entities.allergies.get_mut(field.entity_index) {
+                    a.severity = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            // === Procedures ===
             (EntityCategory::Procedure, "name") => {
-                if let Some(proc) = entities.procedures.get_mut(field.entity_index) {
-                    proc.name = correction.corrected_value.clone();
-                    true
+                if let Some(p) = structuring.extracted_entities.procedures.get_mut(field.entity_index) {
+                    p.name = correction.corrected_value.clone(); true
+                } else { false }
+            }
+            (EntityCategory::Procedure, "date") => {
+                if let Some(p) = structuring.extracted_entities.procedures.get_mut(field.entity_index) {
+                    p.date = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            (EntityCategory::Procedure, "outcome") => {
+                if let Some(p) = structuring.extracted_entities.procedures.get_mut(field.entity_index) {
+                    p.outcome = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            // === Referrals ===
+            (EntityCategory::Referral, "referred_to") => {
+                if let Some(r) = structuring.extracted_entities.referrals.get_mut(field.entity_index) {
+                    r.referred_to = correction.corrected_value.clone(); true
+                } else { false }
+            }
+            (EntityCategory::Referral, "specialty") => {
+                if let Some(r) = structuring.extracted_entities.referrals.get_mut(field.entity_index) {
+                    r.specialty = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            (EntityCategory::Referral, "reason") => {
+                if let Some(r) = structuring.extracted_entities.referrals.get_mut(field.entity_index) {
+                    r.reason = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            // === Professional (on StructuringResult) ===
+            (EntityCategory::Professional, "name") => {
+                if let Some(ref mut prof) = structuring.professional {
+                    prof.name = correction.corrected_value.clone(); true
                 } else {
-                    false
+                    structuring.professional = Some(ExtractedProfessional {
+                        name: correction.corrected_value.clone(),
+                        specialty: None,
+                        institution: None,
+                    }); true
                 }
             }
-            (EntityCategory::Referral, "referred_to") => {
-                if let Some(referral) = entities.referrals.get_mut(field.entity_index) {
-                    referral.referred_to = correction.corrected_value.clone();
-                    true
-                } else {
-                    false
-                }
+            (EntityCategory::Professional, "specialty") => {
+                if let Some(ref mut prof) = structuring.professional {
+                    prof.specialty = Some(correction.corrected_value.clone()); true
+                } else { false }
+            }
+            // === Document Date (on StructuringResult) ===
+            (EntityCategory::Date, "document_date") => {
+                structuring.document_date = parse_document_date(&correction.corrected_value);
+                structuring.document_date.is_some()
             }
             _ => false,
         };
@@ -782,22 +1092,10 @@ pub fn apply_corrections(
     applied
 }
 
-/// Count total extractable fields for accuracy calculation.
-pub fn count_extracted_fields(entities: &ExtractedEntities) -> usize {
-    let mut count = 0;
-    // Each medication: name + dose + frequency (3 fields)
-    count += entities.medications.len() * 3;
-    // Each lab result: test_name + value + unit (3 fields)
-    count += entities.lab_results.len() * 3;
-    // Each diagnosis: name (1 field)
-    count += entities.diagnoses.len();
-    // Each allergy: allergen (1 field)
-    count += entities.allergies.len();
-    // Each procedure: name (1 field)
-    count += entities.procedures.len();
-    // Each referral: referred_to (1 field)
-    count += entities.referrals.len();
-    count
+/// 12-ERC B5: Count total extractable fields for accuracy calculation.
+/// Delegates to flatten for accurate variable-count fields.
+pub fn count_extracted_fields(structuring: &StructuringResult) -> usize {
+    flatten_entities_to_fields(structuring).len()
 }
 
 /// Update document `verified` column to 1 (confirmed).
@@ -970,16 +1268,16 @@ mod tests {
         let result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
 
-        // 2 medications × 3 fields (name+dose+freq) = 6
-        // 1 lab result × 3 (name+value+unit) = 3
-        // 1 diagnosis = 1
-        // 1 allergy = 1
+        // 2 medications × 4 fields (name+dose+freq+route) = 8
+        // 1 lab result × 5 (name+value+unit+range+flag) = 5
+        // 1 diagnosis × 2 (name+status) = 2
+        // 1 allergy × 3 (allergen+reaction+severity) = 3
         // 0 procedures = 0
-        // 1 referral = 1
-        // 1 professional = 1
+        // 1 referral × 3 (referred_to+specialty+reason) = 3
+        // 1 professional × 2 (name+specialty) = 2
         // 1 date = 1
-        // Total = 14
-        assert_eq!(fields.len(), 14);
+        // Total = 24
+        assert_eq!(fields.len(), 24);
     }
 
     #[test]
@@ -988,11 +1286,11 @@ mod tests {
         let fields = flatten_entities_to_fields(&result);
 
         let flagged: Vec<_> = fields.iter().filter(|f| f.is_flagged).collect();
-        // Atorvastatin (0.55) has 3 fields flagged, Penicillin allergy (0.65) has 1
-        assert_eq!(flagged.len(), 4);
+        // Atorvastatin (0.55) has 4 fields flagged (name+dose+freq+route), Penicillin allergy (0.65) has 3 (allergen+reaction+severity)
+        assert_eq!(flagged.len(), 7);
 
         let confident: Vec<_> = fields.iter().filter(|f| !f.is_flagged).collect();
-        assert_eq!(confident.len(), 10);
+        assert_eq!(confident.len(), 17);
     }
 
     #[test]
@@ -1004,20 +1302,23 @@ mod tests {
             .iter()
             .filter(|f| f.entity_type == EntityCategory::Medication)
             .collect();
-        assert_eq!(med_fields.len(), 6);
+        // 2 meds × 4 fields (name+dose+freq+route) = 8
+        assert_eq!(med_fields.len(), 8);
 
         let lab_fields: Vec<_> = fields
             .iter()
             .filter(|f| f.entity_type == EntityCategory::LabResult)
             .collect();
-        assert_eq!(lab_fields.len(), 3);
+        // 1 lab × 5 fields (name+value+unit+range+flag) = 5
+        assert_eq!(lab_fields.len(), 5);
 
         let prof_fields: Vec<_> = fields
             .iter()
             .filter(|f| f.entity_type == EntityCategory::Professional)
             .collect();
-        assert_eq!(prof_fields.len(), 1);
-        assert_eq!(prof_fields[0].value, "Dr. Chen");
+        // name + specialty = 2
+        assert_eq!(prof_fields.len(), 2);
+        assert!(prof_fields.iter().any(|f| f.value == "Dr. Chen"));
 
         let date_fields: Vec<_> = fields
             .iter()
@@ -1064,8 +1365,8 @@ mod tests {
         result.document_date = None;
 
         let fields = flatten_entities_to_fields(&result);
-        // Only dose + frequency (no generic_name)
-        assert_eq!(fields.len(), 2);
+        // dose + frequency + route (no generic_name)
+        assert_eq!(fields.len(), 3);
         assert!(fields.iter().all(|f| f.field_name != "generic_name"));
     }
 
@@ -1102,9 +1403,8 @@ mod tests {
 
     #[test]
     fn apply_corrections_updates_medication_dose() {
-        let result = make_structuring_result();
+        let mut result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
-        let mut entities = result.extracted_entities.clone();
 
         let dose_field = fields
             .iter()
@@ -1121,16 +1421,15 @@ mod tests {
             corrected_value: "1000mg".into(),
         }];
 
-        let applied = apply_corrections(&mut entities, &corrections, &fields);
+        let applied = apply_corrections(&mut result, &corrections, &fields);
         assert_eq!(applied, 1);
-        assert_eq!(entities.medications[0].dose, "1000mg");
+        assert_eq!(result.extracted_entities.medications[0].dose, "1000mg");
     }
 
     #[test]
     fn apply_corrections_updates_diagnosis_name() {
-        let result = make_structuring_result();
+        let mut result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
-        let mut entities = result.extracted_entities.clone();
 
         let diag_field = fields
             .iter()
@@ -1143,16 +1442,15 @@ mod tests {
             corrected_value: "Type 2 Diabetes Mellitus".into(),
         }];
 
-        let applied = apply_corrections(&mut entities, &corrections, &fields);
+        let applied = apply_corrections(&mut result, &corrections, &fields);
         assert_eq!(applied, 1);
-        assert_eq!(entities.diagnoses[0].name, "Type 2 Diabetes Mellitus");
+        assert_eq!(result.extracted_entities.diagnoses[0].name, "Type 2 Diabetes Mellitus");
     }
 
     #[test]
     fn apply_corrections_updates_lab_value() {
-        let result = make_structuring_result();
+        let mut result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
-        let mut entities = result.extracted_entities.clone();
 
         let lab_value_field = fields
             .iter()
@@ -1165,20 +1463,19 @@ mod tests {
             corrected_value: "7.5".into(),
         }];
 
-        let applied = apply_corrections(&mut entities, &corrections, &fields);
+        let applied = apply_corrections(&mut result, &corrections, &fields);
         assert_eq!(applied, 1);
-        assert_eq!(entities.lab_results[0].value, Some(7.5));
+        assert_eq!(result.extracted_entities.lab_results[0].value, Some(7.5));
         assert_eq!(
-            entities.lab_results[0].value_text,
+            result.extracted_entities.lab_results[0].value_text,
             Some("7.5".to_string())
         );
     }
 
     #[test]
     fn apply_corrections_skips_invalid_field_id() {
-        let result = make_structuring_result();
+        let mut result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
-        let mut entities = result.extracted_entities.clone();
 
         let corrections = vec![FieldCorrection {
             field_id: Uuid::new_v4(), // non-existent
@@ -1186,15 +1483,14 @@ mod tests {
             corrected_value: "corrected".into(),
         }];
 
-        let applied = apply_corrections(&mut entities, &corrections, &fields);
+        let applied = apply_corrections(&mut result, &corrections, &fields);
         assert_eq!(applied, 0);
     }
 
     #[test]
     fn apply_corrections_multiple() {
-        let result = make_structuring_result();
+        let mut result = make_structuring_result();
         let fields = flatten_entities_to_fields(&result);
-        let mut entities = result.extracted_entities.clone();
 
         let allergen_field = fields
             .iter()
@@ -1218,10 +1514,10 @@ mod tests {
             },
         ];
 
-        let applied = apply_corrections(&mut entities, &corrections, &fields);
+        let applied = apply_corrections(&mut result, &corrections, &fields);
         assert_eq!(applied, 2);
-        assert_eq!(entities.allergies[0].allergen, "Amoxicillin");
-        assert_eq!(entities.referrals[0].referred_to, "Dr. Sharma");
+        assert_eq!(result.extracted_entities.allergies[0].allergen, "Amoxicillin");
+        assert_eq!(result.extracted_entities.referrals[0].referred_to, "Dr. Sharma");
     }
 
     // --- count_extracted_fields ---
@@ -1229,15 +1525,26 @@ mod tests {
     #[test]
     fn count_fields_matches_expected() {
         let result = make_structuring_result();
-        let count = count_extracted_fields(&result.extracted_entities);
-        // 2 meds × 3 + 1 lab × 3 + 1 diag + 1 allergy + 0 proc + 1 referral = 12
-        assert_eq!(count, 12);
+        let count = count_extracted_fields(&result);
+        // Delegates to flatten — same as flatten test: 24 fields
+        assert_eq!(count, 24);
     }
 
     #[test]
     fn count_fields_empty_entities() {
-        let entities = ExtractedEntities::default();
-        assert_eq!(count_extracted_fields(&entities), 0);
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities::default(),
+            structuring_confidence: 0.0,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        assert_eq!(count_extracted_fields(&result), 0);
     }
 
     // --- detect_file_type ---
@@ -1671,5 +1978,433 @@ mod tests {
         // Metformin + Atorvastatin — no duplicates
         let warnings = check_duplicate_medications(&conn, &result, &fields);
         assert!(warnings.is_empty());
+    }
+
+    // --- 12-ERC Brick 1: Deterministic field IDs ---
+
+    #[test]
+    fn deterministic_field_id_stable() {
+        let id1 = deterministic_field_id(&EntityCategory::Medication, 0, "dose");
+        let id2 = deterministic_field_id(&EntityCategory::Medication, 0, "dose");
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn deterministic_field_id_unique() {
+        let a = deterministic_field_id(&EntityCategory::Medication, 0, "dose");
+        let b = deterministic_field_id(&EntityCategory::Medication, 1, "dose");
+        let c = deterministic_field_id(&EntityCategory::Medication, 0, "frequency");
+        let d = deterministic_field_id(&EntityCategory::LabResult, 0, "dose");
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, d);
+    }
+
+    #[test]
+    fn flatten_stable_across_calls() {
+        let result = make_structuring_result();
+        let fields1 = flatten_entities_to_fields(&result);
+        let fields2 = flatten_entities_to_fields(&result);
+        assert_eq!(fields1.len(), fields2.len());
+        for (f1, f2) in fields1.iter().zip(fields2.iter()) {
+            assert_eq!(f1.id, f2.id, "Field ID mismatch for {}", f1.field_name);
+        }
+    }
+
+    #[test]
+    fn corrections_applied_cross_flatten() {
+        let mut result = make_structuring_result();
+        let fields1 = flatten_entities_to_fields(&result);
+        let dose_field = fields1
+            .iter()
+            .find(|f| f.entity_type == EntityCategory::Medication && f.field_name == "dose" && f.entity_index == 0)
+            .unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: dose_field.id,
+            original_value: "500mg".into(),
+            corrected_value: "750mg".into(),
+        }];
+        // Use a SECOND flatten call for field_map — deterministic IDs mean it still matches
+        let fields2 = flatten_entities_to_fields(&result);
+        let applied = apply_corrections(&mut result, &corrections, &fields2);
+        assert_eq!(applied, 1);
+        assert_eq!(result.extracted_entities.medications[0].dose, "750mg");
+    }
+
+    // --- 12-ERC Brick 5: Expanded flatten fields ---
+
+    #[test]
+    fn flatten_lab_all_fields() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::LabResult,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                lab_results: vec![ExtractedLabResult {
+                    test_name: "Glucose".into(),
+                    test_code: None,
+                    value: Some(5.6),
+                    value_text: Some("5.6".into()),
+                    unit: Some("mmol/L".into()),
+                    reference_range_low: Some(3.9),
+                    reference_range_high: Some(6.1),
+                    reference_range_text: None,
+                    abnormal_flag: Some("normal".into()),
+                    collection_date: Some("2024-03-15".into()),
+                    confidence: 0.9,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // test_name + value + unit + reference_range + abnormal_flag + collection_date = 6
+        assert_eq!(fields.len(), 6);
+        assert!(fields.iter().any(|f| f.field_name == "collection_date"));
+        assert!(fields.iter().any(|f| f.field_name == "reference_range" && f.value == "3.9 - 6.1"));
+        assert!(fields.iter().any(|f| f.field_name == "abnormal_flag" && f.value == "Normal"));
+    }
+
+    #[test]
+    fn flatten_medication_with_route() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Prescription,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                medications: vec![ExtractedMedication {
+                    generic_name: Some("Amoxicillin".into()),
+                    brand_name: None,
+                    dose: "500mg".into(),
+                    frequency: "3x daily".into(),
+                    frequency_type: "regular".into(),
+                    route: "oral".into(),
+                    reason: None,
+                    instructions: vec![],
+                    is_compound: false,
+                    compound_ingredients: vec![],
+                    tapering_steps: vec![],
+                    max_daily_dose: None,
+                    condition: None,
+                    confidence: 0.9,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // generic_name + dose + frequency + route = 4
+        assert_eq!(fields.len(), 4);
+        assert!(fields.iter().any(|f| f.field_name == "route" && f.value == "oral"));
+    }
+
+    #[test]
+    fn flatten_diagnosis_with_date_status() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                diagnoses: vec![ExtractedDiagnosis {
+                    name: "Hypertension".into(),
+                    icd_code: None,
+                    date: Some("2023-06-01".into()),
+                    status: "active".into(),
+                    confidence: 0.85,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // name + date + status = 3
+        assert_eq!(fields.len(), 3);
+        assert!(fields.iter().any(|f| f.field_name == "date" && f.value == "2023-06-01"));
+        assert!(fields.iter().any(|f| f.field_name == "status" && f.value == "active"));
+    }
+
+    #[test]
+    fn flatten_allergy_with_reaction_severity() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                allergies: vec![ExtractedAllergy {
+                    allergen: "Ibuprofen".into(),
+                    reaction: Some("Hives".into()),
+                    severity: Some("Severe".into()),
+                    confidence: 0.78,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // allergen + reaction + severity = 3
+        assert_eq!(fields.len(), 3);
+        assert!(fields.iter().any(|f| f.field_name == "reaction" && f.value == "Hives"));
+        assert!(fields.iter().any(|f| f.field_name == "severity" && f.value == "Severe"));
+    }
+
+    #[test]
+    fn flatten_procedure_with_date_outcome() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                procedures: vec![ExtractedProcedure {
+                    name: "Colonoscopy".into(),
+                    date: Some("2024-02-10".into()),
+                    outcome: Some("Normal".into()),
+                    follow_up_required: false,
+                    follow_up_date: None,
+                    confidence: 0.82,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // name + date + outcome = 3
+        assert_eq!(fields.len(), 3);
+        assert!(fields.iter().any(|f| f.field_name == "date" && f.value == "2024-02-10"));
+        assert!(fields.iter().any(|f| f.field_name == "outcome" && f.value == "Normal"));
+    }
+
+    #[test]
+    fn flatten_referral_with_specialty_reason() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities {
+                referrals: vec![ExtractedReferral {
+                    referred_to: "Dr. Lee".into(),
+                    specialty: Some("Neurology".into()),
+                    reason: Some("Chronic migraines".into()),
+                    confidence: 0.75,
+                }],
+                ..Default::default()
+            },
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // referred_to + specialty + reason = 3
+        assert_eq!(fields.len(), 3);
+        assert!(fields.iter().any(|f| f.field_name == "specialty" && f.value == "Neurology"));
+        assert!(fields.iter().any(|f| f.field_name == "reason" && f.value == "Chronic migraines"));
+    }
+
+    #[test]
+    fn flatten_professional_with_specialty() {
+        let result = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: Some(ExtractedProfessional {
+                name: "Dr. Kim".into(),
+                specialty: Some("Oncology".into()),
+                institution: None,
+            }),
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities::default(),
+            structuring_confidence: 0.8,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        let fields = flatten_entities_to_fields(&result);
+        // name + specialty = 2
+        assert_eq!(fields.len(), 2);
+        assert!(fields.iter().any(|f| f.entity_type == EntityCategory::Professional && f.field_name == "name"));
+        assert!(fields.iter().any(|f| f.entity_type == EntityCategory::Professional && f.field_name == "specialty" && f.value == "Oncology"));
+    }
+
+    // --- 12-ERC Brick 5: Expanded apply_corrections ---
+
+    #[test]
+    fn apply_correction_route() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let route_field = fields.iter().find(|f| f.entity_type == EntityCategory::Medication && f.field_name == "route" && f.entity_index == 0).unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: route_field.id,
+            original_value: "oral".into(),
+            corrected_value: "sublingual".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert_eq!(result.extracted_entities.medications[0].route, "sublingual");
+    }
+
+    #[test]
+    fn apply_correction_reference_range() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let range_field = fields.iter().find(|f| f.field_name == "reference_range").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: range_field.id,
+            original_value: "4 - 6".into(),
+            corrected_value: "4.28 - 6.00".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert!((result.extracted_entities.lab_results[0].reference_range_low.unwrap() - 4.28).abs() < 0.001);
+        assert!((result.extracted_entities.lab_results[0].reference_range_high.unwrap() - 6.00).abs() < 0.001);
+    }
+
+    #[test]
+    fn apply_correction_reference_range_french() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let range_field = fields.iter().find(|f| f.field_name == "reference_range").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: range_field.id,
+            original_value: "4 - 6".into(),
+            corrected_value: "4,28 – 6,00".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert!((result.extracted_entities.lab_results[0].reference_range_low.unwrap() - 4.28).abs() < 0.001);
+        assert!((result.extracted_entities.lab_results[0].reference_range_high.unwrap() - 6.00).abs() < 0.001);
+    }
+
+    #[test]
+    fn apply_correction_abnormal_flag() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let flag_field = fields.iter().find(|f| f.field_name == "abnormal_flag").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: flag_field.id,
+            original_value: "High".into(),
+            corrected_value: "critical_high".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert_eq!(result.extracted_entities.lab_results[0].abnormal_flag, Some("critical_high".into()));
+    }
+
+    #[test]
+    fn apply_correction_professional_name() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let prof_field = fields.iter().find(|f| f.entity_type == EntityCategory::Professional && f.field_name == "name").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: prof_field.id,
+            original_value: "Dr. Chen".into(),
+            corrected_value: "Dr. Zhang".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert_eq!(result.professional.as_ref().unwrap().name, "Dr. Zhang");
+    }
+
+    #[test]
+    fn apply_correction_professional_creates() {
+        let mut result = make_structuring_result();
+        result.professional = None;
+        let fields = flatten_entities_to_fields(&make_structuring_result()); // Use original fields with professional
+        let prof_field = fields.iter().find(|f| f.entity_type == EntityCategory::Professional && f.field_name == "name").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: prof_field.id,
+            original_value: "".into(),
+            corrected_value: "Dr. New".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert!(result.professional.is_some());
+        assert_eq!(result.professional.as_ref().unwrap().name, "Dr. New");
+    }
+
+    #[test]
+    fn apply_correction_document_date() {
+        let mut result = make_structuring_result();
+        let fields = flatten_entities_to_fields(&result);
+        let date_field = fields.iter().find(|f| f.entity_type == EntityCategory::Date && f.field_name == "document_date").unwrap();
+        let corrections = vec![FieldCorrection {
+            field_id: date_field.id,
+            original_value: "2024-01-15".into(),
+            corrected_value: "2024-06-20".into(),
+        }];
+        let applied = apply_corrections(&mut result, &corrections, &fields);
+        assert_eq!(applied, 1);
+        assert_eq!(result.document_date, Some(NaiveDate::from_ymd_opt(2024, 6, 20).unwrap()));
+    }
+
+    #[test]
+    fn humanize_abnormal_flag_variants() {
+        assert_eq!(humanize_abnormal_flag("h"), "High");
+        assert_eq!(humanize_abnormal_flag("HIGH"), "High");
+        assert_eq!(humanize_abnormal_flag("l"), "Low");
+        assert_eq!(humanize_abnormal_flag("critical_high"), "Critical high");
+        assert_eq!(humanize_abnormal_flag("cl"), "Critical low");
+        assert_eq!(humanize_abnormal_flag("normal"), "Normal");
+        assert_eq!(humanize_abnormal_flag(""), "Normal");
+        assert_eq!(humanize_abnormal_flag("custom"), "custom");
+    }
+
+    #[test]
+    fn count_fields_delegates_to_flatten() {
+        // Various entity combos all match flatten().len()
+        let result = make_structuring_result();
+        assert_eq!(count_extracted_fields(&result), flatten_entities_to_fields(&result).len());
+
+        // Empty
+        let empty = StructuringResult {
+            document_id: Uuid::new_v4(),
+            document_type: DocumentType::Other,
+            document_date: None,
+            professional: None,
+            structured_markdown: String::new(),
+            extracted_entities: ExtractedEntities::default(),
+            structuring_confidence: 0.0,
+            markdown_file_path: None,
+            validation_warnings: vec![],
+            raw_llm_response: None,
+        };
+        assert_eq!(count_extracted_fields(&empty), 0);
+
+        // Just professional
+        let prof_only = StructuringResult {
+            professional: Some(ExtractedProfessional {
+                name: "Dr. Test".into(),
+                specialty: None,
+                institution: None,
+            }),
+            ..empty
+        };
+        assert_eq!(count_extracted_fields(&prof_only), flatten_entities_to_fields(&prof_only).len());
     }
 }

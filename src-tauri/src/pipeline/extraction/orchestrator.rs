@@ -315,6 +315,7 @@ impl DocumentExtractor {
             regions: vec![],
             warnings,
             content_type: Some(ImageContentType::Document),
+            drill_output: Some(drill_result),
         })
     }
 
@@ -340,6 +341,7 @@ impl DocumentExtractor {
                         regions: vec![],
                         warnings,
                         content_type: Some(ImageContentType::MedicalImage),
+                        drill_output: None,
                     });
                 }
                 Err(e) => {
@@ -493,6 +495,7 @@ impl TextExtractor for DocumentExtractor {
                     regions: vec![],
                     warnings: vec![],
                     content_type: None,
+                    drill_output: None,
                 };
                 (ExtractionMethod::PlainTextRead, vec![page])
             }

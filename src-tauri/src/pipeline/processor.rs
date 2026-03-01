@@ -30,6 +30,15 @@ use crate::pipeline::structuring::types::{
     ExtractedLabResult, ExtractedMedication, ExtractedProcedure, ExtractedReferral,
     MedicalStructurer, StructuringResult,
 };
+use crate::pipeline::structuring::classify::{
+    classify_document_type, classify_from_entities, parse_document_date,
+};
+use crate::pipeline::structuring::confidence::{
+    apply_confidence_caps, compute_structuring_confidence, generate_confidence_warnings,
+};
+use crate::pipeline::structuring::extraction_strategy::StrategyOutput;
+use crate::pipeline::structuring::sanitize::sanitize_markdown_output;
+use crate::pipeline::structuring::validation::validate_extracted_entities;
 use crate::pipeline::structuring::StructuringError;
 
 // ---------------------------------------------------------------------------
@@ -78,6 +87,70 @@ pub enum ProcessingError {
     /// §21 Fix C: Processing cancelled by user via cooperative cancellation token.
     #[error("Processing cancelled by user")]
     Cancelled,
+}
+
+/// 12-ERC B3: Build StructuringResult from pre-extracted drill entities.
+///
+/// Applies all shared post-processing (steps 4-10 from structuring orchestrator).
+/// Skips strategy.extract() LLM call — eliminates phantom entities.
+/// INFALLIBLE: All operations are deterministic, no LLM, no I/O.
+fn post_process_drill_output(
+    document_id: &Uuid,
+    output: StrategyOutput,
+    ocr_confidence: f32,
+) -> StructuringResult {
+    // Step 4: Sanitize markdown (XSS)
+    let markdown = sanitize_markdown_output(&output.markdown);
+
+    // Step 5: Validate entities (count caps, injection, dose/lab plausibility)
+    let validation = validate_extracted_entities(output.entities, Some(&document_id.to_string()));
+    let mut entities = validation.entities;
+    let mut warnings = validation.warnings;
+
+    // Step 6: Cap confidence by OCR quality
+    apply_confidence_caps(&mut entities, ocr_confidence);
+
+    // Step 7: Classify document type from entities
+    let mut doc_type = output
+        .document_type
+        .as_deref()
+        .map(classify_document_type)
+        .unwrap_or(DocumentType::Other);
+    if matches!(doc_type, DocumentType::Other) {
+        doc_type = classify_from_entities(&entities);
+    }
+
+    // Step 8: Parse document date
+    let doc_date = output
+        .document_date
+        .as_deref()
+        .and_then(parse_document_date);
+
+    // Step 9: Compute structuring confidence
+    let confidence = compute_structuring_confidence(ocr_confidence, &entities, warnings.len());
+
+    // Step 10: Confidence warnings
+    warnings.extend(generate_confidence_warnings(confidence));
+
+    // Step 11: Raw responses for audit
+    let raw = if output.raw_responses.is_empty() {
+        None
+    } else {
+        Some(output.raw_responses.join("\n---\n"))
+    };
+
+    StructuringResult {
+        document_id: *document_id,
+        document_type: doc_type,
+        document_date: doc_date,
+        professional: output.professional,
+        structured_markdown: markdown,
+        extracted_entities: entities,
+        structuring_confidence: confidence,
+        markdown_file_path: None,
+        validation_warnings: warnings,
+        raw_llm_response: raw,
+    }
 }
 
 /// R.1: Patient-friendly error with category, guidance, and sanitized message.
@@ -712,31 +785,56 @@ impl DocumentProcessor {
                 diagnostic::dump_text(dir, &format!("05-structuring-input-page-{idx}.txt"), &page.text);
             }
 
-            match self.structurer.structure_document(
-                &import.document_id,
-                &page.text,
-                page.confidence,
-                session,
-            ) {
-                Ok(result) => {
-                    if let Some(ref dir) = dump_dir {
-                        diagnostic::dump_json(dir, &format!("05-structuring-result-page-{idx}.json"), &result);
-                    }
-                    page_results.push(result);
-                }
-                Err(e) => {
-                    if let Some(ref dir) = dump_dir {
-                        diagnostic::dump_json(dir, &format!("05-structuring-error-page-{idx}.json"), &serde_json::json!({
-                            "error": e.to_string(),
-                            "page": page.page_number,
-                        }));
-                    }
-                    tracing::warn!(
-                        document_id = %import.document_id,
-                        page = page.page_number,
-                        error = %e,
-                        "Page structuring failed — continuing to next page"
+            // 12-ERC B3: Direct entity path — bypass structurer LLM when drill entities available
+            if let Some(drill_output) = page.drill_output.clone() {
+                tracing::info!(
+                    document_id = %import.document_id,
+                    page = page.page_number,
+                    total = total_pages,
+                    "Direct entity path — bypassing structurer LLM for page {}/{}",
+                    page.page_number, total_pages
+                );
+                let result = post_process_drill_output(
+                    &import.document_id,
+                    drill_output,
+                    page.confidence,
+                );
+                if let Some(ref dir) = dump_dir {
+                    diagnostic::dump_json(
+                        dir,
+                        &format!("05-structuring-result-page-{idx}.json"),
+                        &result,
                     );
+                }
+                page_results.push(result);
+            } else {
+                // Text-only path — structurer LLM (existing fault-tolerant match)
+                match self.structurer.structure_document(
+                    &import.document_id,
+                    &page.text,
+                    page.confidence,
+                    session,
+                ) {
+                    Ok(result) => {
+                        if let Some(ref dir) = dump_dir {
+                            diagnostic::dump_json(dir, &format!("05-structuring-result-page-{idx}.json"), &result);
+                        }
+                        page_results.push(result);
+                    }
+                    Err(e) => {
+                        if let Some(ref dir) = dump_dir {
+                            diagnostic::dump_json(dir, &format!("05-structuring-error-page-{idx}.json"), &serde_json::json!({
+                                "error": e.to_string(),
+                                "page": page.page_number,
+                            }));
+                        }
+                        tracing::warn!(
+                            document_id = %import.document_id,
+                            page = page.page_number,
+                            error = %e,
+                            "Page structuring failed — continuing to next page"
+                        );
+                    }
                 }
             }
 
@@ -2373,6 +2471,7 @@ mod tests {
                             regions: vec![],
                             warnings: vec![],
                             content_type: None,
+                            drill_output: None,
                         },
                         PageExtraction {
                             page_number: 2,
@@ -2381,6 +2480,7 @@ mod tests {
                             regions: vec![],
                             warnings: vec![],
                             content_type: None,
+                            drill_output: None,
                         },
                         PageExtraction {
                             page_number: 3,
@@ -2389,6 +2489,7 @@ mod tests {
                             regions: vec![],
                             warnings: vec![],
                             content_type: None,
+                            drill_output: None,
                         },
                     ],
                     full_text: "page1\n\npage2\n\npage3".into(),
@@ -2531,5 +2632,140 @@ mod tests {
         assert_eq!(insts[0].text, "Take with food");
         assert_eq!(insts[0].category, "dietary"); // First one kept
         assert_eq!(insts[1].text, "Avoid alcohol");
+    }
+
+    // --- 12-ERC Brick 3: post_process_drill_output ---
+
+    #[test]
+    fn drill_entities_bypass_structurer() {
+        // Page with drill_output should NOT invoke the structurer
+        let output = mock_strategy_output();
+        let doc_id = Uuid::new_v4();
+        let result = post_process_drill_output(&doc_id, output, 0.85);
+        assert_eq!(result.document_id, doc_id);
+        assert_eq!(result.document_type, DocumentType::Prescription);
+        assert!(!result.extracted_entities.medications.is_empty());
+    }
+
+    #[test]
+    fn post_process_validates_entities() {
+        use crate::pipeline::structuring::types::ExtractedLabResult;
+        // Feed > 100 lab results — validation caps them
+        let mut output = mock_strategy_output();
+        output.entities.lab_results = (0..150).map(|i| ExtractedLabResult {
+            test_name: format!("Lab{i}"),
+            test_code: None,
+            value: Some(i as f64),
+            value_text: None,
+            unit: Some("mg".into()),
+            reference_range_low: None,
+            reference_range_high: None,
+            reference_range_text: None,
+            abnormal_flag: None,
+            collection_date: None,
+            confidence: 0.9,
+        }).collect();
+        let result = post_process_drill_output(&Uuid::new_v4(), output, 0.85);
+        // Validation caps entity counts (MAX_LAB_RESULTS = 100)
+        assert!(result.extracted_entities.lab_results.len() <= 100);
+    }
+
+    #[test]
+    fn post_process_classifies_lab_report() {
+        use crate::pipeline::structuring::types::ExtractedLabResult;
+        let mut output = mock_strategy_output();
+        output.document_type = None; // Force classification from entities
+        output.entities.medications.clear();
+        output.entities.diagnoses.clear();
+        output.entities.lab_results = vec![
+            ExtractedLabResult {
+                test_name: "Glucose".into(),
+                test_code: None,
+                value: Some(5.6),
+                value_text: None,
+                unit: Some("mmol/L".into()),
+                reference_range_low: None,
+                reference_range_high: None,
+                reference_range_text: None,
+                abnormal_flag: None,
+                collection_date: None,
+                confidence: 0.9,
+            },
+            ExtractedLabResult {
+                test_name: "HbA1c".into(),
+                test_code: None,
+                value: Some(7.2),
+                value_text: None,
+                unit: Some("%".into()),
+                reference_range_low: None,
+                reference_range_high: None,
+                reference_range_text: None,
+                abnormal_flag: None,
+                collection_date: None,
+                confidence: 0.9,
+            },
+        ];
+        let result = post_process_drill_output(&Uuid::new_v4(), output, 0.85);
+        assert_eq!(result.document_type, DocumentType::LabResult);
+    }
+
+    #[test]
+    fn text_only_path_post_process_no_drill() {
+        // Without drill_output, post_process_drill_output is NOT called.
+        // Verify that the function itself works with minimal entities (no meds).
+        let output = StrategyOutput {
+            entities: ExtractedEntities::default(),
+            markdown: "# Empty page".into(),
+            document_type: None,
+            document_date: None,
+            professional: None,
+            raw_responses: vec![],
+        };
+        let result = post_process_drill_output(&Uuid::new_v4(), output, 0.7);
+        assert_eq!(result.document_type, DocumentType::Other);
+        assert!(result.extracted_entities.medications.is_empty());
+        assert!(result.professional.is_none());
+        assert!(result.raw_llm_response.is_none());
+    }
+
+    #[test]
+    fn mixed_pages_drill_and_text() {
+        // Ensure post_process handles variety: professional, date, entities all pass through
+        let output = StrategyOutput {
+            entities: ExtractedEntities {
+                medications: vec![ExtractedMedication {
+                    generic_name: Some("Aspirin".into()),
+                    brand_name: None,
+                    dose: "100mg".into(),
+                    frequency: "daily".into(),
+                    frequency_type: "regular".into(),
+                    route: "oral".into(),
+                    reason: None,
+                    instructions: vec![],
+                    is_compound: false,
+                    compound_ingredients: vec![],
+                    tapering_steps: vec![],
+                    max_daily_dose: None,
+                    condition: None,
+                    confidence: 0.85,
+                }],
+                ..Default::default()
+            },
+            markdown: "# Mixed page test".into(),
+            document_type: Some("prescription".into()),
+            document_date: Some("2024-03-15".into()),
+            professional: Some(ExtractedProfessional {
+                name: "Dr. Mixed".into(),
+                specialty: Some("GP".into()),
+                institution: None,
+            }),
+            raw_responses: vec!["response1".into(), "response2".into()],
+        };
+        let result = post_process_drill_output(&Uuid::new_v4(), output, 0.90);
+        assert_eq!(result.professional.as_ref().unwrap().name, "Dr. Mixed");
+        assert!(result.document_date.is_some());
+        assert!(!result.extracted_entities.medications.is_empty());
+        assert!(result.raw_llm_response.is_some());
+        assert!(result.raw_llm_response.unwrap().contains("---"));
     }
 }

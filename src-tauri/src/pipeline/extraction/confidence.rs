@@ -131,6 +131,7 @@ mod tests {
             regions: vec![],
             warnings: vec![],
             content_type: None,
+            drill_output: None,
         }
     }
 
@@ -205,6 +206,7 @@ mod tests {
                 regions: vec![],
                 warnings: vec![],
                 content_type: None,
+                drill_output: None,
             },
             PageExtraction {
                 page_number: 2,
@@ -213,6 +215,7 @@ mod tests {
                 regions: vec![],
                 warnings: vec![],
                 content_type: None,
+                drill_output: None,
             },
         ];
         let conf = compute_overall_confidence(&pages, &ExtractionMethod::TesseractOcr);
@@ -279,6 +282,7 @@ mod tests {
             page_number: 1,
             text: "test".into(),
             confidence: 0.80,
+            drill_output: None,
             regions: vec![
                 RegionConfidence {
                     text: "clear".into(),
