@@ -9,6 +9,10 @@
 ![Platform](https://img.shields.io/badge/platform-desktop%20%2B%20mobile-brightgreen)
 ![Privacy](https://img.shields.io/badge/privacy-offline--only-2ea44f)
 
+<p align="center">
+  <img src="screenshot/home.png" alt="Coheara — Home screen" width="820">
+</p>
+
 > **Alpha: Functional but not clinically validated.**
 >
 > Coheara is a working application with production-grade encryption, structured data extraction, and a mobile companion. However, it has **not** been tested with real patient populations, validated for clinical decision-making, or reviewed for regulatory compliance. APIs, data models, and storage formats may change between versions without migration support.
@@ -120,18 +124,47 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 
 ## What You Can Do
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="screenshot/me.png" alt="My Health — profile, reference ranges, vaccinations" width="400"><br>
+      <b>My Health</b><br>
+      <sub>Profile-calibrated reference ranges, WHO vaccine schedules, screening reminders. Sources cited from 30+ international guidelines.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="screenshot/ask.png" alt="Ask — AI chat grounded in your documents" width="400"><br>
+      <b>Ask Anything</b><br>
+      <sub>RAG chat powered by MedGemma. Cited answers grounded in your own documents, with safety filtering and guideline context.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="screenshot/companion.png" alt="Companion — phone sync over local WiFi" width="400"><br>
+      <b>Phone Companion</b><br>
+      <sub>Carry your vault to every appointment. Encrypted sync over local WiFi, no cloud, no account. Install via QR code.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="screenshot/AI_Engine.png" alt="AI Engine — model management with capability tags" width="400"><br>
+      <b>AI Engine</b><br>
+      <sub>Manage Ollama models with capability tags (Vision, Medical, Text). Pull, configure, and switch models from the app.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" colspan="2">
+      <img src="screenshot/settings.png" alt="Settings — language, theme, auto-extraction" width="400"><br>
+      <b>Settings</b><br>
+      <sub>Three languages (EN/FR/DE), three themes, overnight batch extraction with configurable schedule, multi-profile management.</sub>
+    </td>
+  </tr>
+</table>
+
 - **Import documents**: prescriptions, lab reports, medical letters (PDF, images, photos)
 - **AI structuring**: MedGemma extracts medications, labs, diagnoses, and professionals automatically
-- **Ask questions**: RAG chat with cited, safety-filtered answers grounded in your documents
 - **Spot problems**: automatic conflict, duplicate, gap, and critical value detection
 - **Track medications**: current and historical medications with dose and schedule
-- **Log symptoms**: OLDCARTS-guided journal with temporal correlation to medications
 - **Prepare for appointments**: auto-generated summaries with PDF export for your doctor
 - **Browse your timeline**: interactive SVG timeline across all health events
-- **Manage family health**: separate encrypted profiles for each family member (1Password Families pattern)
-- **Capture from phone**: photograph documents with your phone camera, send to desktop over encrypted HTTPS
-- **Install from desktop**: serve the phone companion directly over WiFi (QR code, APK or PWA, no app store)
-- **Configure AI models**: tag models with capabilities (vision, medical, PDF, text), enable/disable per model
+- **Manage family health**: separate encrypted profiles for each family member
 - **Back up everything**: encrypted backup files with cryptographic erasure
 
 ---
@@ -317,11 +350,11 @@ npm run tauri build
 
 | Platform | Output | Location |
 |----------|--------|----------|
-| Windows | `Coheara_0.5.0_x64-setup.exe` (NSIS) | `src-tauri/target/release/bundle/nsis/` |
-| Windows | `Coheara_0.5.0_x64_en-US.msi` | `src-tauri/target/release/bundle/msi/` |
-| macOS | `Coheara_0.5.0_aarch64.dmg` | `src-tauri/target/release/bundle/dmg/` |
-| Linux | `coheara_0.5.0_amd64.deb` | `src-tauri/target/release/bundle/deb/` |
-| Linux | `coheara_0.5.0_amd64.AppImage` | `src-tauri/target/release/bundle/appimage/` |
+| Windows | `Coheara_0.6.0_x64-setup.exe` (NSIS) | `src-tauri/target/release/bundle/nsis/` |
+| Windows | `Coheara_0.6.0_x64_en-US.msi` | `src-tauri/target/release/bundle/msi/` |
+| macOS | `Coheara_0.6.0_aarch64.dmg` | `src-tauri/target/release/bundle/dmg/` |
+| Linux | `coheara_0.6.0_amd64.deb` | `src-tauri/target/release/bundle/deb/` |
+| Linux | `coheara_0.6.0_amd64.AppImage` | `src-tauri/target/release/bundle/appimage/` |
 
 Build a specific format: `npm run tauri build -- --bundles nsis` (or `dmg`, `deb`, `appimage`).
 
