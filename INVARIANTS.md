@@ -6,11 +6,11 @@
 
 ## What Is an Invariant?
 
-In medicine, some facts don't change with the patient, the doctor, the language, or the day. Blood pressure above 140/90 mmHg is hypertension — whether the patient is in Paris, Berlin, or Nairobi. Warfarin combined with aspirin creates a high bleeding risk — regardless of who prescribed them. A penicillin allergy means amoxicillin is contraindicated — no matter how the allergy was documented.
+In medicine, some facts don't change with the patient, the doctor, the language, or the day. Blood pressure above 140/90 mmHg is hypertension, whether the patient is in Paris, Berlin, or Nairobi. Warfarin combined with aspirin creates a high bleeding risk, regardless of who prescribed them. A penicillin allergy means amoxicillin is contraindicated, no matter how the allergy was documented.
 
 These are **medical invariants**: universal clinical truths that hold across all patients, sourced from international guidelines, and computable without judgment. They have no opinion. They are deterministic.
 
-In Coheara, invariants are the foundational layer of medical intelligence. They encode the pattern recognition a generalist doctor builds over 30 years of practice — which lab values are dangerous, which drug combinations are risky, which monitoring intervals are overdue — as structured, testable, reproducible computations.
+In Coheara, invariants are the foundational layer of medical intelligence. They encode the pattern recognition a generalist doctor builds over 30 years of practice (which lab values are dangerous, which drug combinations are risky, which monitoring intervals are overdue) as structured, testable, reproducible computations.
 
 ### Invariant vs. Data
 
@@ -24,7 +24,7 @@ Not everything in a patient's record is an invariant. A doctor's note about seas
 | Connects to other items | Accidentally (string matching) | By medical knowledge (drug families, cross-reactivity) |
 | Failing to track causes harm | Sometimes | Always |
 
-A patient's HbA1c of 7.2% is data. The fact that 7.2% crosses the diabetes threshold (IDF 2025) and that it means their metformin monitoring is overdue (ADA/KDIGO 2022) — that's invariant knowledge applied to data.
+A patient's HbA1c of 7.2% is data. The fact that 7.2% crosses the diabetes threshold (IDF 2025) and that it means their metformin monitoring is overdue (ADA/KDIGO 2022): that's invariant knowledge applied to data.
 
 ---
 
@@ -38,14 +38,14 @@ Without invariants, Coheara's pipeline looks like this:
 Patient asks a question → retrieve similar text from documents → throw at SLM → hope it's correct
 ```
 
-The SLM receives raw data — lab values, medication names, vital signs — and must:
+The SLM receives raw data (lab values, medication names, vital signs) and must:
 1. Know that BP 145/92 is Grade 1 Hypertension (ISH 2020)
 2. Know that Warfarin + Aspirin is a HIGH bleeding risk
 3. Know that a penicillin allergy means amoxicillin is contraindicated
 4. Know that metformin requires HbA1c monitoring every 90 days
 5. Know that eGFR 28 means KDIGO Stage G4 kidney disease
 
-A 4-billion parameter model **cannot reliably know any of this**. It hallucinates classification thresholds, misses drug interactions, invents monitoring intervals. Medical knowledge is not a language generation task — it requires deterministic accuracy that no statistical model can guarantee.
+A 4-billion parameter model **cannot reliably know any of this**. It hallucinates classification thresholds, misses drug interactions, invents monitoring intervals. Medical knowledge is not a language generation task. It requires deterministic accuracy that no statistical model can guarantee.
 
 Without invariants, Coheara is a document search engine with an LLM wrapper.
 
@@ -63,7 +63,7 @@ The SLM no longer needs to know medicine. It receives pre-computed clinical insi
 - "Penicillin allergy → Amoxicillin CONTRAINDICATED (source: EAACI 2020)"
 - "On Metformin, no HbA1c in 120 days: overdue monitoring (source: ADA/KDIGO 2022)"
 
-The model's job becomes **articulation** — turning structured insights into natural language the patient can understand. It doesn't diagnose. It doesn't classify. It communicates what the invariant engine has already determined.
+The model's job becomes **articulation**: turning structured insights into natural language the patient can understand. It doesn't diagnose. It doesn't classify. It communicates what the invariant engine has already determined.
 
 With invariants, Coheara is a medical knowledge engine.
 
@@ -101,7 +101,7 @@ Every threshold, classification, interaction rule, and monitoring interval in Co
 | Kidney Damage (uACR) | KDIGO | Albuminuria staging (A1-A3) |
 | Vitamin D | Endocrine Society / IOF | Deficiency, Insufficiency, Sufficiency |
 
-Each lab test includes **aliases** for multilingual matching — 88 aliases across 10 tests ensure that "Hémoglobine glyquée" (French), "HbA1c", and "Glycated hemoglobin" all resolve to the same threshold. This is critical for a trilingual app (EN/FR/DE) processing documents from different healthcare systems.
+Each lab test includes **aliases** for multilingual matching. 88 aliases across 10 tests ensure that "Hémoglobine glyquée" (French), "HbA1c", and "Glycated hemoglobin" all resolve to the same threshold. This is critical for a trilingual app (EN/FR/DE) processing documents from different healthcare systems.
 
 #### Drug Safety (I-MED, I-ALG)
 
@@ -114,10 +114,10 @@ Each lab test includes **aliases** for multilingual matching — 88 aliases acro
 
 ### Curation Principles
 
-1. **International over national**: WHO, ESC, KDIGO over country-specific bodies — Coheara serves users globally
+1. **International over national**: WHO, ESC, KDIGO over country-specific bodies, since Coheara serves users globally
 2. **Conservative thresholds**: When guidelines differ, the more cautious threshold is chosen (e.g., female hemoglobin threshold at 12.0 g/dL)
 3. **Traceable sourcing**: Every single threshold carries a `source` field linking to the originating guideline and year
-4. **No interpolation**: If a guideline doesn't define a threshold, it's not encoded — no "reasonable estimates"
+4. **No interpolation**: If a guideline doesn't define a threshold, it's not encoded. No "reasonable estimates"
 5. **Updateable**: Bundled-tier data (JSON files) can be updated without recompiling the app; const-tier data (Rust arrays) is reserved for stable, rarely-changing thresholds
 
 ---
@@ -159,7 +159,7 @@ The invariant system uses two storage tiers, chosen for different update frequen
 └────────────────────────┴──────────────────────────────────┘
 ```
 
-**Why two tiers?** Vital sign and lab thresholds change on the timescale of decades (ISH revises BP guidelines every 5-10 years). They benefit from compile-time type safety and zero I/O overhead. Drug families and interactions change more frequently as new medications enter the market — JSON files can be updated without rebuilding the app.
+**Why two tiers?** Vital sign and lab thresholds change on the timescale of decades (ISH revises BP guidelines every 5-10 years). They benefit from compile-time type safety and zero I/O overhead. Drug families and interactions change more frequently as new medications enter the market, so JSON files can be updated without rebuilding the app.
 
 ### Trilingual Labels
 
@@ -213,8 +213,8 @@ When a patient asks a question in chat, the RAG pipeline runs:
       │
       ▼
 6. CITE        Dual citations attached to the response:
-               - [Doc: uuid] — from patient's documents
-               - [Guideline: ISH 2020] — from invariant sources (deterministic)
+               - [Doc: uuid] (from patient's documents)
+               - [Guideline: ISH 2020] (from invariant sources, deterministic)
 ```
 
 ### The Seven Detection Algorithms
@@ -261,7 +261,7 @@ Output: [CRITICAL] Penicillin allergy → Cephalexin cross-reactivity (source: E
 ```
 
 #### 5. Detect Same-Family Allergy
-Catches when an allergen and an active medication belong to the same drug family — a contraindication the cross-family chains don't cover.
+Catches when an allergen and an active medication belong to the same drug family, a contraindication the cross-family chains don't cover.
 
 ```
 Input:  Allergy: Penicillin | Active med: Amoxicillin
@@ -270,7 +270,7 @@ Output: [CRITICAL] Penicillin allergy → Amoxicillin (same Penicillin family)
 ```
 
 #### 6. Detect Missing Monitoring
-For each active medication, checks if required lab tests exist and are within their monitoring interval. Resolves through drug families — "lisinopril" finds "ace_inhibitor" monitoring schedules.
+For each active medication, checks if required lab tests exist and are within their monitoring interval. Resolves through drug families: "lisinopril" finds "ace_inhibitor" monitoring schedules.
 
 ```
 Input:  Active: Metformin | Last HbA1c: 120 days ago | Required interval: 90 days
@@ -290,7 +290,7 @@ Output: [INFO] Mammography screening recommended (source: IARC/WHO 2024)
         [INFO] Colorectal cancer screening recommended (source: IARC 2019)
 ```
 
-Covers: mammography, cervical (Pap/HPV), prostate (PSA), colorectal (FIT), AAA ultrasound, osteoporosis (DXA). All severity = Info (reminders, not alarms). Graceful degradation — no demographics = no screening insights.
+Covers: mammography, cervical (Pap/HPV), prostate (PSA), colorectal (FIT), AAA ultrasound, osteoporosis (DXA). All severity = Info (reminders, not alarms). Graceful degradation: no demographics = no screening insights.
 
 ### What the SLM Sees
 
@@ -298,7 +298,7 @@ After enrichment, the assembled context contains a `<CLINICAL INSIGHTS>` section
 
 ```xml
 <CLINICAL INSIGHTS>
-[CRITICAL] eGFR 28 mL/min: KDIGO Stage G4 — Severely decreased kidney function (source: KDIGO 2024)
+[CRITICAL] eGFR 28 mL/min: KDIGO Stage G4, Severely decreased kidney function (source: KDIGO 2024)
 [CRITICAL] Penicillin allergy → Amoxicillin (same Penicillin family) (source: WHO EML)
 [WARNING] BP 145/92 mmHg: Grade 1 Hypertension (source: ISH 2020)
 [WARNING] Metformin: HbA1c overdue (last: 2025-11-01, interval: 90 days) (source: ADA/KDIGO 2022)
@@ -306,7 +306,7 @@ After enrichment, the assembled context contains a `<CLINICAL INSIGHTS>` section
 </CLINICAL INSIGHTS>
 ```
 
-Insights are sorted by severity (Critical first). The SLM reads these as established facts and weaves them into its response. It doesn't need to classify BP, detect interactions, or compute monitoring gaps — that work is already done, deterministically, with full traceability to published guidelines.
+Insights are sorted by severity (Critical first). The SLM reads these as established facts and weaves them into its response. It doesn't need to classify BP, detect interactions, or compute monitoring gaps. That work is already done, deterministically, with full traceability to published guidelines.
 
 ---
 
@@ -321,7 +321,7 @@ As described above. Every chat response benefits from pre-computed clinical insi
 The intelligence module uses the registry for allergy-medication conflict detection during document review. When a new prescription is imported, the coherence engine checks: does this medication conflict with a known allergy? It resolves through the same drug family registry.
 
 ### 3. Guideline Citations
-Clinical insight sources (ISH 2020, KDIGO 2024, etc.) are extracted as `GuidelineCitation` objects and streamed to the frontend alongside document citations. These are deterministic — they come from the invariant registry, never from LLM output.
+Clinical insight sources (ISH 2020, KDIGO 2024, etc.) are extracted as `GuidelineCitation` objects and streamed to the frontend alongside document citations. These are deterministic: they come from the invariant registry, never from LLM output.
 
 ---
 
@@ -329,7 +329,7 @@ Clinical insight sources (ISH 2020, KDIGO 2024, etc.) are extracted as `Guidelin
 
 ### Separate What Must Be Correct From What Can Be Approximate
 
-An SLM is good at language — understanding questions, generating natural responses, explaining complex topics simply. An SLM is unreliable at medical classification — threshold comparisons, drug interaction detection, monitoring interval arithmetic. The invariant system draws a hard line:
+An SLM is good at language: understanding questions, generating natural responses, explaining complex topics simply. An SLM is unreliable at medical classification: threshold comparisons, drug interaction detection, monitoring interval arithmetic. The invariant system draws a hard line:
 
 | Responsibility | Owner | Why |
 |---|---|---|
@@ -340,9 +340,9 @@ An SLM is good at language — understanding questions, generating natural respo
 
 This separation means:
 - **Medical accuracy doesn't depend on model size, prompt engineering, or temperature settings**
-- **Insights are reproducible** — the same data always produces the same insights
-- **Insights are testable** — 200+ unit tests verify every classification, interaction, detection, and screening algorithm
-- **Insights are auditable** — every single output traces to a published guideline and year
+- **Insights are reproducible**: the same data always produces the same insights
+- **Insights are testable**: 200+ unit tests verify every classification, interaction, detection, and screening algorithm
+- **Insights are auditable**: every single output traces to a published guideline and year
 
 ### Pure Functions, No Side Effects
 
@@ -361,7 +361,7 @@ No database queries. No network calls. No async. No LLM. No file I/O. This is de
 
 ### Graceful Degradation
 
-If the JSON resource files are missing (first run, corrupted install, CI environment), the registry falls back to `InvariantRegistry::empty()`. The const tier (vital signs, lab thresholds) is always available — it's compiled into the binary. The bundled tier (drug families, interactions) degrades to empty. The pipeline continues without crashing; it simply produces fewer insights.
+If the JSON resource files are missing (first run, corrupted install, CI environment), the registry falls back to `InvariantRegistry::empty()`. The const tier (vital signs, lab thresholds) is always available because it's compiled into the binary. The bundled tier (drug families, interactions) degrades to empty. The pipeline continues without crashing; it simply produces fewer insights.
 
 This means the app never fails because of the invariant system. It only gets smarter when the data is loaded.
 
@@ -371,12 +371,12 @@ This means the app never fails because of the invariant system. It only gets sma
 
 ```
 src-tauri/src/invariants/
-├── mod.rs          InvariantRegistry — single access point, load(), lookup helpers
+├── mod.rs          InvariantRegistry: single access point, load(), lookup helpers
 ├── types.rs        ClinicalInsight, InsightKind, InsightSeverity, InvariantLabel, MeaningFactors
 ├── vitals.rs       31 vital sign tiers (BP, HR, SpO2, BMI, Glucose, Temperature)
 ├── labs.rs         10 lab tests, 47 tiers, 88 multilingual aliases
 ├── loader.rs       JSON deserializer for bundled tier (DrugFamily, InteractionPair, etc.)
-├── enrich.rs       7 sub-algorithms: classify, detect, match, screen — the enrichment engine
+├── enrich.rs       7 sub-algorithms: classify, detect, match, screen (the enrichment engine)
 ├── demographics.rs Male hemoglobin tiers (WHO 2024), Asian BMI thresholds (WHO 2004)
 └── screening.rs    6 evidence-based preventive screening schedules (ME-04)
 
@@ -407,7 +407,7 @@ The invariant system is covered by **200+ unit tests** across the module, includ
 - Age+sex-gated screening schedule eligibility
 - Demographics backward compatibility (None = universal defaults)
 
-All tests run deterministically with no external dependencies — no database, no network, no model.
+All tests run deterministically with no external dependencies: no database, no network, no model.
 
 ---
 
@@ -433,9 +433,36 @@ The enrichment engine accepts an optional `PatientDemographics` parameter contai
 
 **Sex-Aware Hemoglobin (WHO 2024)**: Male normal threshold = 13.0 g/dL; Female = 12.0 g/dL. When sex is unknown, the conservative female threshold is used.
 
-**Ethnicity-Aware BMI (WHO Expert Consultation 2004)**: South Asian, East Asian, and Pacific Islander populations use lower thresholds — overweight at 23.0, obese at 27.5 (vs standard 25.0, 30.0). If any ethnicity in the blend is Asian, Asian thresholds apply.
+**Ethnicity-Aware BMI (WHO Expert Consultation 2004)**: South Asian, East Asian, and Pacific Islander populations use lower thresholds: overweight at 23.0, obese at 27.5 (vs standard 25.0, 30.0). If any ethnicity in the blend is Asian, Asian thresholds apply.
 
 **Screening Schedules**: 6 age+sex-gated preventive screenings. See I-SCR section below.
+
+### Where Demographics Come From: The Onboarding Connection
+
+The demographics that personalize invariant thresholds originate from the **profile creation wizard** (UX-04). During onboarding, the user provides:
+
+| Wizard Step | Field | Invariant Use |
+|---|---|---|
+| Step 1: Identity | Date of birth | Computed into `age_years`, which gates 6 preventive screening schedules |
+| Step 2: Health | Biological sex | Selects sex-specific hemoglobin thresholds; gates sex-specific screenings (mammography, prostate) |
+| Step 2: Health | Ethnicity (up to 3) | Selects Asian BMI thresholds when South Asian, East Asian, or Pacific Islander is present |
+
+The data chain flows through five components:
+
+```
+Profile Wizard (Svelte)
+    → ProfileInfo (stored on disk, unencrypted metadata)
+        → CoreState.get_patient_demographics()
+            → PatientDemographics { sex, ethnicities, age_context, age_years }
+                → enrich(..., demographics) in RAG pipeline
+```
+
+**Key design decisions**:
+
+- **Country and address** (Step 3: Location) are stored in the profile but **not transferred** to `PatientDemographics`. They have no current invariant use and are reserved for future specialist locator features.
+- **Name** is for identification only. It never reaches the enrichment pipeline or the SLM prompt.
+- **Demographics are never sent to the SLM**. The model sees only the *derived clinical insights* (e.g., "Mild anemia, Hemoglobin 12.5 g/dL"), not the raw sex or ethnicity. This preserves privacy while enabling personalization.
+- **Graceful degradation**: When demographics are absent (user skipped the health step), the engine uses conservative defaults (female hemoglobin threshold, standard BMI) and suppresses screening insights entirely. The system never fails; it only becomes more precise with more information.
 
 ---
 
@@ -447,7 +474,7 @@ For full transparency, every single invariant encoded in the system is listed be
 
 ### I-VIT: Vital Sign Thresholds (Const Tier)
 
-#### Blood Pressure — ISH 2020 Global Hypertension Practice Guidelines
+#### Blood Pressure (ISH 2020 Global Hypertension Practice Guidelines)
 
 | Classification | Systolic (mmHg) | Diastolic (mmHg) | Significance | Source |
 |---|---|---|---|---|
@@ -458,7 +485,7 @@ For full transparency, every single invariant encoded in the system is listed be
 
 **Classification rule** (ISH 2020): When systolic and diastolic fall in different tiers, the **higher category** is used.
 
-#### Heart Rate — ESC 2021 Pacing + ESC 2019 SVT Guidelines
+#### Heart Rate (ESC 2021 Pacing + ESC 2019 SVT Guidelines)
 
 | Classification | Range (bpm) | Significance | Source |
 |---|---|---|---|
@@ -469,19 +496,19 @@ For full transparency, every single invariant encoded in the system is listed be
 | Tachycardia | 101–150 | 1.0 | ESC 2019 SVT |
 | Severe Tachycardia | > 150 | 1.8 | ESC 2019 SVT |
 
-#### Oxygen Saturation (SpO2) — BTS 2017 Guideline for Oxygen Use
+#### Oxygen Saturation / SpO2 (BTS 2017 Guideline for Oxygen Use)
 
 | Classification | Range (%) | Significance | Source |
 |---|---|---|---|
-| Hypoxemia — supplemental oxygen indicated | < 90 | 1.8 | BTS 2017, WHO |
+| Hypoxemia: supplemental oxygen indicated | < 90 | 1.8 | BTS 2017, WHO |
 | COPD target range | 88–92 | 0.8 | BTS 2017 |
-| Below action threshold — investigate | 90–93 | 1.2 | BTS 2017 |
+| Below action threshold, investigate | 90–93 | 1.2 | BTS 2017 |
 | Lower limit of normal | 94 | 0.5 | BTS 2017 |
 | Normal | >= 95 | 0.2 | BTS 2017 |
 
 **Note**: COPD patients use a different target range (88–92%). The general population classifier treats < 94% as actionable.
 
-#### Body Mass Index (BMI) — WHO Technical Report Series 894
+#### Body Mass Index / BMI (WHO Technical Report Series 894)
 
 | Classification | Range (kg/m²) | Significance | Source |
 |---|---|---|---|
@@ -494,7 +521,7 @@ For full transparency, every single invariant encoded in the system is listed be
 
 **Asian thresholds** (WHO Expert Consultation, Lancet 2004): Overweight >= 23.0 kg/m², Obese >= 27.5 kg/m². Defined as constants, applied at enrichment layer when ethnicity is known.
 
-#### Fasting Glucose — WHO 2006 Diagnostic Criteria
+#### Fasting Glucose (WHO 2006 Diagnostic Criteria)
 
 | Classification | Range (mmol/L) | Range (mg/dL) | Significance | Source |
 |---|---|---|---|---|
@@ -504,7 +531,7 @@ For full transparency, every single invariant encoded in the system is listed be
 
 **Conversion**: mmol/L x 18.0 = mg/dL
 
-#### Body Temperature — WHO / Clinical Standard
+#### Body Temperature (WHO / Clinical Standard)
 
 | Classification | Range (°C) | Significance | Source |
 |---|---|---|---|
@@ -514,7 +541,7 @@ For full transparency, every single invariant encoded in the system is listed be
 | Low-grade fever | 37.2–37.9 | 0.5 | Clinical standard |
 | Fever | 38.0–38.9 | 1.0 | WHO |
 | High fever | 39.0–40.9 | 1.5 | WHO |
-| Hyperthermia — emergency | >= 41.0 | 2.0 | WHO |
+| Hyperthermia (emergency) | >= 41.0 | 2.0 | WHO |
 
 #### Trend Thresholds
 
@@ -533,9 +560,9 @@ For full transparency, every single invariant encoded in the system is listed be
 
 ### I-LAB: Laboratory Thresholds (Const Tier)
 
-Each lab test includes multilingual **aliases** for name normalization — 88 aliases across 10 tests ensure that French, German, and English lab names all resolve to the correct threshold.
+Each lab test includes multilingual **aliases** for name normalization. 88 aliases across 10 tests ensure that French, German, and English lab names all resolve to the correct threshold.
 
-#### 1. eGFR — Kidney Function (KDIGO 2024)
+#### 1. eGFR: Kidney Function (KDIGO 2024)
 
 **Unit**: mL/min/1.73m² | **Trend threshold**: > 20% change between consecutive tests
 
@@ -550,7 +577,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (10): eGFR, GFR, estimated GFR, glomerular filtration rate, DFG, DFGe, débit de filtration glomérulaire, GFR geschätzt, glomeruläre Filtrationsrate
 
-#### 2. HbA1c — Diabetes (IDF 2025, WHO)
+#### 2. HbA1c: Diabetes (IDF 2025, WHO)
 
 **Unit**: %  | **Trend threshold**: > 0.5% increase over 6 months
 
@@ -562,7 +589,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (9): HbA1c, A1c, glycated hemoglobin, glycosylated hemoglobin, hémoglobine glyquée, hémoglobine A1c, glykiertes Hämoglobin, Glykohämoglobin
 
-#### 3. LDL Cholesterol — ESC/EAS 2019/2025 Risk-Stratified Targets
+#### 3. LDL Cholesterol (ESC/EAS 2019/2025 Risk-Stratified Targets)
 
 **Unit**: mmol/L
 
@@ -579,7 +606,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (8): LDL, LDL-C, LDL cholesterol, low-density lipoprotein, cholestérol LDL, LDL-cholestérol, LDL-Cholesterin, LDL Cholesterin
 
-#### 4. Potassium (K+) — KDIGO 2024
+#### 4. Potassium / K+ (KDIGO 2024)
 
 **Unit**: mmol/L
 
@@ -589,12 +616,12 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 | Hypokalemia | 3.0–3.4 | 1.3 |
 | Normal | 3.5–4.9 | 0.2 |
 | Mild hyperkalemia | 5.0–5.4 | 0.8 |
-| Hyperkalemia — review medications | 5.5–5.9 | 1.5 |
-| Severe hyperkalemia — emergency | >= 6.0 | 2.0 |
+| Hyperkalemia, review medications | 5.5–5.9 | 1.5 |
+| Severe hyperkalemia (emergency) | >= 6.0 | 2.0 |
 
 **Aliases** (8): K, K+, potassium, serum potassium, kaliémie, potassium sérique, Kalium, Serum-Kalium
 
-#### 5. Sodium (Na+) — Clinical Standard
+#### 5. Sodium / Na+ (Clinical Standard)
 
 **Unit**: mmol/L
 
@@ -607,7 +634,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (8): Na, Na+, sodium, serum sodium, natrémie, sodium sérique, Natrium, Serum-Natrium
 
-#### 6. ALT (Liver Function) — EASL DILI Guidelines
+#### 6. ALT / Liver Function (EASL DILI Guidelines)
 
 **Unit**: U/L | **ULN** (Upper Limit of Normal) = 40 U/L
 
@@ -620,7 +647,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (11): ALT, SGPT, ALAT, alanine aminotransferase, alanine transaminase, alanine aminotransférase, transaminase ALAT, Alanin-Aminotransferase, GPT
 
-#### 7. Hemoglobin — WHO
+#### 7. Hemoglobin (WHO)
 
 **Unit**: g/dL | **Trend threshold**: > 2 g/dL drop over 3 months → urgent investigation
 
@@ -636,7 +663,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (8): Hb, Hgb, hemoglobin, haemoglobin, hémoglobine, Hämoglobin
 
-#### 8. TSH (Thyroid) — European Thyroid Association (ETA)
+#### 8. TSH / Thyroid (European Thyroid Association, ETA)
 
 **Unit**: mU/L
 
@@ -649,7 +676,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (7): TSH, thyroid stimulating hormone, thyrotropin, thyréostimuline, Thyreotropin
 
-#### 9. uACR (Kidney Damage) — KDIGO 2024
+#### 9. uACR / Kidney Damage (KDIGO 2024)
 
 **Unit**: mg/g
 
@@ -661,7 +688,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 **Aliases** (8): uACR, ACR, albumin-creatinine ratio, urine albumin creatinine ratio, RAC, rapport albumine/créatinine urinaire, Albumin-Kreatinin-Verhältnis
 
-#### 10. Vitamin D — Endocrine Society / IOF
+#### 10. Vitamin D (Endocrine Society / IOF)
 
 **Unit**: ng/mL
 
@@ -676,7 +703,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 ---
 
-### I-MED: Drug Families (Bundled Tier — JSON)
+### I-MED: Drug Families (Bundled Tier, JSON)
 
 20 drug families, 125 member medications. Source guidelines listed per family.
 
@@ -705,7 +732,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 ---
 
-### I-MED: Drug-Drug Interactions (Bundled Tier — JSON)
+### I-MED: Drug-Drug Interactions (Bundled Tier, JSON)
 
 16 clinically significant interaction pairs. Severity: **Critical** (potentially fatal) > **High** (serious harm risk) > **Moderate** (requires monitoring).
 
@@ -733,7 +760,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 ---
 
-### I-ALG: Cross-Reactivity Chains (Bundled Tier — JSON)
+### I-ALG: Cross-Reactivity Chains (Bundled Tier, JSON)
 
 10 allergen cross-reactivity chains with evidence-based rates and clinical action guidance.
 
@@ -744,7 +771,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 | 3 | Penicillin | 3rd/4th gen Cephalosporin | < 1% (0.3% in challenge studies) | Generally safe. | Meta-analysis PMC7822086 |
 | 4 | Penicillin | Carbapenem | < 1% (0.87%, 95% CI 0.32–2.32) | Safe even with anaphylactic penicillin history (conditional recommendation). | Picard et al. 2019 |
 | 5 | Penicillin | Monobactam (aztreonam) | Negligible | Safe to use. Exception: aztreonam shares R1 with ceftazidime. | ICON 2014 |
-| 6 | Sulfonamide antibiotic | Non-antibiotic sulfonamide (furosemide, thiazide, celecoxib) | No immunological cross-reactivity | Safe — different antigenic determinant (arylamine group absent). | ICON 2014 |
+| 6 | Sulfonamide antibiotic | Non-antibiotic sulfonamide (furosemide, thiazide, celecoxib) | No immunological cross-reactivity | Safe: different antigenic determinant (arylamine group absent). | ICON 2014 |
 | 7 | Latex | Banana, avocado, kiwi, chestnut | 30–50% (up to 70%) | Food allergy counseling; latex-fruit syndrome. | WAO, JCM 2024 |
 | 8 | Fluoroquinolone | Other fluoroquinolone | 2–5% (dual IgE + MRGPRX2) | Levofloxacin safest alternative. Skin test + challenge for others. | EAACI, OFID 2022 |
 | 9 | Morphine | Codeine | MRGPRX2-mediated pseudoallergy (not IgE) | Synthetic opioids (fentanyl, tramadol) rarely cross-react. Meperidine safe alternative. | EAACI 2024 |
@@ -754,7 +781,7 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 
 ---
 
-### I-MED: Monitoring Schedules (Bundled Tier — JSON)
+### I-MED: Monitoring Schedules (Bundled Tier, JSON)
 
 24 drug-to-lab monitoring rules. When a patient takes a medication and the required lab test is overdue, the system generates a "Missing Monitoring" insight.
 
@@ -770,20 +797,20 @@ Each lab test includes multilingual **aliases** for name normalization — 88 al
 | 8 | ARB (family) | Potassium | 90 | Same monitoring as ACE inhibitors. Alert if K > 5.5 | KDIGO 2024 |
 | 9 | ARB (family) | eGFR | 90 | Same monitoring as ACE inhibitors | KDIGO 2024 |
 | 10 | Lithium | eGFR | 180 | Every 6 months. Narrow therapeutic index 0.6–1.2 mEq/L | WHO EML, NICE |
-| 11 | Lithium | TSH | 180 | Every 6 months — thyroid dysfunction in significant proportion of patients | WHO EML, NICE |
-| 12 | Amiodarone | TSH | 180 | Every 6 months — thyroid dysfunction in 4–30% of patients. Half-life ~40–55 days | ESC, EMA |
-| 13 | Amiodarone | ALT | 180 | Every 6 months — hepatotoxicity monitoring | ESC, EMA |
+| 11 | Lithium | TSH | 180 | Every 6 months; thyroid dysfunction in significant proportion of patients | WHO EML, NICE |
+| 12 | Amiodarone | TSH | 180 | Every 6 months; thyroid dysfunction in 4–30% of patients. Half-life ~40–55 days | ESC, EMA |
+| 13 | Amiodarone | ALT | 180 | Every 6 months; hepatotoxicity monitoring | ESC, EMA |
 | 14 | Levothyroxine | TSH | 365 | 4–8 weeks after dose change; annually when stable | ETA, WHO EML |
 | 15 | DOAC (family) | eGFR | 180 | Every 6–12 months (EHRA rule: CrCl/10 = months). Dabigatran contraindicated if CrCl < 30 | EHRA 2021, ESC 2024 |
-| 16 | DOAC (family) | Hemoglobin | 365 | Annual CBC — monitor for occult bleeding | EHRA 2021 |
-| 17 | Gliclazide | HbA1c | 90 | Quarterly — hypoglycemia monitoring. Alert if glucose < 3.9 mmol/L | WHO EML, KDIGO |
-| 18 | Glimepiride | HbA1c | 90 | Quarterly — hypoglycemia monitoring | WHO EML, KDIGO |
+| 16 | DOAC (family) | Hemoglobin | 365 | Annual CBC; monitor for occult bleeding | EHRA 2021 |
+| 17 | Gliclazide | HbA1c | 90 | Quarterly; hypoglycemia monitoring. Alert if glucose < 3.9 mmol/L | WHO EML, KDIGO |
+| 18 | Glimepiride | HbA1c | 90 | Quarterly; hypoglycemia monitoring | WHO EML, KDIGO |
 | 19 | Valproate | ALT | 180 | Every 6 months, especially first 6 months. Discontinue if ALT > 3x ULN | ILAE, WHO EML |
 | 20 | Digoxin | Potassium | 180 | Every 6–12 months. Hypokalemia potentiates digoxin toxicity | WHO EML, ESC |
-| 21 | Digoxin | eGFR | 180 | Every 6–12 months — renal function affects digoxin clearance | WHO EML, ESC |
+| 21 | Digoxin | eGFR | 180 | Every 6–12 months; renal function affects digoxin clearance | WHO EML, ESC |
 | 22 | NSAID (family) | eGFR | 180 | Periodic, especially in elderly or CKD. Discontinue if eGFR declines | STOPP/START v3, WHO EML |
-| 23 | SSRI (family) | Sodium | 180 | Baseline + periodic in elderly — hyponatremia risk. Alert if Na < 130 | STOPP/START v3, EMA |
-| 24 | K-Sparing Diuretic (family) | Potassium | 90 | Every 3–6 months — hyperkalemia risk. Alert if K > 5.5 | KDIGO, STOPP/START v3 |
+| 23 | SSRI (family) | Sodium | 180 | Baseline + periodic in elderly; hyponatremia risk. Alert if Na < 130 | STOPP/START v3, EMA |
+| 24 | K-Sparing Diuretic (family) | Potassium | 90 | Every 3–6 months; hyperkalemia risk. Alert if K > 5.5 | KDIGO, STOPP/START v3 |
 
 **Family-based resolution**: When a monitoring schedule is keyed by a family name (e.g., "statin"), any member drug (atorvastatin, rosuvastatin, simvastatin...) will match. The system resolves "lisinopril" → ACE Inhibitor family → finds ACE Inhibitor monitoring schedules for K+ and eGFR.
 
@@ -815,35 +842,35 @@ All guidelines referenced in the invariant system, alphabetically:
 | Abbreviation | Full Name | Year |
 |---|---|---|
 | ADA/KDIGO | American Diabetes Association / Kidney Disease: Improving Global Outcomes | 2022 |
-| BNF | British National Formulary | — |
-| BTS | British Thoracic Society — Guideline for Oxygen Use | 2017 |
+| BNF | British National Formulary | - |
+| BTS | British Thoracic Society: Guideline for Oxygen Use | 2017 |
 | EAU | European Association of Urology | 2024 |
 | EAACI | European Academy of Allergy and Clinical Immunology | 2020/2024 |
 | EAACI/ENDA | EAACI / European Network for Drug Allergy | 2022 |
-| EASL | European Association for the Study of the Liver — DILI Guidelines | — |
+| EASL | European Association for the Study of the Liver, DILI Guidelines | - |
 | EHRA | European Heart Rhythm Association | 2021 |
-| EMA | European Medicines Agency | — |
+| EMA | European Medicines Agency | - |
 | ESC | European Society of Cardiology | 2018/2019/2021/2023/2024 |
 | ESC/EAS | ESC / European Atherosclerosis Society | 2019/2025 |
 | ESUR | European Society of Urogenital Radiology | 2025 |
-| ETA | European Thyroid Association | — |
+| ETA | European Thyroid Association | - |
 | FAERS | FDA Adverse Event Reporting System | 2025 |
 | GLIM | Global Leadership Initiative on Malnutrition | 2019 |
 | IARC | International Agency for Research on Cancer | 2019/2024 |
 | ICON | International Consensus on Drug Allergy | 2014 |
 | IDF | International Diabetes Federation | 2025 |
-| ILAE | International League Against Epilepsy | — |
+| ILAE | International League Against Epilepsy | - |
 | IOF | International Osteoporosis Foundation | 2024 |
-| ISH | International Society of Hypertension — Global Practice Guidelines | 2020 |
-| ISTH | International Society on Thrombosis and Haemostasis | — |
+| ISH | International Society of Hypertension: Global Practice Guidelines | 2020 |
+| ISTH | International Society on Thrombosis and Haemostasis | - |
 | KDIGO | Kidney Disease: Improving Global Outcomes | 2024 |
-| MHRA | Medicines and Healthcare products Regulatory Agency (UK) | — |
-| NICE | National Institute for Health and Care Excellence (UK) | — |
-| STOPP/START v3 | Screening Tool of Older Persons' Prescriptions / Screening Tool to Alert to Right Treatment, v3 | — |
+| MHRA | Medicines and Healthcare products Regulatory Agency (UK) | - |
+| NICE | National Institute for Health and Care Excellence (UK) | - |
+| STOPP/START v3 | Screening Tool of Older Persons' Prescriptions / Screening Tool to Alert to Right Treatment, v3 | - |
 | WAO | World Allergy Organization | 2024 |
 | WHO | World Health Organization | Various |
-| WHO EML | WHO Essential Medicines List | — |
-| WHO TRS 894 | WHO Technical Report Series 894 — Obesity | 2000 |
+| WHO EML | WHO Essential Medicines List | - |
+| WHO TRS 894 | WHO Technical Report Series 894: Obesity | 2000 |
 
 ---
 
@@ -851,6 +878,6 @@ All guidelines referenced in the invariant system, alphabetically:
 
 Invariants in Coheara are not a feature. They are the reason Coheara can be trusted with medical data.
 
-A model that guesses whether blood pressure is dangerous is a liability. A system that looks it up in ISH 2020 and tells the model the answer is a safety architecture. The invariant engine ensures that the hardest, most safety-critical medical reasoning — classification, interaction detection, allergy contraindication, monitoring compliance — is never delegated to a component that can be wrong.
+A model that guesses whether blood pressure is dangerous is a liability. A system that looks it up in ISH 2020 and tells the model the answer is a safety architecture. The invariant engine ensures that the hardest, most safety-critical medical reasoning (classification, interaction detection, allergy contraindication, monitoring compliance) is never delegated to a component that can be wrong.
 
 The SLM speaks. The invariants know.

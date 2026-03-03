@@ -999,7 +999,7 @@ pub fn detect_critical_labs(
         };
 
         let message = format!(
-            "Your lab report from {} flags {} as needing prompt attention. \
+            "Your lab report from {} shows {} outside the published reference range. \
              The result ({} {}) is {}. \
              Please contact your doctor or pharmacist soon.",
             lab.collection_date, lab.test_name, value_display, unit_display, flag_description,

@@ -1,4 +1,4 @@
-use crate::invariants::types::ClinicalInsight;
+use crate::invariants::types::{ClinicalInsight, InsightSeverity};
 use crate::models::*;
 
 use super::types::{AssembledContext, QueryType, RetrievedContext, ScoredChunk};
@@ -80,7 +80,7 @@ pub fn assemble_context(
         let section = format_clinical_insights(insights, insight_lang);
         if total_chars + section.len() <= budget {
             total_chars += section.len();
-            sections.push(("CLINICAL INSIGHTS", section));
+            sections.push(("PUBLISHED GUIDELINE REFERENCES", section));
         }
     }
 
@@ -183,25 +183,37 @@ fn format_allergies(allergies: &[Allergy]) -> String {
         .join("\n")
 }
 
+/// Map internal severity to regulatory-neutral LLM context tags.
+/// Internal enum values (Critical/Warning/Info) are preserved — only
+/// the text emitted into the LLM context changes.
+fn context_severity_tag(severity: InsightSeverity) -> &'static str {
+    match severity {
+        InsightSeverity::Critical => "NOTABLE",
+        InsightSeverity::Warning => "ELEVATED",
+        InsightSeverity::Info => "REFERENCE",
+    }
+}
+
 /// Format clinical insights for the SLM context.
 ///
-/// Format: `[SEVERITY] description — summary_key (source: X)`
+/// Format: `[TAG] description — summary_key (source: X)`
 /// Insights are pre-sorted by severity (Critical first) from the enrichment engine.
 /// I18N: Uses detected content language for insight descriptions.
+/// REG-01: Preamble instructs SLM to present as reference data, not diagnosis.
 fn format_clinical_insights(insights: &[ClinicalInsight], lang: &str) -> String {
-    insights
-        .iter()
-        .map(|i| {
-            format!(
-                "[{}] {} — {} (source: {})",
-                i.severity.as_str(),
-                i.description.get(lang),
-                i.summary_key,
-                i.source,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut lines = vec![
+        "The following are published guideline thresholds compared to the patient's data. Present as reference information, not as your assessment.".to_string(),
+    ];
+    lines.extend(insights.iter().map(|i| {
+        format!(
+            "[{}] {} - {} (source: {})",
+            context_severity_tag(i.severity),
+            i.description.get(lang),
+            i.summary_key,
+            i.source,
+        )
+    }));
+    lines.join("\n")
 }
 
 fn format_chunk(chunk: &ScoredChunk) -> String {
@@ -536,13 +548,13 @@ mod tests {
         }];
 
         let assembled = assemble_context(&ctx, &QueryType::Factual, &insights);
-        assert!(assembled.text.contains("CLINICAL INSIGHTS"));
+        assert!(assembled.text.contains("PUBLISHED GUIDELINE REFERENCES"));
         assert!(assembled.text.contains("Grade 1 Hypertension"));
         assert!(assembled.text.contains("BP 145/92 mmHg"));
         assert!(assembled.text.contains("ISH 2020"));
 
         // Insights section should appear before document excerpts
-        let insights_pos = assembled.text.find("CLINICAL INSIGHTS").unwrap();
+        let insights_pos = assembled.text.find("PUBLISHED GUIDELINE REFERENCES").unwrap();
         let doc_pos = assembled.text.find("DOCUMENT EXCERPT").unwrap();
         assert!(insights_pos < doc_pos);
     }
@@ -551,7 +563,7 @@ mod tests {
     fn empty_insights_produce_no_section() {
         let ctx = empty_context();
         let assembled = assemble_context(&ctx, &QueryType::General, &[]);
-        assert!(!assembled.text.contains("CLINICAL INSIGHTS"));
+        assert!(!assembled.text.contains("PUBLISHED GUIDELINE REFERENCES"));
     }
 
     #[test]
@@ -583,7 +595,7 @@ mod tests {
                 summary_key: "eGFR 28 mL/min".to_string(),
                 description: InvariantLabel {
                     key: "ckd_g4",
-                    en: "CKD G4 — Severely decreased",
+                    en: "CKD G4 - Severely decreased",
                     fr: "MRC G4",
                     de: "CKD G4",
                 },

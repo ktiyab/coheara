@@ -35,6 +35,7 @@ pub mod import_queue_worker; // BTL-10 C4: Import queue background worker
 pub mod chat_queue; // CHAT-QUEUE-01: Chat queue service
 pub mod chat_queue_worker; // CHAT-QUEUE-01: Chat queue background worker
 pub mod invariants; // ME-03: Invariant Reference Engine
+pub mod me; // L3-06: Me Screen — Health Overview
 
 
 use std::sync::Arc;
@@ -126,6 +127,10 @@ pub fn run() {
             commands::home::get_recent_symptoms,
             commands::home::get_extraction_suggestions,
             commands::home::dismiss_extraction_suggestion,
+            commands::me::get_me_overview,
+            commands::me::record_vital_sign,
+            commands::me::record_screening,
+            commands::me::delete_screening_record,
             commands::chat::start_conversation,
             commands::chat::send_chat_message,
             commands::chat::get_conversation_messages,

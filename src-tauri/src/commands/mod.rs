@@ -9,6 +9,7 @@ pub mod distribution;
 pub mod extraction;
 pub mod home;
 pub mod import;
+pub mod me;
 pub mod import_queue;
 pub mod journal;
 pub mod medications;

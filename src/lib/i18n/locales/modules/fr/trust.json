@@ -2,7 +2,7 @@
   "trust": {
     "heading": "Votre compagnon santé personnel",
     "subheading": "Votre outil personnel de recherche médicale.",
-    "value_proposition": "Comprenez vos documents médicaux, suivez vos médicaments, préparez vos consultations — en toute confidentialité.",
+    "value_proposition": "Comprenez vos documents médicaux, suivez vos médicaments, préparez vos consultations - en toute confidentialité.",
     "benefit_aggregate": "Importez ordonnances, résultats d'analyses et courriers médicaux en un seul endroit",
     "benefit_intelligence": "Posez des questions et obtenez des réponses sourcées à partir de vos propres documents",
     "benefit_safety": "Détectez les conflits et les lacunes entre médecins, médicaments et résultats d'analyses",
@@ -11,9 +11,9 @@
     "benefit_local": "Vos documents médicaux ne sont <b>jamais envoyés nulle part</b>.",
     "benefit_encrypted": "Tout est <b>chiffré</b> avec votre mot de passe.",
     "benefit_private": "Aucun compte, aucun suivi, aucune collecte de données.",
-    "privacy_local": "Tout reste sur votre appareil — aucun cloud",
-    "privacy_encrypted": "Chiffré avec votre mot de passe — vous seul(e) y accédez",
-    "privacy_ai": "L'IA fonctionne localement — vos questions ne quittent jamais l'appareil",
+    "privacy_local": "Tout reste sur votre appareil - aucun cloud",
+    "privacy_encrypted": "Chiffré avec votre mot de passe - vous seul(e) y accédez",
+    "privacy_ai": "L'IA fonctionne localement - vos questions ne quittent jamais l'appareil",
     "cta": "Créer votre MedAI Vault",
     "continue": "Je comprends, commençons",
     "get_started": "Commencer"

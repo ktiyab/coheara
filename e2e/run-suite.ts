@@ -1,7 +1,11 @@
 /**
  * E2E-01 Brick 5: Suite Runner — Orchestrates all test scenarios.
  *
- * Usage: cd e2e && npx tsx run-suite.ts [--scenario 01]
+ * Usage: cd e2e && npx tsx run-suite.ts [--scenario 01] [--quick]
+ *
+ * Flags:
+ *   --scenario 01  Run a single scenario by ID
+ *   --quick        Run only UI-only scenarios (no Ollama: 01, 02, 05)
  *
  * Runs scenarios in sequence (01→05). Each scenario gets a try/catch
  * so failures don't block subsequent scenarios. Produces a JSON report.
@@ -37,11 +41,11 @@ interface SuiteReport {
 // ── Scenario Registry ────────────────────────────────────────────────────────
 
 const SCENARIOS = [
-  { id: '01', name: 'Create Profile', fn: scenario01 },
-  { id: '02', name: 'Import Document', fn: scenario02 },
-  { id: '03', name: 'Review Extraction', fn: scenario03 },
-  { id: '04', name: 'Chat With Data', fn: scenario04 },
-  { id: '05', name: 'Navigation', fn: scenario05 },
+  { id: '01', name: 'Create Profile', fn: scenario01, needsOllama: false },
+  { id: '02', name: 'Import Document', fn: scenario02, needsOllama: false },
+  { id: '03', name: 'Review Extraction', fn: scenario03, needsOllama: true },
+  { id: '04', name: 'Chat With Data', fn: scenario04, needsOllama: true },
+  { id: '05', name: 'Navigation', fn: scenario05, needsOllama: false },
 ];
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -49,6 +53,7 @@ const SCENARIOS = [
 async function main() {
   const args = process.argv.slice(2);
   const singleScenario = args.includes('--scenario') ? args[args.indexOf('--scenario') + 1] : null;
+  const quickMode = args.includes('--quick');
 
   const harness = new TestHarness();
   const results: ScenarioResult[] = [];
@@ -61,15 +66,21 @@ async function main() {
     // Reset app data for a clean slate (fresh DB, no existing profiles)
     await harness.resetApp();
 
+    const mode = quickMode ? 'QUICK (UI-only)' : singleScenario ? `SCENARIO ${singleScenario}` : 'FULL';
     console.log('\n' + '='.repeat(60));
-    console.log('  E2E TEST SUITE');
+    console.log(`  E2E TEST SUITE — ${mode}`);
     console.log(`  Ollama: ${harness.isOllamaAvailable() ? 'Available' : 'Not available'}`);
+    if (quickMode) console.log('  Skipping Ollama-dependent scenarios (03, 04)');
     console.log('='.repeat(60) + '\n');
 
     // ── Run Scenarios ─────────────────────────────────────────────────────
-    const scenariosToRun = singleScenario
+    let scenariosToRun = singleScenario
       ? SCENARIOS.filter(s => s.id === singleScenario)
       : SCENARIOS;
+
+    if (quickMode) {
+      scenariosToRun = scenariosToRun.filter(s => !s.needsOllama);
+    }
 
     for (const scenario of scenariosToRun) {
       console.log(`\n${'─'.repeat(50)}`);

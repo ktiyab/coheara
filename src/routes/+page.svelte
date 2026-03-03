@@ -31,6 +31,7 @@
   import ProfilesScreen from '$lib/components/profile/ProfilesScreen.svelte';
   import CreateProfile from '$lib/components/profile/CreateProfile.svelte';
   import RecoveryPhraseDisplay from '$lib/components/profile/RecoveryPhraseDisplay.svelte';
+  import MeScreen from '$lib/components/me/MeScreen.svelte';
   import type { ProfileCreateResult } from '$lib/types/profile';
   import { ArrowForwardIcon } from '$lib/components/icons/md';
 
@@ -127,6 +128,8 @@
 <AppShell>
   {#if navigation.activeScreen === 'home'}
     <HomeScreen />
+  {:else if navigation.activeScreen === 'me'}
+    <MeScreen />
   {:else if navigation.activeScreen === 'chat'}
     <ChatScreen
       initialConversationId={navigation.screenParams.conversationId}

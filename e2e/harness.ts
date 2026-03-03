@@ -272,16 +272,55 @@ export class TestHarness {
   }
 
   private async buildIfNeeded(): Promise<void> {
+    const frontendSrcDir = join(PROJECT_ROOT, 'src');
+    const buildDir = join(PROJECT_ROOT, 'build');
+
     const binaryExists = existsSync(BINARY_PATH);
     if (binaryExists) {
       const binaryMtime = statSync(BINARY_PATH).mtimeMs;
-      const srcMtime = findNewestMtime(join(TAURI_DIR, 'src'), '.rs');
+      // Check both Rust backend AND frontend sources — Tauri embeds frontend at build time
+      const rustMtime = findNewestMtime(join(TAURI_DIR, 'src'), '.rs');
+      const svelteMtime = findNewestMtime(frontendSrcDir, '.svelte');
+      const tsMtime = findNewestMtime(frontendSrcDir, '.ts');
+      const jsonMtime = findNewestMtime(join(frontendSrcDir, 'lib', 'i18n'), '.json');
+      const srcMtime = Math.max(rustMtime, svelteMtime, tsMtime, jsonMtime);
       if (srcMtime <= binaryMtime) {
         console.log('[harness] Binary is up-to-date, skipping build.');
         return;
       }
+      const staleSource = srcMtime === rustMtime ? 'Rust' :
+                          srcMtime === svelteMtime ? 'Svelte' :
+                          srcMtime === tsMtime ? 'TypeScript' : 'i18n JSON';
+      console.log(`[harness] Binary stale (newest ${staleSource} source newer than binary).`);
     }
 
+    // Step 1: Build frontend if needed (Tauri embeds ../build/ at compile time)
+    // Plain `cargo build` does NOT trigger tauri.conf.json's beforeBuildCommand,
+    // so we must run the frontend build explicitly.
+    const frontendNewest = Math.max(
+      findNewestMtime(frontendSrcDir, '.svelte'),
+      findNewestMtime(frontendSrcDir, '.ts'),
+      findNewestMtime(join(frontendSrcDir, 'lib', 'i18n'), '.json'),
+    );
+    const buildMtime = existsSync(buildDir) ? findNewestMtime(buildDir, '.js') : 0;
+    if (frontendNewest > buildMtime || buildMtime === 0) {
+      console.log('[harness] Building frontend (npm run build)...');
+      try {
+        execSync('npm run build', {
+          cwd: PROJECT_ROOT,
+          stdio: 'inherit',
+          timeout: 360_000,
+          env: { ...process.env },
+        });
+        console.log('[harness] Frontend build complete.');
+      } catch (e) {
+        throw new Error(`Frontend build failed: ${e}`);
+      }
+    } else {
+      console.log('[harness] Frontend build/ is up-to-date, skipping.');
+    }
+
+    // Step 2: Build Rust binary (embeds the freshly built frontend from ../build/)
     console.log('[harness] Building Linux binary... (this may take a few minutes)');
     try {
       execSync(

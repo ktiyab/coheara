@@ -32,39 +32,65 @@ Full-stack visual testing for Coheara — build, launch, interact, screenshot, v
 ## Quick Start
 
 ```bash
-# From project root — run the full 5-scenario suite
+# From project root — run the full 5-scenario suite (~20min with Ollama)
 ./dev.sh e2e
+
+# Quick mode — UI-only scenarios, no Ollama needed (~2-3min)
+./dev.sh e2e:quick
+
+# Single scenario
+./dev.sh e2e --scenario 01
 
 # Or from e2e/ directory
 cd e2e && npx tsx run-suite.ts
+cd e2e && npx tsx run-suite.ts --quick
+cd e2e && npx tsx run-suite.ts --scenario 01
 ```
 
 **What happens:**
 1. Starts Xvfb virtual display on `:99`
-2. Builds Linux binary if needed (~30s incremental, ~5min first time)
-3. Starts tauri-driver on port 4444
-4. Launches Coheara via WebDriver session
-5. Resets app data (fresh DB, no existing profiles)
-6. Runs 5 scenarios: create profile, import document, review, chat, navigation
-7. Saves screenshots to `e2e/results/*.png`
-8. Writes JSON report to `e2e/results/report.json`
-9. Tears down all processes
+2. Builds frontend (`npm run build`) if Svelte/TS/i18n sources changed
+3. Builds Linux binary (`cargo build`) if Rust or frontend sources changed
+4. Starts tauri-driver on port 4444
+5. Launches Coheara via WebDriver session
+6. Resets app data (fresh DB, no existing profiles)
+7. Runs scenarios (all 5, quick mode: 01+02+05, or single)
+8. Saves screenshots to `e2e/results/*.png`
+9. Writes JSON report to `e2e/results/report.json`
+10. Tears down all processes
 
-**Typical output:**
+**Quick mode output (~2-3 min):**
 ```
 ============================================================
-  E2E TEST SUITE
-  Ollama: Not available
+  E2E TEST SUITE — QUICK (UI-only)
+  Ollama: Available
+  Skipping Ollama-dependent scenarios (03, 04)
 ============================================================
 
-  [PASS] 01 Create Profile (29.6s)
-  [PASS] 02 Import Document (3.3s)
-  [PASS] 03 Review Extraction (0.0s)
-  [PASS] 04 Chat With Data (7.5s)
-  [PASS] 05 Navigation (14.8s)
+  [PASS] 01 Create Profile (151.6s)
+  [PASS] 02 Import Document (9.7s)
+  [PASS] 05 Navigation (18.0s)
+
+  Total: 3 passed, 0 failed, 0 skipped
+  Duration: 268.3s
+============================================================
+```
+
+**Full suite output (~20 min with Ollama):**
+```
+============================================================
+  E2E TEST SUITE — FULL
+  Ollama: Available
+============================================================
+
+  [PASS] 01 Create Profile (108.6s)
+  [PASS] 02 Import Document (6.7s)
+  [PASS] 03 Review Extraction (669.4s)
+  [PASS] 04 Chat With Data (11.5s)
+  [PASS] 05 Navigation (19.8s)
 
   Total: 5 passed, 0 failed, 0 skipped
-  Duration: 74.4s
+  Duration: 1161.1s
 ============================================================
 ```
 
@@ -111,7 +137,9 @@ cd e2e && npx tsx run-suite.ts
 ### From project root (via dev.sh)
 
 ```bash
-./dev.sh e2e                        # Run full 5-scenario suite
+./dev.sh e2e                        # Run full 5-scenario suite (~20min)
+./dev.sh e2e:quick                  # UI-only scenarios — no Ollama (~2-3min)
+./dev.sh e2e --scenario 01          # Run single scenario by ID
 ./dev.sh e2e:screenshot             # Screenshot current app state
 ./dev.sh e2e:screenshot --screen home  # Navigate to home, screenshot
 ./dev.sh e2e:screenshot --all       # Screenshot all 5 main screens
@@ -124,6 +152,7 @@ cd e2e && npx tsx run-suite.ts
 cd e2e
 
 npx tsx run-suite.ts                # Full suite
+npx tsx run-suite.ts --quick        # UI-only scenarios (01, 02, 05)
 npx tsx run-suite.ts --scenario 01  # Single scenario (01-05)
 npx tsx run-suite.ts --scenario 04  # Just the chat scenario
 
@@ -133,6 +162,15 @@ npx tsx screenshot.ts --all         # All screens
 
 npx tsx keep-alive.ts               # Persistent harness
 ```
+
+### Which mode to use?
+
+| Change Type | Command | Why |
+|-------------|---------|-----|
+| UI components, i18n, styling | `./dev.sh e2e:quick` | No AI pipeline changes, fast feedback |
+| AI pipeline, extraction, chat | `./dev.sh e2e` | Full suite validates Ollama-dependent flows |
+| Single screen change | `./dev.sh e2e --scenario 01` | Targeted verification |
+| Quick visual check | `./dev.sh e2e:screenshot --all` | Instant screenshots, no scenario logic |
 
 ### Fast screenshot loop (two terminals)
 
@@ -164,11 +202,11 @@ e2e/
 ├── run-suite.ts           ← Suite runner + JSON report generator
 │
 ├── scenarios/
-│   ├── 01-create-profile.ts      ← Full onboarding flow
-│   ├── 02-import-document.ts     ← PDF import via IPC
-│   ├── 03-review-extraction.ts   ← Entity review (Ollama required)
-│   ├── 04-chat-with-data.ts      ← Chat UI + message sending
-│   └── 05-navigation.ts          ← Visit all screens
+│   ├── 01-create-profile.ts      ← Multi-step wizard onboarding (no Ollama)
+│   ├── 02-import-document.ts     ← PDF import via IPC (no Ollama)
+│   ├── 03-review-extraction.ts   ← Entity review (needs Ollama)
+│   ├── 04-chat-with-data.ts      ← Chat UI + AI response (needs Ollama)
+│   └── 05-navigation.ts          ← Visit all screens (no Ollama)
 │
 ├── fixtures/
 │   ├── test-lab-results.pdf      ← CBC, metabolic, lipid, thyroid panels
@@ -345,15 +383,17 @@ driver.raw  // Returns underlying WebdriverIO Browser instance
 
 Each scenario exports `run(harness: TestHarness): Promise<void>`.
 
-### 01 — Create Profile
+### 01 — Create Profile (Multi-Step Wizard)
 
-**What it tests:** Full onboarding from first launch to home screen.
+**What it tests:** Full onboarding from first launch to home screen, including the 4-step profile creation wizard (UX-04).
 
-**Flow:** Trust Screen → "Create your MedAI Vault" → Self Profile → Fill form (name: Alice Martin, sex: Female, ethnicity: European, password: TestPassword42!) → Submit → Recovery Phrase (12 words, skip verify) → Welcome Tour (skip) → Home Screen.
+**Flow:** Trust Screen → "Create your MedAI Vault" → Self Profile → **Step 1 Identity** (name: Alice Martin) → **Step 2 Health** (sex: Female pill, ethnicity: European chip) → **Step 3 Location** (skip) → **Step 4 Security** (password: TestPassword42!) → Submit → Recovery Phrase (12 words, skip verify) → Welcome Tour (skip) → Home Screen → Configure AI model.
 
-**Duration:** ~30s (crypto operations: Argon2 key derivation + AES-256-GCM).
+**Duration:** ~100-150s (crypto: Argon2 + AES-256-GCM, plus 4-step navigation).
 
-**Screenshots:** `01-trust-screen.png`, `01-profile-type.png`, `01-create-form-empty.png`, `01-create-form-filled.png`, `01-post-create.png`, `01-recovery-phrase.png`, `01-welcome-tour.png`, `01-home-screen.png`
+**Ollama required:** No (profile creation is CPU-only).
+
+**Screenshots:** `01-trust-screen.png`, `01-profile-type.png`, `01-step-identity.png`, `01-step-health.png`, `01-step-location.png`, `01-step-security.png`, `01-post-create.png`, `01-recovery-phrase.png`, `01-welcome-tour.png`, `01-home-screen.png`
 
 ### 02 — Import Document
 
@@ -537,12 +577,29 @@ await harness.browser!.execute(() => {
 });
 ```
 
-**Radio button:**
+**Pill-toggle button (e.g., sex selection):**
 ```typescript
 await harness.browser!.execute(() => {
-  const radio = document.querySelector('input[type="radio"][value="Male"]');
-  const label = radio?.closest('label') || radio?.parentElement;
-  if (label) (label as HTMLElement).click();
+  const buttons = document.querySelectorAll('button');
+  for (const btn of buttons) {
+    if (btn.textContent?.trim() === 'Female') {
+      btn.click();
+      return;
+    }
+  }
+});
+```
+
+**Chip tag (e.g., ethnicity selection):**
+```typescript
+await harness.browser!.execute(() => {
+  const buttons = document.querySelectorAll('button');
+  for (const btn of buttons) {
+    if (btn.textContent?.trim() === 'European') {
+      btn.click();
+      return;
+    }
+  }
 });
 ```
 

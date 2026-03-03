@@ -95,7 +95,7 @@ mod tests {
             severity: AlertSeverity::Critical,
             entity_ids: vec![Uuid::new_v4()],
             source_document_ids: vec![Uuid::new_v4()],
-            patient_message: "Your lab report flags Potassium as needing prompt attention."
+            patient_message: "Your lab report shows Potassium outside the published reference range."
                 .into(),
             detail: AlertDetail::Critical(CriticalDetail {
                 test_name: "Potassium".into(),

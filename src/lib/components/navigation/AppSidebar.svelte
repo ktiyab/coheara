@@ -7,7 +7,7 @@
   import { lockProfile } from '$lib/api/profile';
   import { dispatchProfileSwitch } from '$lib/utils/session-events';
   import { PROFILE_COLORS, type ProfileInfo } from '$lib/types/profile';
-  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, DevicesIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from '$lib/components/icons/md';
+  import { HomeIcon, SearchIcon, HistoryIcon, DocsIcon, TimelineIcon, DevicesIcon, SettingsIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, PersonIcon } from '$lib/components/icons/md';
   import ProfilePopover from '$lib/components/profile/ProfilePopover.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
   import { theme } from '$lib/stores/theme.svelte';
@@ -22,6 +22,7 @@
 
   const navItems: NavItem[] = [
     { id: 'home', key: 'nav.home', Icon: HomeIcon },
+    { id: 'me', key: 'nav.me', Icon: PersonIcon },
     { id: 'chat', key: 'nav.chat', Icon: SearchIcon },
     { id: 'history', key: 'nav.history', Icon: HistoryIcon },
     { id: 'documents', key: 'nav.documents', Icon: DocsIcon },
@@ -127,7 +128,9 @@
                        : 'border-transparent text-stone-600 dark:text-gray-400 hover:bg-stone-50 dark:hover:bg-gray-800/50'}"
             onclick={() => handleNav(item.id)}
             aria-current={isActive ? 'page' : undefined}
-            title={collapsed ? ($t(item.key) ?? item.id) : undefined}
+            title={collapsed
+              ? (item.id === 'me' && profile.name ? profile.name : ($t(item.key) ?? item.id))
+              : undefined}
           >
             <span class="flex-shrink-0 relative">
               <item.Icon class="w-8 h-8" />
@@ -136,7 +139,9 @@
               {/if}
             </span>
             {#if !collapsed}
-              <span class="text-base truncate">{$t(item.key)}</span>
+              <span class="text-base truncate">
+                {item.id === 'me' && profile.name ? profile.name : $t(item.key)}
+              </span>
               {#if item.id === 'home' && extraction.count > 0}
                 <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--color-primary)] text-white flex-shrink-0">
                   {extraction.count}

@@ -13,6 +13,7 @@ import { browser } from '$app/environment';
 /** Screens that display the sidebar (all main screens). */
 const SIDEBAR_SCREENS = new Set([
 	'home',
+	'me',
 	'chat',
 	'history',
 	'documents',
@@ -37,7 +38,7 @@ export const PARENT_SCREEN: Record<string, string> = {
 
 /** Navigation sections for sidebar grouping. */
 export const NAV_SECTIONS = {
-	main: ['home', 'chat', 'history'],
+	main: ['home', 'me', 'chat', 'history'],
 	library: ['documents', 'timeline'],
 	system: ['companion', 'settings'],
 } as const;

@@ -1,6 +1,6 @@
 {
   "critical": {
-    "lab_alert": "Your lab report from {date} flags {testName} as needing prompt attention.",
+    "lab_alert": "Your lab report from {date} shows {testName} outside the published reference range.",
     "contact_doctor": "Please contact your doctor or pharmacist soon.",
     "reference_range": "(reference: {range})",
     "view_button": "View",

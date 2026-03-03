@@ -3,8 +3,8 @@
     "chat_searching": "Recherche dans vos dossiers...",
     "chat_found": "Documents pertinents trouvés",
     "chat_generating": "Analyse et génération de la réponse...",
-    "chat_safety": "Presque prêt — vérification de la précision...",
-    "chat_complex": "Cela prend un peu plus de temps — analyse approfondie en cours",
+    "chat_safety": "Presque prêt - vérification de la précision...",
+    "chat_complex": "Cela prend un peu plus de temps - analyse approfondie en cours",
     "chat_notify": "Coheara vous notifiera lorsque votre réponse sera prête.",
     "import_reading": "Lecture du document...",
     "import_analyzing": "Analyse du contenu...",
@@ -13,6 +13,6 @@
     "prep_gathering": "Collecte de vos données de santé...",
     "prep_building": "Préparation du résumé...",
     "prep_ready": "Vos notes de préparation sont prêtes",
-    "privacy_note": "Vos données restent privées — l'IA tourne localement sur votre appareil"
+    "privacy_note": "Vos données restent privées - l'IA tourne localement sur votre appareil"
   }
 }

@@ -20,7 +20,7 @@
     "reject_dialog_aria": "Rejeter la vérification",
     "confidence_very_low": "Ce champ a été extrait d'un texte de très mauvaise qualité. L'original pourrait dire quelque chose de très différent.",
     "confidence_low": "Ce champ a été extrait d'une image de mauvaise qualité. L'original pourrait dire quelque chose de différent.",
-    "confidence_check": "Je ne suis pas sûr d'avoir bien lu ceci — veuillez vérifier",
+    "confidence_check": "Je ne suis pas sûr d'avoir bien lu ceci - veuillez vérifier",
     "confidence_label": "Confiance :",
     "field_edit_aria": "Modifier {label} : {value}",
     "field_original_title": "Original : {value}",
@@ -73,7 +73,7 @@
     "tab_extracted": "Extrait",
     "tab_corrected_count": "{count} corrigé(s)",
     "tab_review_suffix": "vérification",
-    "section_confidence_banner": "Certaines valeurs peuvent nécessiter une vérification — repérez les points orange",
+    "section_confidence_banner": "Certaines valeurs peuvent nécessiter une vérification - repérez les points orange",
     "entity_count": "{count, plural, one {# résultat} other {# résultats}}",
     "summary_all_good_entities": "Les {count} résultats extraits semblent corrects",
     "summary_mixed_entities": "{total} résultats extraits · {confident} confirmés · {flagged} à vérifier",
@@ -81,6 +81,6 @@
     "flagged_description_entities": "Il y a {count, plural, one {# résultat} other {# résultats}} dont je ne suis pas sûr. Souhaitez-vous {count, plural, one {le} other {les}} vérifier d'abord ?",
     "entity_edited_count": "{count} modifié(s)",
     "entity_edit_done": "Terminé",
-    "entity_no_value": "—"
+    "entity_no_value": "-"
   }
 }

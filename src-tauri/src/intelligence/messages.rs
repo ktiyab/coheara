@@ -103,9 +103,10 @@ impl MessageTemplates {
 
     /// CRITICAL lab message.
     /// NC-07: "promptly" / "soon" — NEVER "immediately" or "urgently"
+    /// REG-01: Use reference-range framing, not clinical triage language.
     pub fn critical_lab(date: &str, test: &str) -> String {
         format!(
-            "Your lab report from {} flags {} as needing prompt attention. \
+            "Your lab report from {} shows {} outside the published reference range. \
              Please contact your doctor or pharmacist soon.",
             date, test,
         )
@@ -259,12 +260,12 @@ impl MessageTemplatesI18n {
     pub fn critical_lab(lang: &str, date: &str, test: &str) -> String {
         match lang {
             "fr" => format!(
-                "Votre bilan biologique du {} signale {} comme nécessitant une attention rapide. \
+                "Votre bilan biologique du {} indique {} en dehors de la plage de référence publiée. \
                  Veuillez contacter votre médecin ou pharmacien prochainement.",
                 date, test,
             ),
             "de" => format!(
-                "Ihr Laborbericht vom {} markiert {} als zeitnah klärungsbedürftig. \
+                "Ihr Laborbericht vom {} zeigt {} außerhalb des veröffentlichten Referenzbereichs. \
                  Bitte kontaktieren Sie Ihren Arzt oder Apotheker zeitnah.",
                 date, test,
             ),
@@ -356,7 +357,8 @@ mod tests {
     #[test]
     fn critical_lab_message_uses_calm_language() {
         let msg = MessageTemplates::critical_lab("2026-01-15", "Potassium");
-        assert!(msg.contains("prompt attention"));
+        // REG-01: reference-range framing, no clinical triage language
+        assert!(msg.contains("outside the published reference range"));
         assert!(msg.contains("soon"));
         assert!(!msg.contains("immediately"));
         assert!(!msg.contains("urgently"));

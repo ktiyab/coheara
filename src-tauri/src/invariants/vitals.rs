@@ -230,9 +230,9 @@ pub const SPO2_CLASSIFICATIONS: &[Spo2Classification] = &[
     Spo2Classification {
         label: InvariantLabel {
             key: "spo2_hypoxemia",
-            en: "Hypoxemia — supplemental oxygen indicated",
-            fr: "Hypoxémie — oxygène supplémentaire indiqué",
-            de: "Hypoxämie — zusätzlicher Sauerstoff indiziert",
+            en: "Hypoxemia - supplemental oxygen indicated",
+            fr: "Hypoxémie - oxygène supplémentaire indiqué",
+            de: "Hypoxämie - zusätzlicher Sauerstoff indiziert",
         },
         min_pct: 0,
         max_pct: 90,
@@ -254,9 +254,9 @@ pub const SPO2_CLASSIFICATIONS: &[Spo2Classification] = &[
     Spo2Classification {
         label: InvariantLabel {
             key: "spo2_low",
-            en: "Below action threshold — investigate",
-            fr: "Sous le seuil d'action — investiguer",
-            de: "Unter der Handlungsschwelle — untersuchen",
+            en: "Below action threshold - investigate",
+            fr: "Sous le seuil d'action - investiguer",
+            de: "Unter der Handlungsschwelle - untersuchen",
         },
         min_pct: 90,
         max_pct: 94,
@@ -584,9 +584,9 @@ pub const TEMP_CLASSIFICATIONS: &[TemperatureClassification] = &[
     TemperatureClassification {
         label: InvariantLabel {
             key: "temp_hyperthermia",
-            en: "Hyperthermia — emergency",
-            fr: "Hyperthermie — urgence",
-            de: "Hyperthermie — Notfall",
+            en: "Hyperthermia - emergency",
+            fr: "Hyperthermie - urgence",
+            de: "Hyperthermie - Notfall",
         },
         min_celsius: 41.0,
         max_celsius: f64::MAX,

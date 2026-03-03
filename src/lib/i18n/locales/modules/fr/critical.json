@@ -1,6 +1,6 @@
 {
   "critical": {
-    "lab_alert": "Votre rapport d'analyses du {date} signale {testName} comme nécessitant une attention rapide.",
+    "lab_alert": "Votre rapport d’analyses du {date} indique {testName} en dehors de la plage de référence publiée.",
     "contact_doctor": "Veuillez contacter votre médecin ou pharmacien rapidement.",
     "reference_range": "(référence : {range})",
     "view_button": "Voir",

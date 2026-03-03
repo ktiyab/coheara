@@ -1,8 +1,8 @@
 /**
- * Scenario 01: First Launch — Create Profile
+ * Scenario 01: First Launch — Create Profile (Multi-Step Wizard)
  *
  * Exercises the full onboarding: TrustScreen → ProfileTypeChoice → CreateProfile
- * → RecoveryPhrase → WelcomeTour → Home.
+ * (4 sub-steps: Identity → Health → Location → Security) → RecoveryPhrase → WelcomeTour → Home.
  */
 import type { TestHarness } from '../harness.js';
 import { CohearaDriver } from '../driver.js';
@@ -21,17 +21,11 @@ export async function run(harness: TestHarness): Promise<void> {
   await sleep(1000);
   await driver.screenshot('01-profile-type');
 
-  // ── Step 3: Choose "For myself" → CreateProfile form ──────────────────
+  // ── Step 3: Choose "For myself" → Sub-step 0 (Identity) ──────────────
   console.log('[01] Selecting self profile...');
-  // Click the first card (self profile) — it contains "For myself" or similar text
-  // The card triggers onSelect(false) for self profile
-  const bodyText = await harness.browser!.execute(() => document.body.textContent ?? '');
-  // Find the self-profile card — it's the first clickable card
   await harness.browser!.execute(() => {
-    // Find buttons/cards in the type choice screen
     const buttons = document.querySelectorAll('button');
     for (const btn of buttons) {
-      // Self profile button is the first large card (not Back button)
       if (btn.textContent && btn.textContent.length > 20 && !btn.textContent.includes('Back')) {
         btn.click();
         return;
@@ -39,12 +33,10 @@ export async function run(harness: TestHarness): Promise<void> {
     }
   });
   await sleep(1500);
-  await driver.screenshot('01-create-form-empty');
+  await driver.screenshot('01-step-identity');
 
-  // ── Step 4: Fill profile form ─────────────────────────────────────────
-  console.log('[01] Filling profile form...');
-
-  // Name input — find by type="text" (first text input on the form)
+  // ── Step 4a: Identity — Fill name ─────────────────────────────────────
+  console.log('[01] Filling identity step...');
   await harness.browser!.execute(() => {
     const input = document.querySelector('input[type="text"]') as HTMLInputElement;
     if (input) {
@@ -56,30 +48,77 @@ export async function run(harness: TestHarness): Promise<void> {
   });
   await sleep(300);
 
-  // Sex: Female — click the radio label
+  // Click "Next" to advance to Health step
+  console.log('[01] Advancing to health step...');
   await harness.browser!.execute(() => {
-    const radios = document.querySelectorAll('input[type="radio"]');
-    for (const radio of radios) {
-      if ((radio as HTMLInputElement).value === 'Female') {
-        const label = radio.closest('label') || radio.parentElement;
-        if (label) (label as HTMLElement).click();
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent?.includes('Next') && !btn.disabled) {
+        btn.click();
         return;
       }
     }
   });
-  await sleep(300);
+  await sleep(800);
+  await driver.screenshot('01-step-health');
 
-  // Ethnicity: European — click the first checkbox
+  // ── Step 4b: Health — Select Female pill + European chip ──────────────
+  console.log('[01] Filling health step...');
+
+  // Click the "Female" pill button
   await harness.browser!.execute(() => {
-    const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
-    if (checkbox) {
-      const label = checkbox.closest('label') || checkbox.parentElement;
-      if (label) (label as HTMLElement).click();
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent?.trim() === 'Female') {
+        btn.click();
+        return;
+      }
     }
   });
-  await sleep(300);
+  await sleep(200);
 
-  // Password fields — find both password inputs
+  // Click the "European" chip
+  await harness.browser!.execute(() => {
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent?.trim() === 'European') {
+        btn.click();
+        return;
+      }
+    }
+  });
+  await sleep(200);
+
+  // Click "Next" to advance to Location step
+  console.log('[01] Advancing to location step...');
+  await harness.browser!.execute(() => {
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent?.includes('Next') && !btn.disabled) {
+        btn.click();
+        return;
+      }
+    }
+  });
+  await sleep(800);
+  await driver.screenshot('01-step-location');
+
+  // ── Step 4c: Location — Skip (advance to Security) ───────────────────
+  console.log('[01] Skipping location step...');
+  await harness.browser!.execute(() => {
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent?.includes('Next') && !btn.disabled) {
+        btn.click();
+        return;
+      }
+    }
+  });
+  await sleep(800);
+  await driver.screenshot('01-step-security');
+
+  // ── Step 4d: Security — Fill password ─────────────────────────────────
+  console.log('[01] Filling security step...');
   await harness.browser!.execute(() => {
     const passwordInputs = document.querySelectorAll('input[type="password"]');
     const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -95,16 +134,13 @@ export async function run(harness: TestHarness): Promise<void> {
     }
   });
   await sleep(500);
-  await driver.screenshot('01-create-form-filled');
 
   // ── Step 5: Submit → Create Profile ───────────────────────────────────
   console.log('[01] Submitting profile...');
-  // Find and click the Create button (disabled state should now be false)
   await harness.browser!.execute(() => {
     const buttons = document.querySelectorAll('button');
     for (const btn of buttons) {
       const text = btn.textContent?.trim() ?? '';
-      // Create button text from i18n
       if (text.includes('Create') && !btn.disabled) {
         btn.click();
         return true;
@@ -139,7 +175,6 @@ export async function run(harness: TestHarness): Promise<void> {
   await driver.screenshot('01-post-create');
   if (!creationDone) {
     console.log('[01] WARN — Profile creation took longer than 120s — waiting more...');
-    // Keep polling — Argon2 on CPU with Ollama loaded can be very slow
     const extraDeadline = Date.now() + 60_000;
     while (Date.now() < extraDeadline) {
       const bodyNow = await harness.browser!.execute(() => document.body.textContent ?? '');
@@ -167,7 +202,6 @@ export async function run(harness: TestHarness): Promise<void> {
 
     // Count words in the grid
     const wordCount = await harness.browser!.execute(() => {
-      // Words are in grid children — look for the 3-column grid
       const grids = document.querySelectorAll('.grid');
       for (const grid of grids) {
         if (grid.children.length >= 12) return grid.children.length;
@@ -222,7 +256,6 @@ export async function run(harness: TestHarness): Promise<void> {
 
   // ── Step 8: Home Screen ───────────────────────────────────────────────
   console.log('[01] Waiting for home screen...');
-  // Poll for home screen — profile creation + onboarding can take time
   const homeDeadline = Date.now() + 15_000;
   while (Date.now() < homeDeadline) {
     const text = await harness.browser!.execute(() => document.body.textContent ?? '');
@@ -244,16 +277,11 @@ export async function run(harness: TestHarness): Promise<void> {
   }
 
   // ── Step 9: Configure AI model ────────────────────────────────────
-  // Model must be configured after profile creation for extraction/chat to work.
-  // The "coheara-medgemma-*" name prefix doesn't match auto-suggestion heuristics,
-  // so we must set tags explicitly via IPC.
   if (harness.isOllamaAvailable()) {
     console.log('[01] Configuring AI model...');
     const MODEL_NAME = 'ktiyab/coheara-medgemma-4b-q4:latest';
 
     try {
-      // Set as active model
-      // Tauri v2 converts Rust snake_case to JS camelCase
       await driver.executeInvoke('set_active_model', { modelName: MODEL_NAME });
       console.log(`[01] Active model set: ${MODEL_NAME}`);
     } catch (err) {
@@ -261,7 +289,6 @@ export async function run(harness: TestHarness): Promise<void> {
     }
 
     try {
-      // Tag with full MedGemma capabilities (Vision + Medical + formats)
       await driver.executeInvoke('set_model_tags', {
         modelName: MODEL_NAME,
         tags: ['Txt', 'Vision', 'Png', 'Jpeg', 'Medical'],

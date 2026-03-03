@@ -81,6 +81,17 @@ Commands:
   test:watch  Watch mode for frontend tests
               Re-runs affected tests on file save.
 
+  e2e         Run full E2E visual test suite (all 5 scenarios, ~20min)
+              Requires Xvfb + tauri-driver. Produces screenshots + JSON report.
+              Options: --scenario 01  (run single scenario)
+
+  e2e:quick   Run light E2E suite — UI-only scenarios (01, 02, 05, ~2min)
+              Skips Ollama-dependent scenarios (03 extraction, 04 chat).
+              Use after UI/i18n changes that don't affect AI pipeline.
+
+  e2e:screenshot  Take a single screenshot of the running app
+  e2e:keepalive   Persistent harness for fast iterative screenshots
+
   help        Show this help
 
 Options:
@@ -100,6 +111,9 @@ Examples:
   ./dev.sh frontend              # UI-only dev
   ./dev.sh full --rebuild        # Wipe everything, fresh start
   ./dev.sh frontend --rebuild    # Wipe + UI-only dev
+  ./dev.sh e2e                   # Full E2E suite (all 5 scenarios)
+  ./dev.sh e2e --scenario 01     # Run single scenario
+  ./dev.sh e2e:quick             # Light suite (UI-only, ~2min)
 EOF
 }
 
@@ -110,8 +124,14 @@ REBUILD=false
 for arg in "$@"; do
     case "$arg" in
         --rebuild) REBUILD=true ;;
-        setup|full|frontend|check|test|test:watch|help|--help|-h)
+        setup|full|frontend|check|test|test:watch|e2e|e2e:quick|e2e:screenshot|e2e:keepalive|help|--help|-h)
             COMMAND="$arg" ;;
+        --scenario|--quick)
+            # E2E flags — pass through (handled by run-suite.ts)
+            ;;
+        [0-9][0-9])
+            # Scenario ID (e.g., 01) — pass through
+            ;;
         *)
             log_error "Unknown argument: $arg"
             echo ""
@@ -599,7 +619,21 @@ cmd_setup() {
 cmd_e2e() {
     log_step "Running E2E test suite"
     cd "$PROJECT_ROOT/e2e"
-    npx tsx run-suite.ts "$@"
+    # Pass through any extra args (--scenario 01, --quick, etc.)
+    local e2e_args=()
+    for arg in "$@"; do
+        case "$arg" in
+            e2e|e2e:quick|e2e:screenshot|e2e:keepalive|--rebuild) ;; # skip dev.sh args
+            *) e2e_args+=("$arg") ;;
+        esac
+    done
+    npx tsx run-suite.ts "${e2e_args[@]}"
+}
+
+cmd_e2e_quick() {
+    log_step "Running light E2E suite (UI-only — no Ollama scenarios)"
+    cd "$PROJECT_ROOT/e2e"
+    npx tsx run-suite.ts --quick
 }
 
 cmd_e2e_screenshot() {
@@ -633,7 +667,8 @@ case "$COMMAND" in
     check)          cmd_check ;;
     test)           cmd_test ;;
     test:watch)     cmd_test_watch ;;
-    e2e)            cmd_e2e ;;
+    e2e)            cmd_e2e "$@" ;;
+    e2e:quick)      cmd_e2e_quick ;;
     e2e:screenshot) cmd_e2e_screenshot ;;
     e2e:keepalive)  cmd_e2e_keepalive ;;
     help|--help|-h) usage ;;

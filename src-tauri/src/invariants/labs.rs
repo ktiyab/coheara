@@ -74,9 +74,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g5",
-            en: "CKD G5 — Kidney failure",
-            fr: "MRC G5 — Insuffisance rénale",
-            de: "CKD G5 — Nierenversagen",
+            en: "CKD G5 - Kidney failure",
+            fr: "MRC G5 - Insuffisance rénale",
+            de: "CKD G5 - Nierenversagen",
         },
         min_value: 0.0,
         max_value: 15.0,
@@ -85,9 +85,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g4",
-            en: "CKD G4 — Severely decreased",
-            fr: "MRC G4 — Sévèrement diminué",
-            de: "CKD G4 — Stark vermindert",
+            en: "CKD G4 - Severely decreased",
+            fr: "MRC G4 - Sévèrement diminué",
+            de: "CKD G4 - Stark vermindert",
         },
         min_value: 15.0,
         max_value: 30.0,
@@ -96,9 +96,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g3b",
-            en: "CKD G3b — Moderately to severely decreased",
-            fr: "MRC G3b — Modérément à sévèrement diminué",
-            de: "CKD G3b — Mäßig bis stark vermindert",
+            en: "CKD G3b - Moderately to severely decreased",
+            fr: "MRC G3b - Modérément à sévèrement diminué",
+            de: "CKD G3b - Mäßig bis stark vermindert",
         },
         min_value: 30.0,
         max_value: 45.0,
@@ -107,9 +107,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g3a",
-            en: "CKD G3a — Mildly to moderately decreased",
-            fr: "MRC G3a — Légèrement à modérément diminué",
-            de: "CKD G3a — Leicht bis mäßig vermindert",
+            en: "CKD G3a - Mildly to moderately decreased",
+            fr: "MRC G3a - Légèrement à modérément diminué",
+            de: "CKD G3a - Leicht bis mäßig vermindert",
         },
         min_value: 45.0,
         max_value: 60.0,
@@ -118,9 +118,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g2",
-            en: "CKD G2 — Mildly decreased",
-            fr: "MRC G2 — Légèrement diminué",
-            de: "CKD G2 — Leicht vermindert",
+            en: "CKD G2 - Mildly decreased",
+            fr: "MRC G2 - Légèrement diminué",
+            de: "CKD G2 - Leicht vermindert",
         },
         min_value: 60.0,
         max_value: 90.0,
@@ -129,9 +129,9 @@ pub static EGFR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "ckd_g1",
-            en: "CKD G1 — Normal or high",
-            fr: "MRC G1 — Normal ou élevé",
-            de: "CKD G1 — Normal oder hoch",
+            en: "CKD G1 - Normal or high",
+            fr: "MRC G1 - Normal ou élevé",
+            de: "CKD G1 - Normal oder hoch",
         },
         min_value: 90.0,
         max_value: f64::MAX,
@@ -348,9 +348,9 @@ pub static POTASSIUM_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "k_hyperkalemia",
-            en: "Hyperkalemia — review medications",
-            fr: "Hyperkaliémie — réviser les médicaments",
-            de: "Hyperkaliämie — Medikamente überprüfen",
+            en: "Hyperkalemia - review medications",
+            fr: "Hyperkaliémie - réviser les médicaments",
+            de: "Hyperkaliämie - Medikamente überprüfen",
         },
         min_value: 5.5,
         max_value: 6.0,
@@ -359,9 +359,9 @@ pub static POTASSIUM_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "k_severe_hyperkalemia",
-            en: "Severe hyperkalemia — emergency",
-            fr: "Hyperkaliémie sévère — urgence",
-            de: "Schwere Hyperkaliämie — Notfall",
+            en: "Severe hyperkalemia - emergency",
+            fr: "Hyperkaliémie sévère - urgence",
+            de: "Schwere Hyperkaliämie - Notfall",
         },
         min_value: 6.0,
         max_value: f64::MAX,
@@ -660,9 +660,9 @@ pub static UACR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "uacr_a1",
-            en: "A1 — Normal to mildly increased",
-            fr: "A1 — Normal à légèrement augmenté",
-            de: "A1 — Normal bis leicht erhöht",
+            en: "A1 - Normal to mildly increased",
+            fr: "A1 - Normal à légèrement augmenté",
+            de: "A1 - Normal bis leicht erhöht",
         },
         min_value: 0.0,
         max_value: 30.0,
@@ -671,9 +671,9 @@ pub static UACR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "uacr_a2",
-            en: "A2 — Moderately increased (microalbuminuria)",
-            fr: "A2 — Modérément augmenté (microalbuminurie)",
-            de: "A2 — Mäßig erhöht (Mikroalbuminurie)",
+            en: "A2 - Moderately increased (microalbuminuria)",
+            fr: "A2 - Modérément augmenté (microalbuminurie)",
+            de: "A2 - Mäßig erhöht (Mikroalbuminurie)",
         },
         min_value: 30.0,
         max_value: 300.0,
@@ -682,9 +682,9 @@ pub static UACR_TIERS: &[LabTier] = &[
     LabTier {
         label: InvariantLabel {
             key: "uacr_a3",
-            en: "A3 — Severely increased (macroalbuminuria)",
-            fr: "A3 — Sévèrement augmenté (macroalbuminurie)",
-            de: "A3 — Stark erhöht (Makroalbuminurie)",
+            en: "A3 - Severely increased (macroalbuminuria)",
+            fr: "A3 - Sévèrement augmenté (macroalbuminurie)",
+            de: "A3 - Stark erhöht (Makroalbuminurie)",
         },
         min_value: 300.0,
         max_value: f64::MAX,

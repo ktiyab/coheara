@@ -23,6 +23,7 @@ mod referral;
 mod symptom;
 mod entity_connection;
 mod vital_sign;
+mod screening_record;
 
 use uuid::Uuid;
 
@@ -56,6 +57,7 @@ pub use referral::*;
 pub use symptom::*;
 pub use entity_connection::*;
 pub use vital_sign::*;
+pub use screening_record::*;
 
 #[cfg(test)]
 mod tests {

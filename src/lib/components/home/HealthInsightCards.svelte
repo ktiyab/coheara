@@ -64,9 +64,9 @@
   }
 </script>
 
-<section class="px-6 py-2" aria-label={$t('home.insights_heading') ?? 'Health Insights'}>
+<section class="px-6 py-2" aria-label={$t('home.insights_heading') ?? 'Guideline Notes'}>
   <h2 class="text-sm font-semibold text-stone-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-    {$t('home.insights_heading') ?? 'Health Insights'}
+    {$t('home.insights_heading') ?? 'Guideline Notes'}
   </h2>
   <div class="flex flex-col gap-2" role="list" aria-live="polite">
     {#each visible as alert (alert.id)}

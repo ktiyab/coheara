@@ -9,15 +9,15 @@
 ![Platform](https://img.shields.io/badge/platform-desktop%20%2B%20mobile-brightgreen)
 ![Privacy](https://img.shields.io/badge/privacy-offline--only-2ea44f)
 
-> **Alpha — Functional but not clinically validated.**
+> **Alpha: Functional but not clinically validated.**
 >
 > Coheara is a working application with production-grade encryption, structured data extraction, and a mobile companion. However, it has **not** been tested with real patient populations, validated for clinical decision-making, or reviewed for regulatory compliance. APIs, data models, and storage formats may change between versions without migration support.
 >
-> The AI extracts structured health data from your documents, but extractions may be incomplete or incorrect. Coheara does not diagnose, prescribe, or replace professional medical judgment — it helps you understand your records and prepare better questions for your doctor. You are responsible for verifying any information it surfaces.
+> The AI extracts structured health data from your documents, but extractions may be incomplete or incorrect. Coheara does not diagnose, prescribe, or replace professional medical judgment. It helps you understand your records and prepare better questions for your doctor. You are responsible for verifying any information it surfaces.
 >
-> **Powered by [MedGemma](https://ai.google.dev/gemma/docs/medgemma)** — Google's open-weight medical SLM, running locally via [Ollama](https://ollama.com). MedGemma is the core engine: it reads documents, extracts structured health data, and answers questions. Without it, Coheara cannot function. MedGemma is licensed separately under Google's [Health AI Developer Foundations (HAI-DEF) Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms) — by downloading the model you accept those terms. See [License](#license) for details.
+> **Powered by [MedGemma](https://ai.google.dev/gemma/docs/medgemma)**, Google's open-weight medical SLM, running locally via [Ollama](https://ollama.com). MedGemma is the core engine: it reads documents, extracts structured health data, and answers questions. Without it, Coheara cannot function. MedGemma is licensed separately under Google's [Health AI Developer Foundations (HAI-DEF) Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms). By downloading the model you accept those terms. See [License](#license) for details.
 >
-> **Custom model builds** — Coheara builds its own MedGemma variants directly from [Google's official safetensors](https://huggingface.co/google/medgemma-1.5-4b-it), not from community-converted GGUFs which can break vision capabilities ([ollama/ollama#9967](https://github.com/ollama/ollama/issues/9967)). This guarantees working text + vision in a single model, with full supply chain traceability from Google's source to your machine. Four variants are available, built and benchmarked for Coheara's extraction workload:
+> **Custom model builds.** Coheara builds its own MedGemma variants directly from [Google's official safetensors](https://huggingface.co/google/medgemma-1.5-4b-it), not from community-converted GGUFs which can break vision capabilities ([ollama/ollama#9967](https://github.com/ollama/ollama/issues/9967)). This guarantees working text + vision in a single model, with full supply chain traceability from Google's source to your machine. Four variants are available, built and benchmarked for Coheara's extraction workload:
 >
 > | Variant | Size | Hardware | Install |
 > |---------|------|----------|---------|
@@ -28,7 +28,7 @@
 >
 > Or build from source: `./setup-medgemma.sh`. See [`coheara-medgemma/`](coheara-medgemma/) for benchmarks and details.
 >
-> Contributions, feedback, and testing are welcome — see [Getting Started](#getting-started).
+> Contributions, feedback, and testing are welcome. See [Getting Started](#getting-started).
 
 ---
 
@@ -74,21 +74,21 @@ Your professionals bring clinical judgment. You bring understanding and the righ
 
 Leila is 29, healthy, and assumes she has no need for a medical tool. Her records tell a different story: lab results in three email inboxes, a vaccination booklet she last saw during a move, and an allergist's letter she photographed but never filed. When a new doctor asks her medical history, she guesses.
 
-If that sounds familiar, Coheara is for you. Import your documents — PDFs, photos, scans — and let the AI organize what you never had time to. Take a photo of a prescription and ask *"what does this mean?"* Pull up your full medication list on your phone at the pharmacy instead of trying to remember drug names. Simple by default, detailed on demand.
+If that sounds familiar, Coheara is for you. Import your documents (PDFs, photos, scans) and let the AI organize what you never had time to. Take a photo of a prescription and ask *"what does this mean?"* Pull up your full medication list on your phone at the pharmacy instead of trying to remember drug names. Simple by default, detailed on demand.
 
 ### Caring for someone else
 
 Thomas drives his mother Jeanne to four specialists. Each knows their own prescriptions; none sees the full picture. After a fall, the ER doctor asks what medications Jeanne takes. Thomas scrolls through photos, reads handwriting aloud, and misses the interaction between a cardiologist's blood thinner and a rheumatologist's anti-inflammatory. 80% of adverse events in care transitions involve exactly this kind of information gap.
 
-Coheara lets you manage another person's documents in a separate encrypted profile. It detects conflicts across providers, generates appointment summaries, and puts the complete picture on your phone. When you are in the room with the person you care for, you carry their alerts, medication history, and what changed since the last visit — not scattered photos and half-remembered drug names.
+Coheara lets you manage another person's documents in a separate encrypted profile. It detects conflicts across providers, generates appointment summaries, and puts the complete picture on your phone. When you are in the room with the person you care for, you carry their alerts, medication history, and what changed since the last visit, not scattered photos and half-remembered drug names.
 
 ### Families and shared access
 
-Clara and Mehdi raise two children. Pediatric visits, allergy tests, vaccination schedules — split across two parents, two phones, and a drawer of paper. Neither has the full timeline. With multi-profile access, both parents see the same structured data for each child, synchronized over local WiFi. No shared cloud account. No forwarded PDFs. One source of truth per family member, each in its own encrypted vault.
+Clara and Mehdi raise two children. Pediatric visits, allergy tests, vaccination schedules, all split across two parents, two phones, and a drawer of paper. Neither has the full timeline. With multi-profile access, both parents see the same structured data for each child, synchronized over local WiFi. No shared cloud account. No forwarded PDFs. One source of truth per family member, each in its own encrypted vault.
 
 ### Privacy without compromise
 
-Coheara runs offline, encrypts each profile with AES-256-GCM, stores nothing in the cloud, makes zero network calls, and collects zero telemetry. Every privacy claim is architecturally enforced and verifiable: no accounts, no tracking, no phone-home. The phone syncs over local WiFi only, locks behind biometrics, and if you revoke the pairing, all cached data is erased. It works the same in Paris, Dakar, and rural Ontario — 8 GB of RAM, no GPU, no internet, three languages.
+Coheara runs offline, encrypts each profile with AES-256-GCM, stores nothing in the cloud, makes zero network calls, and collects zero telemetry. Every privacy claim is architecturally enforced and verifiable: no accounts, no tracking, no phone-home. The phone syncs over local WiFi only, locks behind biometrics, and if you revoke the pairing, all cached data is erased. It works the same in Paris, Dakar, and rural Ontario: 8 GB of RAM, no GPU, no internet, three languages.
 
 The desktop is where you prepare. The phone is where you show up informed.
 
@@ -133,6 +133,83 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 - **Install from desktop**: serve the phone companion directly over WiFi (QR code, APK or PWA, no app store)
 - **Configure AI models**: tag models with capabilities (vision, medical, PDF, text), enable/disable per model
 - **Back up everything**: encrypted backup files with cryptographic erasure
+
+---
+
+## How the AI Stays Grounded
+
+In medicine, some facts are always true regardless of who the patient is, which country they live in, or which doctor they see. Blood pressure above 140/90 mmHg is hypertension, whether in Paris, Berlin, or Nairobi. Warfarin combined with aspirin raises bleeding risk, no matter who prescribed them. A penicillin allergy means amoxicillin is dangerous, however the allergy was documented. These universal clinical truths are called **medical invariants**. They come from published international guidelines, they don't require judgment, and they are computable: a simple lookup gives the right answer every time.
+
+A 4-billion parameter language model cannot reliably perform these lookups. It hallucinates thresholds, misses drug interactions, invents monitoring intervals. Coheara solves this by encoding invariants as structured, deterministic rules curated from guidelines like ISH, WHO, KDIGO, and ESC, so the AI never has to guess.
+
+```
+WITHOUT invariants                        WITH invariants
+
+  Patient asks question                     Patient asks question
+        │                                         │
+        ▼                                         ▼
+  Retrieve documents                        Retrieve documents
+        │                                         │
+        ▼                                         ▼
+  Throw at SLM                              ENRICH with invariants
+  "Hope it's correct"                       (deterministic, no LLM)
+                                                  │
+                                                  ▼
+                                            Pre-computed insights
+                                            with guideline sources
+                                                  │
+                                                  ▼
+                                            SLM articulates what
+                                            invariants determined
+```
+
+The SLM's job becomes communication, not classification. It explains what the invariant engine has already determined, with full traceability to the source guideline.
+
+### What invariants catch
+
+**Lab classification.** Your HbA1c is 7.2%. The SLM doesn't guess what that means. The invariant engine classifies it as *Diabetes* (IDF 2025, threshold >= 6.5%) and tells the model:
+
+> `[CRITICAL] HbA1c 7.2%: Diabetes (source: IDF 2025)`
+
+**Drug interactions.** You take Warfarin and Ibuprofen. The engine detects Ibuprofen belongs to the NSAID family, matches the Warfarin + NSAID interaction pair, and injects:
+
+> `[CRITICAL] Warfarin + Ibuprofen: HIGH bleeding risk (source: WHO EML)`
+
+**Missed monitoring.** You're on Metformin but your last HbA1c was 120 days ago. The monitoring schedule requires one every 90 days:
+
+> `[WARNING] Metformin: HbA1c overdue (last: 2025-11-01, interval: 90 days) (source: ADA/KDIGO 2022)`
+
+**Allergy contraindication.** You're allergic to Penicillin and were prescribed Amoxicillin. Both belong to the same drug family:
+
+> `[CRITICAL] Penicillin allergy → Amoxicillin (same Penicillin family) (source: WHO EML)`
+
+### Personalized by your profile
+
+The age, biological sex, and ethnicity you provide during onboarding directly control which thresholds are applied:
+
+- A **male** patient with Hemoglobin 12.5 g/dL gets *"Mild anemia"* (male threshold: 13.0 g/dL, WHO 2024). A female with the same value gets *"Normal"* (female threshold: 12.0 g/dL).
+- A **South Asian** patient with BMI 24 gets *"Overweight"* (Asian threshold: 23.0, WHO 2004). A European with the same BMI gets *"Normal"* (standard threshold: 25.0).
+- A **52-year-old female** is reminded about mammography screening (IARC/WHO 2024, age 50-74). A 52-year-old male gets prostate screening reminders instead (EAU 2024, age 50-70).
+
+Without these demographics, conservative defaults apply. The system never fails, it only gets more precise with more information.
+
+### By the numbers
+
+| Category | Coverage |
+|----------|----------|
+| Vital sign types | 6 (BP, HR, SpO2, BMI, Glucose, Temperature) |
+| Lab tests | 10 (eGFR, HbA1c, LDL, K+, Na+, ALT, Hemoglobin, TSH, uACR, Vitamin D) |
+| Multilingual aliases | 88 (EN/FR/DE lab name matching) |
+| Drug families | 20 families, 125+ member drugs |
+| Drug interactions | 17 clinically significant pairs |
+| Cross-reactivity chains | 10 allergen families |
+| Monitoring schedules | 24 drug-to-lab rules |
+| Screening schedules | 6 age+sex-gated (mammography, cervical, prostate, colorectal, AAA, osteoporosis) |
+| Unit tests | 200+ (deterministic, no external dependencies) |
+
+Every threshold traces to a published guideline (ISH, ESC, WHO, KDIGO, IDF, EAACI, and [25 more](INVARIANTS.md#source-guideline-index)). Nothing is invented. Nothing is approximated.
+
+For the complete reference (every threshold, every interaction pair, every alias, every source), see **[INVARIANTS.md](INVARIANTS.md)**.
 
 ---
 
@@ -190,7 +267,7 @@ The desktop is the brain. The phone is the window. Install the companion by scan
 | macOS | `xcode-select --install` |
 | Linux | `sudo apt-get install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` |
 
-**MedGemma via Ollama** (required — Coheara's core AI engine):
+**MedGemma via Ollama** (required, Coheara's core AI engine):
 
 ```bash
 # Install Ollama: https://ollama.com/download
@@ -290,7 +367,7 @@ For most users, the direct install via QR code from the desktop is the simplest 
 # 1. Bump version in: tauri.conf.json, Cargo.toml, package.json, mobile/package.json
 # 2. Commit and tag
 git commit -am "Bump version to vX.Y.Z"
-git tag -a vX.Y.Z -m "vX.Y.Z — Release title"
+git tag -a vX.Y.Z -m "vX.Y.Z: Release title"
 git push origin main --tags
 ```
 
@@ -473,9 +550,7 @@ The phone caches a read-only snapshot of the active profile. Revoking the device
 
 ## License
 
-### Coheara Application — Apache 2.0
-
-Copyright 2025-2026 Antigravity
+### Coheara Application: Apache 2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -489,7 +564,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-### MedGemma — Health AI Developer Foundations Terms of Use
+### MedGemma: Health AI Developer Foundations Terms of Use
 
 Coheara's AI features are powered by [MedGemma](https://ai.google.dev/gemma/docs/medgemma), a health AI model created by Google. MedGemma is **not included in this repository**. It is licensed separately under Google's [Health AI Developer Foundations (HAI-DEF) Terms of Use](https://developers.google.com/health-ai-developer-foundations/terms), which is distinct from this project's Apache 2.0 license.
 
@@ -505,6 +580,6 @@ When you run `ollama pull ktiyab/coheara-medgemma-4b-q8`, you download model wei
 
 **What this means for developers forking Coheara:**
 
-Coheara's source code is Apache 2.0 — fork it, modify it, use it commercially. The HAI-DEF license applies only to the MedGemma model weights, which are downloaded separately by end users. If you redistribute MedGemma weights bundled with your application, you must comply with HAI-DEF Section 3.1 (include notice file, pass through usage restrictions, provide a copy of the HAI-DEF agreement).
+Coheara's source code is Apache 2.0: fork it, modify it, use it commercially. The HAI-DEF license applies only to the MedGemma model weights, which are downloaded separately by end users. If you redistribute MedGemma weights bundled with your application, you must comply with HAI-DEF Section 3.1 (include notice file, pass through usage restrictions, provide a copy of the HAI-DEF agreement).
 
 For the full HAI-DEF terms, see: https://developers.google.com/health-ai-developer-foundations/terms
