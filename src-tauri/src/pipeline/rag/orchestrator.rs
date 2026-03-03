@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 
 use super::citation::{
-    calculate_confidence, clean_citations_for_display, extract_citations, parse_boundary_check,
-    validate_citations,
+    calculate_confidence, clean_citations_for_display, extract_citations,
+    extract_guideline_citations, parse_boundary_check, validate_citations,
 };
 use super::classify::{classify_query, retrieval_strategy};
 use super::context::assemble_context;
@@ -13,6 +13,8 @@ use super::types::{
     AssembledContext, ContextSummary, PatientQuery, RagResponse, VectorSearch,
 };
 use super::RagError;
+use crate::crypto::profile::PatientDemographics;
+use crate::invariants::InvariantRegistry;
 use crate::pipeline::safety::output_sanitize::sanitize_llm_output;
 use crate::pipeline::safety::sanitize::sanitize_patient_input;
 use crate::pipeline::storage::types::EmbeddingModel;
@@ -39,14 +41,21 @@ pub trait LlmGenerate {
 
 /// Full RAG pipeline orchestrator.
 ///
-/// Coordinates: classify → retrieve → assemble → generate → cite → persist.
+/// Coordinates: classify → retrieve → enrich → assemble → generate → cite → persist.
+/// ME-03: Enrichment stage pairs user data with invariant registry to produce
+/// deterministic clinical insights before context assembly.
+/// ME-04: Demographics enable sex/ethnicity-aware enrichment.
 pub struct DocumentRagPipeline<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> {
     generator: &'a G,
     embedder: &'a E,
     vector_store: &'a V,
     conn: &'a Connection,
+    /// ME-03: Invariant reference data for clinical enrichment.
+    registry: &'a InvariantRegistry,
     /// I18N-19: Language for system prompt and no-context response.
     lang: String,
+    /// ME-04: Patient demographics for personalized enrichment.
+    demographics: Option<PatientDemographics>,
 }
 
 impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline<'a, G, E, V> {
@@ -55,13 +64,16 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         embedder: &'a E,
         vector_store: &'a V,
         conn: &'a Connection,
+        registry: &'a InvariantRegistry,
     ) -> Self {
         Self {
             generator,
             embedder,
             vector_store,
             conn,
+            registry,
             lang: "en".to_string(),
+            demographics: None,
         }
     }
 
@@ -71,6 +83,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         embedder: &'a E,
         vector_store: &'a V,
         conn: &'a Connection,
+        registry: &'a InvariantRegistry,
         lang: &str,
     ) -> Self {
         Self {
@@ -78,8 +91,16 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             embedder,
             vector_store,
             conn,
+            registry,
             lang: lang.to_string(),
+            demographics: None,
         }
+    }
+
+    /// ME-04: Set patient demographics for personalized enrichment.
+    pub fn with_demographics(mut self, demographics: Option<PatientDemographics>) -> Self {
+        self.demographics = demographics;
+        self
     }
 
     /// Execute the full RAG pipeline for a patient query.
@@ -140,14 +161,28 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             || !retrieved.structured_data.diagnoses.is_empty()
             || !retrieved.structured_data.allergies.is_empty()
             || !retrieved.structured_data.lab_results.is_empty()
-            || !retrieved.structured_data.symptoms.is_empty();
+            || !retrieved.structured_data.symptoms.is_empty()
+            || !retrieved.structured_data.vital_signs.is_empty();
 
         if !has_semantic && !has_structured {
             return Ok(self.no_context_result(query_type));
         }
 
+        // Step 4.5: Enrich with clinical insights (ME-03)
+        // Pure, deterministic — no LLM, no async. Pairs user data with invariant registry.
+        // ME-04: demographics threaded for sex-aware hemoglobin and ethnicity-aware BMI.
+        let insights = crate::invariants::enrich::enrich(
+            &retrieved.structured_data.medications,
+            &retrieved.structured_data.lab_results,
+            &retrieved.structured_data.allergies,
+            &retrieved.structured_data.vital_signs,
+            self.registry,
+            chrono::Local::now().date_naive(),
+            self.demographics.as_ref(),
+        );
+
         // Step 5: Assemble context within token budget
-        let assembled = assemble_context(&retrieved, &query_type);
+        let assembled = assemble_context(&retrieved, &query_type, &insights);
 
         if assembled.text.is_empty() {
             return Ok(self.no_context_result(query_type));
@@ -209,10 +244,13 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
 
         // Step 13: Build response
         let context_used = build_context_summary(&assembled, &retrieved.structured_data);
+        // ME-03: Extract guideline citations from clinical insights
+        let guideline_citations = extract_guideline_citations(&insights);
 
         Ok(RagResponse {
             text: display_text,
             citations,
+            guideline_citations,
             confidence,
             query_type,
             context_used,
@@ -251,13 +289,25 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             || !retrieved.structured_data.diagnoses.is_empty()
             || !retrieved.structured_data.allergies.is_empty()
             || !retrieved.structured_data.lab_results.is_empty()
-            || !retrieved.structured_data.symptoms.is_empty();
+            || !retrieved.structured_data.symptoms.is_empty()
+            || !retrieved.structured_data.vital_signs.is_empty();
 
         if !has_semantic && !has_structured {
             return Ok(self.no_context_result(query_type));
         }
 
-        let assembled = assemble_context(&retrieved, &query_type);
+        // Step 4.5: Enrich with clinical insights (ME-03)
+        let insights = crate::invariants::enrich::enrich(
+            &retrieved.structured_data.medications,
+            &retrieved.structured_data.lab_results,
+            &retrieved.structured_data.allergies,
+            &retrieved.structured_data.vital_signs,
+            self.registry,
+            chrono::Local::now().date_naive(),
+            self.demographics.as_ref(),
+        );
+
+        let assembled = assemble_context(&retrieved, &query_type, &insights);
 
         if assembled.text.is_empty() {
             return Ok(self.no_context_result(query_type));
@@ -306,10 +356,12 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         };
 
         let context_used = build_context_summary(&assembled, &retrieved.structured_data);
+        let guideline_citations = extract_guideline_citations(&insights);
 
         Ok(RagResponse {
             text: display_text,
             citations,
+            guideline_citations,
             confidence,
             query_type,
             context_used,
@@ -321,6 +373,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         RagResponse {
             text: no_context_response_i18n(&self.lang),
             citations: vec![],
+            guideline_citations: vec![],
             confidence: 0.0,
             query_type,
             context_used: ContextSummary {
@@ -342,7 +395,8 @@ fn build_context_summary(
         + structured.diagnoses.len()
         + structured.allergies.len()
         + structured.lab_results.len()
-        + structured.symptoms.len();
+        + structured.symptoms.len()
+        + structured.vital_signs.len();
 
     ContextSummary {
         semantic_chunks_used: assembled.chunks_included.len(),
@@ -355,6 +409,7 @@ fn build_context_summary(
 mod tests {
     use super::*;
     use crate::db::sqlite::open_memory_database;
+    use crate::invariants::InvariantRegistry;
     use crate::pipeline::rag::retrieval::InMemoryVectorSearch;
     use crate::pipeline::rag::types::{BoundaryCheck, PatientQuery};
     use crate::pipeline::storage::StorageError;
@@ -418,7 +473,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = make_query(conv_id, "What dose of metformin?");
 
         let result = pipeline.query(&query).unwrap();
@@ -451,7 +507,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = make_query(conv_id, "What dose of metformin?");
 
         let result = pipeline.query(&query).unwrap();
@@ -481,7 +538,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = make_query(conv_id, "Should I stop taking my medication?");
 
         let result = pipeline.query(&query).unwrap();
@@ -509,7 +567,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = make_query(conv_id, "What medications am I on?");
 
         pipeline.query(&query).unwrap();
@@ -542,7 +601,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = PatientQuery {
             text: "Tell me about my medications".to_string(),
             conversation_id: conv_id,
@@ -632,7 +692,8 @@ mod tests {
         let conv_mgr = ConversationManager::new(&conn);
         let conv_id = conv_mgr.start(Some("Test")).unwrap();
 
-        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn);
+        let registry = InvariantRegistry::empty();
+        let pipeline = DocumentRagPipeline::new(&llm, &embedder, &vector_store, &conn, &registry);
         let query = make_query(conv_id, "What is my metformin dose?");
 
         let result = pipeline.query(&query).unwrap();

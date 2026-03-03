@@ -10,6 +10,9 @@ set -euo pipefail
 #   ./dev.sh check        # Type-check everything (Svelte + Rust)
 #   ./dev.sh test         # Run all tests (frontend + backend)
 #   ./dev.sh test:watch   # Watch mode for frontend tests
+#   ./dev.sh e2e          # Run E2E visual test suite (headless)
+#   ./dev.sh e2e:screenshot [--screen home|chat|...] # Take screenshot
+#   ./dev.sh e2e:keepalive  # Persistent harness for fast screenshots
 # ──────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -591,6 +594,26 @@ cmd_setup() {
     log_ok "Setup complete. Run: ./dev.sh frontend  (UI dev) or ./dev.sh full (full stack)"
 }
 
+# ── E2E Testing ──────────────────────────────────────────────────────────
+
+cmd_e2e() {
+    log_step "Running E2E test suite"
+    cd "$PROJECT_ROOT/e2e"
+    npx tsx run-suite.ts "$@"
+}
+
+cmd_e2e_screenshot() {
+    log_step "Taking E2E screenshot"
+    cd "$PROJECT_ROOT/e2e"
+    npx tsx screenshot.ts "$@"
+}
+
+cmd_e2e_keepalive() {
+    log_step "Starting persistent E2E harness (Ctrl+C to stop)"
+    cd "$PROJECT_ROOT/e2e"
+    npx tsx keep-alive.ts
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────
 echo -e "${BOLD}Coheara Dev${NC} — $(echo "$COMMAND" | tr '[:lower:]' '[:upper:]') mode"
 if [[ "$REBUILD" == true ]]; then
@@ -604,12 +627,15 @@ if [[ "$REBUILD" == true ]]; then
 fi
 
 case "$COMMAND" in
-    setup)      cmd_setup ;;
-    full)       cmd_full ;;
-    frontend)   cmd_frontend ;;
-    check)      cmd_check ;;
-    test)       cmd_test ;;
-    test:watch) cmd_test_watch ;;
+    setup)          cmd_setup ;;
+    full)           cmd_full ;;
+    frontend)       cmd_frontend ;;
+    check)          cmd_check ;;
+    test)           cmd_test ;;
+    test:watch)     cmd_test_watch ;;
+    e2e)            cmd_e2e ;;
+    e2e:screenshot) cmd_e2e_screenshot ;;
+    e2e:keepalive)  cmd_e2e_keepalive ;;
     help|--help|-h) usage ;;
     *)
         log_error "Unknown command: $COMMAND"

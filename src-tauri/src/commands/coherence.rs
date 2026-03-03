@@ -58,9 +58,14 @@ fn build_snapshot(conn: &rusqlite::Connection) -> Result<RepositorySnapshot, Str
 ///
 /// Tries to load reference data from the bundled resources directory.
 /// Falls back to test data if files are not found (development/CI).
-fn build_engine(conn: &rusqlite::Connection, db_path: &std::path::Path, db_key: Option<[u8; 32]>) -> Result<DefaultCoherenceEngine, String> {
+fn build_engine(
+    conn: &rusqlite::Connection,
+    db_path: &std::path::Path,
+    db_key: Option<[u8; 32]>,
+    invariants: crate::invariants::InvariantRegistry,
+) -> Result<DefaultCoherenceEngine, String> {
     let reference = load_reference_data();
-    DefaultCoherenceEngine::with_db(reference, conn, db_path, db_key).map_err(|e| e.to_string())
+    DefaultCoherenceEngine::with_db(reference, invariants, conn, db_path, db_key).map_err(|e| e.to_string())
 }
 
 /// Load reference data, falling back to test data if files unavailable.
@@ -106,7 +111,7 @@ pub fn run_coherence_scan(
     let db_key = state.db_key().ok();
 
     let snapshot = build_snapshot(&conn)?;
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
 
     let result = engine.analyze_full(&snapshot).map_err(|e| e.to_string())?;
 
@@ -138,7 +143,7 @@ pub fn run_coherence_scan_document(
     let db_key = state.db_key().ok();
 
     let snapshot = build_snapshot(&conn)?;
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
 
     let result = engine
         .analyze_new_document(&doc_id, &snapshot)
@@ -168,7 +173,7 @@ pub fn get_coherence_alerts(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
 
     let filter = alert_type
         .as_deref()
@@ -200,7 +205,7 @@ pub fn dismiss_coherence_alert(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
     engine
         .dismiss_alert(&id, &reason, DismissedBy::Patient)
         .map_err(|e| e.to_string())?;
@@ -227,7 +232,7 @@ pub fn dismiss_critical_coherence_alert(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
     engine
         .dismiss_critical_alert(&id, &reason, two_step_confirmed)
         .map_err(|e| e.to_string())?;
@@ -249,7 +254,7 @@ pub fn get_coherence_emergency_actions(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let engine = build_engine(&conn, &db_path, db_key)?;
+    let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
     let critical_alerts = engine.get_critical_alerts().map_err(|e| e.to_string())?;
 
     let actions = EmergencyProtocol::process_critical_alerts(&critical_alerts);
@@ -375,10 +380,12 @@ mod tests {
 
     #[test]
     fn build_engine_on_memory_db() {
+        use crate::invariants::InvariantRegistry;
         let conn = open_memory_database().unwrap();
         // Memory DB doesn't have a meaningful path, but engine should still construct
         let result = DefaultCoherenceEngine::with_db(
             CoherenceReferenceData::load_test(),
+            InvariantRegistry::empty(),
             &conn,
             std::path::Path::new(":memory:"),
             None,
@@ -388,9 +395,11 @@ mod tests {
 
     #[test]
     fn full_scan_on_empty_db() {
+        use crate::invariants::InvariantRegistry;
         let conn = open_memory_database().unwrap();
         let engine = DefaultCoherenceEngine::with_db(
             CoherenceReferenceData::load_test(),
+            InvariantRegistry::empty(),
             &conn,
             std::path::Path::new(":memory:"),
             None,

@@ -26,9 +26,16 @@ export interface CitationView {
   relevance_score: number;
 }
 
+/** ME-03: Guideline citation from clinical insights (deterministic, not LLM-generated). */
+export interface GuidelineCitationView {
+  source: string;
+  insight_count: number;
+}
+
 export type StreamChunkPayload =
   | { type: 'Token'; text: string }
   | { type: 'Citation'; citation: CitationView }
+  | { type: 'GuidelineCitations'; citations: GuidelineCitationView[] }
   | { type: 'Done'; full_text: string; confidence: number; boundary_check: string }
   | { type: 'Error'; message: string };
 
@@ -42,4 +49,35 @@ export interface PromptSuggestion {
   params: Record<string, string>;
   category: string;
   intent: 'query' | 'expression';
+}
+
+// CHAT-QUEUE-01: Deferred chat queue types
+
+export type ChatQueueState = 'Queued' | 'Acquiring' | 'Streaming' | 'Complete' | 'Failed';
+
+export interface ChatQueueItem {
+  id: string;
+  conversation_id: string;
+  patient_message_id: string;
+  text: string;
+  state: ChatQueueState;
+  queue_position: number;
+  error: string | null;
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ChatQueueEvent {
+  queue_item_id: string;
+  conversation_id: string;
+  patient_message_id: string;
+  state: ChatQueueState;
+  queue_position: number;
+  error: string | null;
+}
+
+export interface ChatQueueSnapshot {
+  items: ChatQueueItem[];
+  is_processing: boolean;
 }

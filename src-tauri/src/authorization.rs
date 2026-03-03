@@ -265,6 +265,8 @@ mod tests {
                 color_index: Some(0),
                 country: None,
                 address: None,
+                sex: None,
+                ethnicities: Vec::new(),
             },
             ProfileInfo {
                 id: bob_id,
@@ -280,6 +282,8 @@ mod tests {
                 color_index: Some(1),
                 country: None,
                 address: None,
+                sex: None,
+                ethnicities: Vec::new(),
             },
             ProfileInfo {
                 id: child_id,
@@ -295,6 +299,8 @@ mod tests {
                 color_index: Some(2),
                 country: None,
                 address: None,
+                sex: None,
+                ethnicities: Vec::new(),
             },
         ]
     }

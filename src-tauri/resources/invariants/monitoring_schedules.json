@@ -1,0 +1,170 @@
+[
+  {
+    "drug": "metformin",
+    "lab_test": "hba1c",
+    "interval_days": 90,
+    "context": "Quarterly when not at glycemic target",
+    "source": "ADA/KDIGO 2022"
+  },
+  {
+    "drug": "metformin",
+    "lab_test": "egfr",
+    "interval_days": 365,
+    "context": "Annually; every 90-180 days if eGFR 30-60. Contraindicated if eGFR <30",
+    "source": "KDIGO 2024"
+  },
+  {
+    "drug": "warfarin",
+    "lab_test": "inr",
+    "interval_days": 30,
+    "context": "Monthly when stable; weekly during initiation. Target INR 2.0-3.0",
+    "source": "ESC 2024, ISTH"
+  },
+  {
+    "drug": "statin",
+    "lab_test": "alt",
+    "interval_days": 365,
+    "context": "Baseline + repeat if symptoms. Discontinue if ALT >3x ULN",
+    "source": "ESC/EAS 2019"
+  },
+  {
+    "drug": "statin",
+    "lab_test": "ldl_cholesterol",
+    "interval_days": 365,
+    "context": "4-12 weeks after start, then annually",
+    "source": "ESC/EAS 2019"
+  },
+  {
+    "drug": "ace_inhibitor",
+    "lab_test": "potassium",
+    "interval_days": 90,
+    "context": "7-14 days after start/change, then every 3-6 months. Alert if K >5.5",
+    "source": "KDIGO 2024"
+  },
+  {
+    "drug": "ace_inhibitor",
+    "lab_test": "egfr",
+    "interval_days": 90,
+    "context": "7-14 days after start/change, then every 3-6 months. Investigate if creatinine rise >30%",
+    "source": "KDIGO 2024"
+  },
+  {
+    "drug": "arb",
+    "lab_test": "potassium",
+    "interval_days": 90,
+    "context": "Same monitoring as ACE inhibitors. Alert if K >5.5",
+    "source": "KDIGO 2024"
+  },
+  {
+    "drug": "arb",
+    "lab_test": "egfr",
+    "interval_days": 90,
+    "context": "Same monitoring as ACE inhibitors",
+    "source": "KDIGO 2024"
+  },
+  {
+    "drug": "lithium",
+    "lab_test": "egfr",
+    "interval_days": 180,
+    "context": "Every 6 months. Narrow therapeutic index 0.6-1.2 mEq/L",
+    "source": "WHO EML, NICE"
+  },
+  {
+    "drug": "lithium",
+    "lab_test": "tsh",
+    "interval_days": 180,
+    "context": "Every 6 months — thyroid dysfunction in significant proportion of patients",
+    "source": "WHO EML, NICE"
+  },
+  {
+    "drug": "amiodarone",
+    "lab_test": "tsh",
+    "interval_days": 180,
+    "context": "Every 6 months — thyroid dysfunction in 4-30% of patients. Half-life ~40-55 days",
+    "source": "ESC, EMA"
+  },
+  {
+    "drug": "amiodarone",
+    "lab_test": "alt",
+    "interval_days": 180,
+    "context": "Every 6 months — hepatotoxicity monitoring",
+    "source": "ESC, EMA"
+  },
+  {
+    "drug": "levothyroxine",
+    "lab_test": "tsh",
+    "interval_days": 365,
+    "context": "4-8 weeks after dose change; annually when stable",
+    "source": "ETA, WHO EML"
+  },
+  {
+    "drug": "doac",
+    "lab_test": "egfr",
+    "interval_days": 180,
+    "context": "Every 6-12 months (EHRA rule: CrCl/10 = months). Dabigatran contraindicated if CrCl <30",
+    "source": "EHRA 2021, ESC 2024"
+  },
+  {
+    "drug": "doac",
+    "lab_test": "hemoglobin",
+    "interval_days": 365,
+    "context": "Annual CBC — monitor for occult bleeding",
+    "source": "EHRA 2021"
+  },
+  {
+    "drug": "gliclazide",
+    "lab_test": "hba1c",
+    "interval_days": 90,
+    "context": "Quarterly — hypoglycemia monitoring. Alert if glucose <3.9 mmol/L",
+    "source": "WHO EML, KDIGO"
+  },
+  {
+    "drug": "glimepiride",
+    "lab_test": "hba1c",
+    "interval_days": 90,
+    "context": "Quarterly — hypoglycemia monitoring",
+    "source": "WHO EML, KDIGO"
+  },
+  {
+    "drug": "valproate",
+    "lab_test": "alt",
+    "interval_days": 180,
+    "context": "Every 6 months, especially first 6 months. Discontinue if ALT >3x ULN",
+    "source": "ILAE, WHO EML"
+  },
+  {
+    "drug": "digoxin",
+    "lab_test": "potassium",
+    "interval_days": 180,
+    "context": "Every 6-12 months. Hypokalemia potentiates digoxin toxicity",
+    "source": "WHO EML, ESC"
+  },
+  {
+    "drug": "digoxin",
+    "lab_test": "egfr",
+    "interval_days": 180,
+    "context": "Every 6-12 months — renal function affects digoxin clearance",
+    "source": "WHO EML, ESC"
+  },
+  {
+    "drug": "nsaid",
+    "lab_test": "egfr",
+    "interval_days": 180,
+    "context": "Periodic, especially in elderly or CKD. Discontinue if eGFR declines",
+    "source": "STOPP/START v3, WHO EML"
+  },
+  {
+    "drug": "ssri",
+    "lab_test": "sodium",
+    "interval_days": 180,
+    "context": "Baseline + periodic in elderly — hyponatremia risk. Alert if Na <130",
+    "source": "STOPP/START v3, EMA"
+  },
+  {
+    "drug": "k_sparing_diuretic",
+    "lab_test": "potassium",
+    "interval_days": 90,
+    "context": "Every 3-6 months — hyperkalemia risk. Alert if K >5.5",
+    "source": "KDIGO, STOPP/START v3"
+  }
+]

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ProfileInfo, ProfileCreateResult } from '$lib/types/profile';
+import type { ProfileInfo, ProfileCreateResult, BiologicalSex, EthnicityGroup } from '$lib/types/profile';
 
 export async function listProfiles(): Promise<ProfileInfo[]> {
   return invoke<ProfileInfo[]>('list_profiles');
@@ -113,6 +113,15 @@ export interface ButlerStatus {
 /** BTL-08: Query the Butler Service status (model state, warm endpoints, hardware). */
 export async function getButlerStatus(): Promise<ButlerStatus> {
   return invoke<ButlerStatus>('get_butler_status');
+}
+
+/** ME-04: Update demographics (sex, ethnicities) on an existing profile. */
+export async function updateProfileDemographics(
+  profileId: string,
+  sex: BiologicalSex | null,
+  ethnicities: EthnicityGroup[],
+): Promise<ProfileInfo> {
+  return invoke<ProfileInfo>('update_profile_demographics', { profileId, sex, ethnicities });
 }
 
 export async function deleteProfile(profileId: string): Promise<void> {

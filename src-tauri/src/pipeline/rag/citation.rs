@@ -2,7 +2,8 @@ use regex::Regex;
 use rusqlite::Connection;
 use uuid::Uuid;
 
-use super::types::{BoundaryCheck, Citation, ScoredChunk};
+use super::types::{BoundaryCheck, Citation, GuidelineCitation, ScoredChunk};
+use crate::invariants::types::ClinicalInsight;
 use crate::db::repository::get_document;
 
 /// Extract citations from MedGemma's response and match to source chunks.
@@ -148,6 +149,28 @@ pub fn calculate_confidence(
     confidence += (semantic_chunks_used as f32 * 0.06).min(0.3);
 
     confidence.min(1.0)
+}
+
+/// ME-03: Extract unique guideline citations from clinical insights.
+///
+/// Groups insights by source, counts how many reference each guideline,
+/// and returns deduplicated citations sorted by count (most-cited first).
+pub fn extract_guideline_citations(insights: &[ClinicalInsight]) -> Vec<GuidelineCitation> {
+    let mut source_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for insight in insights {
+        *source_counts.entry(&insight.source).or_insert(0) += 1;
+    }
+
+    let mut citations: Vec<GuidelineCitation> = source_counts
+        .into_iter()
+        .map(|(source, count)| GuidelineCitation {
+            source: source.to_string(),
+            insight_count: count,
+        })
+        .collect();
+
+    citations.sort_by(|a, b| b.insight_count.cmp(&a.insight_count));
+    citations
 }
 
 #[cfg(test)]
@@ -331,5 +354,76 @@ mod tests {
 
         let validated = validate_citations(&conn, citations);
         assert!(validated.is_empty());
+    }
+
+    // --- ME-03: Guideline citations ---
+
+    #[test]
+    fn guideline_citations_from_empty_insights() {
+        let citations = extract_guideline_citations(&[]);
+        assert!(citations.is_empty());
+    }
+
+    #[test]
+    fn guideline_citations_deduplicates_sources() {
+        use crate::invariants::types::*;
+
+        let insights = vec![
+            ClinicalInsight {
+                kind: InsightKind::Classification,
+                severity: InsightSeverity::Warning,
+                summary_key: "bp_grade_1".into(),
+                description: InvariantLabel { key: "bp", en: "Grade 1 HTN", fr: "HTA1", de: "HTN1" },
+                source: "ISH 2020".into(),
+                related_entities: vec![],
+                meaning_factors: MeaningFactors::default(),
+            },
+            ClinicalInsight {
+                kind: InsightKind::Classification,
+                severity: InsightSeverity::Critical,
+                summary_key: "egfr_g4".into(),
+                description: InvariantLabel { key: "ckd", en: "CKD G4", fr: "MRC G4", de: "CKD G4" },
+                source: "KDIGO 2024".into(),
+                related_entities: vec![],
+                meaning_factors: MeaningFactors::default(),
+            },
+            ClinicalInsight {
+                kind: InsightKind::Classification,
+                severity: InsightSeverity::Warning,
+                summary_key: "hr_brady".into(),
+                description: InvariantLabel { key: "hr", en: "Brady", fr: "Brady", de: "Brady" },
+                source: "ISH 2020".into(), // Duplicate source
+                related_entities: vec![],
+                meaning_factors: MeaningFactors::default(),
+            },
+        ];
+
+        let citations = extract_guideline_citations(&insights);
+        assert_eq!(citations.len(), 2);
+        // ISH 2020 has 2 insights, KDIGO 2024 has 1 — sorted by count descending
+        assert_eq!(citations[0].source, "ISH 2020");
+        assert_eq!(citations[0].insight_count, 2);
+        assert_eq!(citations[1].source, "KDIGO 2024");
+        assert_eq!(citations[1].insight_count, 1);
+    }
+
+    #[test]
+    fn guideline_citations_single_source() {
+        use crate::invariants::types::*;
+
+        let insights = vec![ClinicalInsight {
+            kind: InsightKind::Interaction,
+            severity: InsightSeverity::Critical,
+            summary_key: "warfarin_aspirin".into(),
+            description: InvariantLabel { key: "int", en: "Interaction", fr: "Interaction", de: "Interaktion" },
+            source: "WHO EML".into(),
+            related_entities: vec![],
+            meaning_factors: MeaningFactors::default(),
+        }];
+
+        let citations = extract_guideline_citations(&insights);
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].source, "WHO EML");
+        assert_eq!(citations[0].insight_count, 1);
     }
 }

@@ -19,9 +19,9 @@ use crate::db::sqlite::open_database;
 use crate::pipeline::structuring::types::StructuringResult;
 use crate::review::{
     apply_corrections, count_extracted_fields, detect_file_type, flatten_entities_to_fields,
-    generate_plausibility_warnings, update_document_rejected, update_document_verified,
-    EntitiesStoredSummary, FieldCorrection, ReviewConfirmResult, ReviewData, ReviewOutcome,
-    ReviewRejectResult,
+    generate_plausibility_warnings, remove_excluded_entities, update_document_rejected,
+    update_document_verified, EntitiesStoredSummary, ExcludedEntity, FieldCorrection,
+    ReviewConfirmResult, ReviewData, ReviewOutcome, ReviewRejectResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -245,6 +245,7 @@ pub fn confirm_review(
     app: AppHandle,
     document_id: String,
     corrections: Vec<FieldCorrection>,
+    excluded_entities: Vec<ExcludedEntity>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ReviewConfirmResult, String> {
     let guard = state.read_session().map_err(|e| e.to_string())?;
@@ -268,8 +269,11 @@ pub fn confirm_review(
         &field_map,
     );
 
+    // Step 2b: Remove entities excluded by the patient
+    let entities_removed = remove_excluded_entities(&mut structuring, &excluded_entities);
+
     // Step 3: Determine outcome
-    let outcome = if corrections_applied > 0 {
+    let outcome = if corrections_applied > 0 || entities_removed > 0 {
         ReviewOutcome::Corrected
     } else {
         ReviewOutcome::Confirmed
@@ -355,6 +359,7 @@ pub fn confirm_review(
         document_id = %doc_id,
         outcome = ?outcome,
         corrections = corrections_applied,
+        entities_removed = entities_removed,
         chunks_stored = storage_result.chunks_stored,
         total_fields = total_fields,
         "Review confirmed — storage pipeline complete"

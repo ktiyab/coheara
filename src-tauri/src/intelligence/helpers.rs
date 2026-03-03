@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use uuid::Uuid;
 
+use crate::invariants::InvariantRegistry;
 use crate::models::{Diagnosis, Medication};
 
 use super::reference::CoherenceReferenceData;
@@ -284,6 +285,31 @@ pub fn is_same_drug_family(allergen: &str, ingredient: &str) -> bool {
     false
 }
 
+/// Registry-backed drug family matching with hardcoded fallback.
+///
+/// ME-03: Tries InvariantRegistry first (bundled JSON drug families),
+/// then falls back to the hardcoded family list for drugs not yet in the registry.
+pub fn is_same_drug_family_with_registry(
+    allergen: &str,
+    ingredient: &str,
+    registry: &InvariantRegistry,
+) -> bool {
+    // Registry path: check if both belong to the same drug family
+    if !registry.drug_families().is_empty() {
+        let allergen_family = registry.find_drug_family(allergen);
+        let ingredient_family = registry.find_drug_family(ingredient);
+
+        if let (Some(af), Some(inf)) = (allergen_family, ingredient_family) {
+            if af.key == inf.key {
+                return true;
+            }
+        }
+    }
+
+    // Fallback: hardcoded family list (covers drugs not yet in registry JSON)
+    is_same_drug_family(allergen, ingredient)
+}
+
 /// Check if two entity ID sets refer to the same entities (order-independent).
 pub fn entities_match(a: &[Uuid], b: &[Uuid]) -> bool {
     if a.len() != b.len() {
@@ -424,6 +450,36 @@ mod tests {
     #[test]
     fn drug_family_no_match() {
         assert!(!is_same_drug_family("metformin", "atorvastatin"));
+    }
+
+    // --- ME-03: Registry-backed drug family matching ---
+
+    #[test]
+    fn registry_backed_falls_back_to_hardcoded() {
+        let registry = InvariantRegistry::empty();
+        // Empty registry → hardcoded families still work
+        assert!(is_same_drug_family_with_registry("penicillin", "amoxicillin", &registry));
+        assert!(is_same_drug_family_with_registry("aspirin", "ibuprofen", &registry));
+        assert!(!is_same_drug_family_with_registry("penicillin", "ibuprofen", &registry));
+    }
+
+    #[test]
+    fn registry_backed_finds_additional_families() {
+        // Load real JSON data — registry should have families not in hardcoded list
+        let resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let registry = InvariantRegistry::load(&resources).unwrap_or_else(|_| InvariantRegistry::empty());
+        if registry.drug_families().is_empty() {
+            // Skip if resources not available (CI)
+            return;
+        }
+
+        // ARB family (not in hardcoded list) — losartan and valsartan
+        let losartan_family = registry.find_drug_family("losartan");
+        let valsartan_family = registry.find_drug_family("valsartan");
+        if let (Some(lf), Some(vf)) = (losartan_family, valsartan_family) {
+            assert_eq!(lf.key, vf.key, "Losartan and valsartan should be in the same family");
+            assert!(is_same_drug_family_with_registry("losartan", "valsartan", &registry));
+        }
     }
 
     // --- Entity matching ---

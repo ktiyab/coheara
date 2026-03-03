@@ -13,6 +13,7 @@
     "messages_aria": "Session messages",
     "new_conversation_title": "New session",
     "stream_error_guidance": "Check that Ollama is running, then try sending your message again.",
+    "stream_timeout": "Response timed out. The AI may be processing a complex request — try again.",
     "conversation_start_error": "Could not start a session. Please try again.",
     "avatar_initial": "C",
     "streaming_searching": "Searching your documents...",
@@ -65,6 +66,12 @@
     "default_ask_changes": "What changed since my last appointment?",
     "prefill_symptom": "I've been feeling...",
     "prefill_medication": "About my medication...",
-    "prefill_appointment": "I have an appointment..."
+    "prefill_appointment": "I have an appointment...",
+    "queue_waiting": "Waiting for AI...",
+    "queue_acquiring": "Connecting to AI...",
+    "queue_pending": "{count, plural, one {# question pending} other {# questions pending}}",
+    "queue_position": "Position {position}",
+    "queue_unanswered": "Your question wasn't answered.",
+    "queue_unanswered_retry": "Retry"
   }
 }

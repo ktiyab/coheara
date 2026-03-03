@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { getReviewData, getOriginalFile } from '$lib/api/review';
-  import type { ReviewData, FieldCorrection, EntitiesStoredSummary } from '$lib/types/review';
+  import type { ReviewData, FieldCorrection, ExcludedEntity, EntitiesStoredSummary } from '$lib/types/review';
   import { groupFieldsIntoEntities, SECTIONS_BY_DOC_TYPE } from '$lib/types/review';
   import OriginalViewer from './OriginalViewer.svelte';
   import EntitySection from './EntitySection.svelte';
@@ -25,6 +25,7 @@
   let loading = $state(true);
   let error: string | null = $state(null);
   let corrections: FieldCorrection[] = $state([]);
+  let dismissedKeys = $state(new Set<string>());
   let showSuccess = $state(false);
   let confirmResult = $state<{ status: string; entities: EntitiesStoredSummary } | null>(null);
 
@@ -43,6 +44,10 @@
     );
   });
 
+  let activeEntities = $derived(
+    allEntities.filter(e => !dismissedKeys.has(`${e.category}:${e.entityIndex}`))
+  );
+
   let visibleSections = $derived.by(() => {
     const docType = reviewData?.document_type ?? 'Other';
     const allowedCategories = SECTIONS_BY_DOC_TYPE[docType]
@@ -50,15 +55,22 @@
     return allowedCategories
       .map(cat => ({
         category: cat,
-        entities: allEntities.filter(e => e.category === cat),
+        entities: activeEntities.filter(e => e.category === cat),
       }))
       .filter(s => s.entities.length > 0);
   });
 
-  // Entity-level confidence counts
-  let totalEntities = $derived(allEntities.length);
-  let flaggedEntities = $derived(allEntities.filter(e => e.isFlagged).length);
+  // Entity-level confidence counts (only active, non-dismissed)
+  let totalEntities = $derived(activeEntities.length);
+  let flaggedEntities = $derived(activeEntities.filter(e => e.isFlagged).length);
   let confidentEntities = $derived(totalEntities - flaggedEntities);
+
+  // Excluded entities for backend
+  let excludedEntities = $derived.by((): ExcludedEntity[] => {
+    return allEntities
+      .filter(e => dismissedKeys.has(`${e.category}:${e.entityIndex}`))
+      .map(e => ({ entity_type: e.category, entity_index: e.entityIndex }));
+  });
 
   async function loadReviewData() {
     try {
@@ -76,6 +88,11 @@
   function handleFieldCorrection(correction: FieldCorrection) {
     corrections = corrections.filter(c => c.field_id !== correction.field_id);
     corrections = [...corrections, correction];
+  }
+
+  function handleDismissEntity(category: string, entityIndex: number) {
+    const key = `${category}:${entityIndex}`;
+    dismissedKeys = new Set([...dismissedKeys, key]);
   }
 
   function handleConfirmSuccess(result: { status: string; entities: EntitiesStoredSummary }) {
@@ -102,15 +119,15 @@
     status={confirmResult.status}
     entities={confirmResult.entities}
     correctionsApplied={corrections.length}
-    onViewDocument={() => navigation.navigate('document-detail', { documentId })}
-    onBackToHome={() => navigation.navigate('home')}
+    onViewDocument={() => navigation.navigate('document-detail', { documentId }, { replace: true })}
+    onBackToHome={() => navigation.navigate('home', undefined, { replace: true })}
     onAskAi={() => {
       const docType = reviewData?.document_type ?? 'document';
       const date = reviewData?.document_date;
       const prefill = date
         ? `Explain my ${docType} from ${date}`
         : `Explain my ${docType}`;
-      navigation.navigate('chat', { prefill });
+      navigation.navigate('chat', { prefill }, { replace: true });
     }}
   />
 {:else}
@@ -192,6 +209,7 @@
                     warnings={reviewData.plausibility_warnings}
                     {corrections}
                     onCorrection={handleFieldCorrection}
+                    onDismiss={handleDismissEntity}
                   />
                 {/each}
 
@@ -219,6 +237,7 @@
       <ReviewActions
         {documentId}
         {corrections}
+        {excludedEntities}
         {flaggedEntities}
         onConfirmSuccess={handleConfirmSuccess}
         onReject={() => navigation.goBack()}

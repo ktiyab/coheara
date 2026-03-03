@@ -41,6 +41,14 @@ pub struct CitationView {
     pub relevance_score: f32,
 }
 
+/// ME-03: Guideline citation as displayed in the frontend.
+/// Deterministic — sourced from ClinicalInsight references, not LLM output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidelineCitationView {
+    pub source: String,
+    pub insight_count: usize,
+}
+
 /// Payload emitted via Tauri event during streaming.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatStreamEvent {
@@ -54,6 +62,8 @@ pub struct ChatStreamEvent {
 pub enum StreamChunkPayload {
     Token { text: String },
     Citation { citation: CitationView },
+    /// ME-03: Guideline citations from clinical insights (deterministic).
+    GuidelineCitations { citations: Vec<GuidelineCitationView> },
     Done {
         full_text: String,
         confidence: f32,
@@ -180,6 +190,15 @@ impl From<crate::pipeline::rag::types::Citation> for CitationView {
             professional_name: c.professional_name,
             chunk_text: c.chunk_text,
             relevance_score: c.relevance_score,
+        }
+    }
+}
+
+impl From<crate::pipeline::rag::types::GuidelineCitation> for GuidelineCitationView {
+    fn from(g: crate::pipeline::rag::types::GuidelineCitation) -> Self {
+        GuidelineCitationView {
+            source: g.source,
+            insight_count: g.insight_count,
         }
     }
 }

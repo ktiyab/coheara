@@ -2,6 +2,7 @@
   "review": {
     "confirm_error_guidance": "Ihre Korrekturen sind lokal gespeichert. Versuchen Sie erneut zu bestätigen.",
     "reject_error_guidance": "Bitte versuchen Sie es erneut. Wenn das Problem weiterhin besteht, kehren Sie zur Startseite zurück.",
+    "delete_error_guidance": "Das Dokument konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.",
     "flagged_heading": "Einige Felder müssen überprüft werden",
     "flagged_description": "Es {count, plural, one {gibt # Feld, bei dem} other {gibt # Felder, bei denen}} ich mir nicht sicher war. Möchten Sie {count, plural, one {es} other {sie}} zuerst überprüfen?",
     "check_flagged": "Markierte Felder prüfen",

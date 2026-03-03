@@ -1,3 +1,15 @@
+export type BiologicalSex = 'Male' | 'Female';
+
+export type EthnicityGroup =
+  | 'European'
+  | 'SouthAsian'
+  | 'EastAsian'
+  | 'African'
+  | 'MiddleEastern'
+  | 'Hispanic'
+  | 'PacificIslander'
+  | 'Indigenous';
+
 export interface ProfileInfo {
   id: string;
   name: string;
@@ -8,6 +20,10 @@ export interface ProfileInfo {
   color_index: number | null;
   country: string | null;
   address: string | null;
+  /** ME-04: Biological sex for sex-specific clinical thresholds. */
+  sex: BiologicalSex | null;
+  /** ME-04: Ethnicity blend (1-3 populations) for population-specific thresholds. */
+  ethnicities: EthnicityGroup[];
 }
 
 export interface ProfileCreateResult {

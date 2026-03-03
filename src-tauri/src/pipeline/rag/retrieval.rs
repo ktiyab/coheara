@@ -97,6 +97,13 @@ pub fn structured_search(
         ctx.symptoms = repository::get_symptoms_in_date_range(conn, &thirty_days_ago, &today)?;
     }
 
+    if params.include_vital_signs {
+        let six_months_ago =
+            chrono::Local::now().naive_local() - chrono::Duration::days(180);
+        let now = chrono::Local::now().naive_local();
+        ctx.vital_signs = repository::get_vital_signs_in_range(conn, &six_months_ago, &now)?;
+    }
+
     Ok(ctx)
 }
 

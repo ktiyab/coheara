@@ -1,11 +1,22 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { t } from 'svelte-i18n';
-  import { createProfile } from '$lib/api/profile';
-  import type { ProfileCreateResult, ProfileInfo } from '$lib/types/profile';
+  import { createProfile, updateProfileDemographics } from '$lib/api/profile';
+  import type { ProfileCreateResult, ProfileInfo, BiologicalSex, EthnicityGroup } from '$lib/types/profile';
   import PasswordStrengthBar from '$lib/components/ui/PasswordStrengthBar.svelte';
   import DateOfBirthInput from '$lib/components/ui/DateOfBirthInput.svelte';
   import { COUNTRIES } from '$lib/data/countries';
+
+  const ALL_ETHNICITIES: { value: EthnicityGroup; labelKey: string }[] = [
+    { value: 'European', labelKey: 'profile.ethnicity_european' },
+    { value: 'SouthAsian', labelKey: 'profile.ethnicity_south_asian' },
+    { value: 'EastAsian', labelKey: 'profile.ethnicity_east_asian' },
+    { value: 'African', labelKey: 'profile.ethnicity_african' },
+    { value: 'MiddleEastern', labelKey: 'profile.ethnicity_middle_eastern' },
+    { value: 'Hispanic', labelKey: 'profile.ethnicity_hispanic' },
+    { value: 'PacificIslander', labelKey: 'profile.ethnicity_pacific_islander' },
+    { value: 'Indigenous', labelKey: 'profile.ethnicity_indigenous' },
+  ];
 
   interface Props {
     isCaregiverPath?: boolean;
@@ -28,9 +39,19 @@
   // F7: Pre-fill from caregiver info when creating a managed profile
   let caregiverName = $state(caregiverInfo?.name ?? '');
   let dateOfBirth = $state('');
+  let sex = $state<BiologicalSex | null>(null);
+  let selectedEthnicities = $state<EthnicityGroup[]>([]);
   let country = $state((isCaregiverPath && caregiverInfo?.country) ? caregiverInfo.country : '');
   let address = $state((isCaregiverPath && caregiverInfo?.address) ? caregiverInfo.address : '');
   let loading = $state(false);
+
+  function toggleEthnicity(value: EthnicityGroup) {
+    if (selectedEthnicities.includes(value)) {
+      selectedEthnicities = selectedEthnicities.filter(e => e !== value);
+    } else if (selectedEthnicities.length < 3) {
+      selectedEthnicities = [...selectedEthnicities, value];
+    }
+  }
 
   const inputClass = `px-4 py-3 rounded-lg border border-stone-300 dark:border-gray-600 text-lg min-h-[44px]
     bg-white dark:bg-gray-900 text-stone-800 dark:text-gray-100
@@ -60,6 +81,10 @@
         address.trim() || null,
         autoOpen ?? null,
       );
+      // ME-04: Set demographics if provided
+      if (sex || selectedEthnicities.length > 0) {
+        await updateProfileDemographics(result.profile.id, sex, selectedEthnicities);
+      }
       onCreated(result);
     } catch (e) {
       onError(String(e));
@@ -127,6 +152,51 @@
           {isCaregiverPath ? $t('profile.dob_hint_managed') : $t('profile.dob_hint')}
         </span>
       </div>
+
+      <!-- ME-04: Biological sex -->
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-stone-600 dark:text-gray-400 text-sm font-medium">{$t('profile.sex_label')}</legend>
+        <div class="flex gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="sex" value="Male" checked={sex === 'Male'} onchange={() => sex = 'Male'}
+              class="w-4 h-4 accent-[var(--color-primary)]" />
+            <span class="text-stone-700 dark:text-gray-200">{$t('profile.sex_male')}</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="sex" value="Female" checked={sex === 'Female'} onchange={() => sex = 'Female'}
+              class="w-4 h-4 accent-[var(--color-primary)]" />
+            <span class="text-stone-700 dark:text-gray-200">{$t('profile.sex_female')}</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="sex" value="" checked={sex === null} onchange={() => sex = null}
+              class="w-4 h-4 accent-[var(--color-primary)]" />
+            <span class="text-stone-500 dark:text-gray-400">{$t('profile.sex_skip')}</span>
+          </label>
+        </div>
+        <span class="text-stone-400 dark:text-gray-500 text-xs">{$t('profile.sex_hint')}</span>
+      </fieldset>
+
+      <!-- ME-04: Ethnicity blend (max 3) -->
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-stone-600 dark:text-gray-400 text-sm font-medium">{$t('profile.ethnicity_label')}</legend>
+        <div class="grid grid-cols-2 gap-2">
+          {#each ALL_ETHNICITIES as { value, labelKey }}
+            <label class="flex items-center gap-2 cursor-pointer {selectedEthnicities.length >= 3 && !selectedEthnicities.includes(value) ? 'opacity-40 cursor-not-allowed' : ''}">
+              <input type="checkbox"
+                checked={selectedEthnicities.includes(value)}
+                disabled={selectedEthnicities.length >= 3 && !selectedEthnicities.includes(value)}
+                onchange={() => toggleEthnicity(value)}
+                class="w-4 h-4 accent-[var(--color-primary)]" />
+              <span class="text-stone-700 dark:text-gray-200 text-sm">{$t(labelKey)}</span>
+            </label>
+          {/each}
+        </div>
+        {#if selectedEthnicities.length >= 3}
+          <span class="text-amber-600 dark:text-amber-400 text-xs">{$t('profile.ethnicity_max_reached')}</span>
+        {:else}
+          <span class="text-stone-400 dark:text-gray-500 text-xs">{$t('profile.ethnicity_hint')}</span>
+        {/if}
+      </fieldset>
 
       <label class="flex flex-col gap-1">
         <span class="text-stone-600 dark:text-gray-400 text-sm font-medium">{$t('profile.country_label')}</span>

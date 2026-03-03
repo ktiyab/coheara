@@ -16,9 +16,12 @@ use uuid::Uuid;
 
 use crate::chat::{
     self, generate_title, update_conversation_title, ChatStreamEvent, CitationView,
-    ConversationSummary, PromptSuggestion, StreamChunkPayload,
+    ConversationSummary, GuidelineCitationView, PromptSuggestion, StreamChunkPayload,
 };
+use crate::chat_queue::ChatQueueSnapshot;
 use crate::core_state::CoreState;
+use crate::crypto::profile::PatientDemographics;
+use crate::invariants::InvariantRegistry;
 use crate::models::enums::{MessageFeedback, MessageRole};
 use crate::pipeline::rag::conversation::ConversationManager;
 use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
@@ -39,28 +42,26 @@ pub fn start_conversation(state: State<'_, Arc<CoreState>>) -> Result<String, St
     Ok(conv_id.to_string())
 }
 
-/// Send a patient message and stream the response via Tauri events.
+/// Send a patient message — non-blocking enqueue pattern (CHAT-QUEUE-01).
 ///
-/// Flow:
+/// Fast-path flow (~5ms):
 /// 1. Sanitize patient input (L2-02 safety filter)
 /// 2. Save the patient message in the database
 /// 3. Update conversation title from first message
-/// 4. Try RAG pipeline if Ollama is available; otherwise emit placeholder
-/// 5. Filter RAG response through safety layers before emitting
+/// 4. Enqueue in ChatQueueService for deferred SLM processing
+/// 5. Return queue_item_id immediately
 ///
-/// Runs on a blocking thread via `spawn_blocking` — the RAG pipeline uses
-/// `reqwest::blocking::Client` for Ollama HTTP calls (10-30s), which would
-/// freeze the UI if run on the main thread.
+/// The slow path (Butler acquire → RAG pipeline → streaming) runs in the
+/// chat_queue_worker background task. Input re-enables immediately so the
+/// user can queue multiple questions.
 #[tauri::command]
 pub async fn send_chat_message(
     conversation_id: String,
     text: String,
     state: State<'_, Arc<CoreState>>,
-    app: AppHandle,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let db_path = state.db_path().map_err(|e| e.to_string())?;
         let conn = state.open_db().map_err(|e| e.to_string())?;
 
         let conv_uuid =
@@ -83,8 +84,8 @@ pub async fn send_chat_message(
             );
         }
 
-        // 2. Save patient message (sanitized)
-        manager
+        // 2. Save patient message (sanitized) — returns the message UUID
+        let patient_msg_id = manager
             .add_patient_message(conv_uuid, &sanitized.text)
             .map_err(|e| e.to_string())?;
 
@@ -99,59 +100,15 @@ pub async fn send_chat_message(
             let _ = update_conversation_title(&conn, &conversation_id, &title);
         }
 
-        // 4. Resolve active model via preferences (L6-04), then attempt RAG pipeline
-        let ollama_client = crate::ollama_service::OllamaService::client();
-        let resolved_model = state
-            .resolver()
-            .resolve(&conn, &ollama_client)
-            .ok()
-            .map(|r| r.name);
-        let db_key = state.db_key().ok();
-
-        // BTL-07: Acquire via Butler (tracks model state)
-        let model_for_guard = resolved_model.as_deref().unwrap_or("unknown");
-        let _butler_guard = state.butler().acquire(
-            crate::ollama_service::OperationKind::ChatGeneration,
-            model_for_guard,
-        ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
-
-        // Set up token streaming: tokens flow from RAG → channel → Tauri events
-        let (token_tx, token_rx) = std::sync::mpsc::channel::<String>();
-        let stream_app = app.clone();
-        let stream_conv_id = conversation_id.clone();
-        let forwarder = std::thread::spawn(move || {
-            while let Ok(token) = token_rx.recv() {
-                let _ = stream_app.emit(
-                    "chat-stream",
-                    &ChatStreamEvent {
-                        conversation_id: stream_conv_id.clone(),
-                        chunk: StreamChunkPayload::Token { text: token },
-                    },
-                );
-            }
-        });
-
-        match try_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref(), &lang, token_tx) {
-            Some(rag_response) => {
-                // Wait for all tokens to be forwarded before emitting Done
-                let _ = forwarder.join();
-                // 5. Filter RAG response through safety layers (emits Citations + Done)
-                emit_filtered_response(&app, &conversation_id, &rag_response, &safety, &manager, conv_uuid)?;
-                // Implicit verification: successful generation proves model works
-                state.set_ai_verified(true);
-            }
-            None => {
-                // Drop sender so forwarder thread exits
-                drop(forwarder);
-                // S.3: Emit degraded status event when AI pipeline fails
-                state.set_ai_verified(false);
-                let _ = app.emit("ai-status-changed", super::StatusLevel::Degraded);
-                emit_placeholder_response(&app, &conversation_id, &manager, conv_uuid, &lang)?;
-            }
-        }
+        // 4. Enqueue for deferred processing — worker handles Butler + RAG + streaming
+        let queue_item_id = state.chat_queue().enqueue(
+            conversation_id.clone(),
+            patient_msg_id.to_string(),
+            sanitized.text,
+        );
 
         state.update_activity();
-        Ok(())
+        Ok(queue_item_id)
     })
     .await
     .map_err(|e| format!("Task failed: {e}"))?
@@ -167,14 +124,18 @@ pub async fn send_chat_message(
 /// - **Embedder**: OnnxEmbedder when `onnx-embeddings` feature enabled + model present;
 ///   falls back to MockEmbedder (deterministic vectors — no real semantic search)
 /// - **Vector store**: SqliteVectorStore (persistent, brute-force cosine similarity)
-fn try_rag_query(
+///
+/// CHAT-QUEUE-01: Made `pub(crate)` for use by `chat_queue_worker`.
+pub(crate) fn try_rag_query(
     query_text: &str,
     conversation_id: Uuid,
     conn: &rusqlite::Connection,
     db_path: &std::path::Path,
     resolved_model: Option<&str>,
     db_key: Option<&[u8; 32]>,
+    registry: &InvariantRegistry,
     lang: &str,
+    demographics: Option<PatientDemographics>,
     token_tx: std::sync::mpsc::Sender<String>,
 ) -> Option<RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
@@ -191,7 +152,8 @@ fn try_rag_query(
     let embedder: Box<dyn crate::pipeline::storage::types::EmbeddingModel> =
         build_embedder();
 
-    let pipeline = DocumentRagPipeline::with_language(&generator, &embedder, &vector_store, conn, lang);
+    let pipeline = DocumentRagPipeline::with_language(&generator, &embedder, &vector_store, conn, registry, lang)
+        .with_demographics(demographics);
     let query = PatientQuery {
         text: query_text.to_string(),
         conversation_id,
@@ -216,7 +178,7 @@ fn try_rag_query(
 }
 
 /// Build the best available embedding model (delegates to shared builder).
-fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> {
+pub(crate) fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> {
     crate::pipeline::storage::embedder::build_embedder()
 }
 
@@ -224,7 +186,9 @@ fn build_embedder() -> Box<dyn crate::pipeline::storage::types::EmbeddingModel> 
 ///
 /// Token events are already streamed progressively by the forwarder thread,
 /// so this only emits Citations + Done (with final safety-filtered text).
-fn emit_filtered_response(
+///
+/// CHAT-QUEUE-01: Made `pub(crate)` for use by `chat_queue_worker`.
+pub(crate) fn emit_filtered_response(
     app: &AppHandle,
     conversation_id: &str,
     rag_response: &RagResponse,
@@ -249,7 +213,7 @@ fn emit_filtered_response(
         }
     };
 
-    // Emit citations
+    // Emit document citations
     for citation in &rag_response.citations {
         let _ = app.emit(
             "chat-stream",
@@ -257,6 +221,24 @@ fn emit_filtered_response(
                 conversation_id: conversation_id.to_string(),
                 chunk: StreamChunkPayload::Citation {
                     citation: CitationView::from(citation.clone()),
+                },
+            },
+        );
+    }
+
+    // ME-03: Emit guideline citations (deterministic, from clinical insights)
+    if !rag_response.guideline_citations.is_empty() {
+        let _ = app.emit(
+            "chat-stream",
+            &ChatStreamEvent {
+                conversation_id: conversation_id.to_string(),
+                chunk: StreamChunkPayload::GuidelineCitations {
+                    citations: rag_response
+                        .guideline_citations
+                        .iter()
+                        .cloned()
+                        .map(GuidelineCitationView::from)
+                        .collect(),
                 },
             },
         );
@@ -298,7 +280,9 @@ fn emit_filtered_response(
 
 /// Emit a placeholder response when AI services are unavailable.
 /// I18N-19: Localized based on user's language preference.
-fn emit_placeholder_response(
+///
+/// CHAT-QUEUE-01: Made `pub(crate)` for use by `chat_queue_worker`.
+pub(crate) fn emit_placeholder_response(
     app: &AppHandle,
     conversation_id: &str,
     manager: &ConversationManager<'_>,
@@ -435,6 +419,27 @@ pub fn get_prompt_suggestions(
 
     state.update_activity();
     Ok(suggestions)
+}
+
+// ═══════════════════════════════════════════
+// CHAT-QUEUE-01: Queue IPC commands
+// ═══════════════════════════════════════════
+
+/// Get a snapshot of the entire chat queue (all items, processing flag).
+#[tauri::command]
+pub fn get_chat_queue(
+    state: State<'_, Arc<CoreState>>,
+) -> Result<ChatQueueSnapshot, String> {
+    Ok(state.chat_queue().snapshot())
+}
+
+/// Get pending chat queue items for a specific conversation.
+#[tauri::command]
+pub fn get_chat_queue_for_conversation(
+    conversation_id: String,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<crate::chat_queue::ChatQueueItem>, String> {
+    Ok(state.chat_queue().pending_for_conversation(&conversation_id))
 }
 
 // ═══════════════════════════════════════════

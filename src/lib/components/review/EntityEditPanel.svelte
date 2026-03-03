@@ -11,8 +11,9 @@
     corrections: FieldCorrection[];
     onCorrection: (correction: FieldCorrection) => void;
     onCollapse: () => void;
+    onDismiss: () => void;
   }
-  let { entity, corrections, onCorrection, onCollapse }: Props = $props();
+  let { entity, corrections, onCorrection, onCollapse, onDismiss }: Props = $props();
 
   let editValues: Record<string, string> = $state({});
 
@@ -97,7 +98,11 @@
     {/each}
   </div>
 
-  <div class="mt-3 flex justify-end">
+  <div class="mt-3 flex items-center">
+    <Button variant="danger" onclick={onDismiss}>
+      {$t('common.delete')}
+    </Button>
+    <div class="flex-1"></div>
     <Button variant="ghost" onclick={onCollapse}>
       {$t('review.entity_edit_done')}
     </Button>

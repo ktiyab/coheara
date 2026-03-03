@@ -101,6 +101,13 @@ pub struct FieldCorrection {
     pub corrected_value: String,
 }
 
+/// An entity excluded by the patient during review.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExcludedEntity {
+    pub entity_type: EntityCategory,
+    pub entity_index: usize,
+}
+
 /// Result of confirming a review.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewConfirmResult {
@@ -1090,6 +1097,100 @@ pub fn apply_corrections(
     }
 
     applied
+}
+
+/// Remove entities excluded by the patient during review.
+/// Uses reverse-sorted indices to avoid shifting when removing by index.
+pub fn remove_excluded_entities(
+    structuring: &mut StructuringResult,
+    excluded: &[ExcludedEntity],
+) -> usize {
+    if excluded.is_empty() {
+        return 0;
+    }
+
+    let mut removed = 0;
+
+    // Collect indices per category, sorted descending so removals don't shift later indices.
+    let mut med_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::Medication)
+        .map(|e| e.entity_index).collect();
+    let mut lab_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::LabResult)
+        .map(|e| e.entity_index).collect();
+    let mut diag_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::Diagnosis)
+        .map(|e| e.entity_index).collect();
+    let mut allergy_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::Allergy)
+        .map(|e| e.entity_index).collect();
+    let mut proc_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::Procedure)
+        .map(|e| e.entity_index).collect();
+    let mut ref_indices: Vec<usize> = excluded.iter()
+        .filter(|e| e.entity_type == EntityCategory::Referral)
+        .map(|e| e.entity_index).collect();
+
+    for indices in [
+        &mut med_indices, &mut lab_indices, &mut diag_indices,
+        &mut allergy_indices, &mut proc_indices, &mut ref_indices,
+    ] {
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+        indices.dedup();
+    }
+
+    for &i in &med_indices {
+        if i < structuring.extracted_entities.medications.len() {
+            structuring.extracted_entities.medications.remove(i);
+            removed += 1;
+        }
+    }
+    for &i in &lab_indices {
+        if i < structuring.extracted_entities.lab_results.len() {
+            structuring.extracted_entities.lab_results.remove(i);
+            removed += 1;
+        }
+    }
+    for &i in &diag_indices {
+        if i < structuring.extracted_entities.diagnoses.len() {
+            structuring.extracted_entities.diagnoses.remove(i);
+            removed += 1;
+        }
+    }
+    for &i in &allergy_indices {
+        if i < structuring.extracted_entities.allergies.len() {
+            structuring.extracted_entities.allergies.remove(i);
+            removed += 1;
+        }
+    }
+    for &i in &proc_indices {
+        if i < structuring.extracted_entities.procedures.len() {
+            structuring.extracted_entities.procedures.remove(i);
+            removed += 1;
+        }
+    }
+    for &i in &ref_indices {
+        if i < structuring.extracted_entities.referrals.len() {
+            structuring.extracted_entities.referrals.remove(i);
+            removed += 1;
+        }
+    }
+
+    // Professional and Date are singletons — remove if excluded
+    if excluded.iter().any(|e| e.entity_type == EntityCategory::Professional) {
+        if structuring.professional.is_some() {
+            structuring.professional = None;
+            removed += 1;
+        }
+    }
+    if excluded.iter().any(|e| e.entity_type == EntityCategory::Date) {
+        if structuring.document_date.is_some() {
+            structuring.document_date = None;
+            removed += 1;
+        }
+    }
+
+    removed
 }
 
 /// 12-ERC B5: Count total extractable fields for accuracy calculation.
@@ -2420,5 +2521,117 @@ mod tests {
             ..empty
         };
         assert_eq!(count_extracted_fields(&prof_only), flatten_entities_to_fields(&prof_only).len());
+    }
+
+    // --- remove_excluded_entities ---
+
+    #[test]
+    fn remove_excluded_entities_removes_medication_by_index() {
+        let mut result = make_structuring_result();
+        assert_eq!(result.extracted_entities.medications.len(), 2);
+
+        let excluded = vec![ExcludedEntity {
+            entity_type: EntityCategory::Medication,
+            entity_index: 0,
+        }];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 1);
+        assert_eq!(result.extracted_entities.medications.len(), 1);
+        assert_eq!(
+            result.extracted_entities.medications[0].generic_name.as_deref(),
+            Some("Atorvastatin"),
+        );
+    }
+
+    #[test]
+    fn remove_excluded_entities_removes_lab_result() {
+        let mut result = make_structuring_result();
+        assert_eq!(result.extracted_entities.lab_results.len(), 1);
+
+        let excluded = vec![ExcludedEntity {
+            entity_type: EntityCategory::LabResult,
+            entity_index: 0,
+        }];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 1);
+        assert!(result.extracted_entities.lab_results.is_empty());
+    }
+
+    #[test]
+    fn remove_excluded_entities_removes_professional() {
+        let mut result = make_structuring_result();
+        assert!(result.professional.is_some());
+
+        let excluded = vec![ExcludedEntity {
+            entity_type: EntityCategory::Professional,
+            entity_index: 0,
+        }];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 1);
+        assert!(result.professional.is_none());
+    }
+
+    #[test]
+    fn remove_excluded_entities_removes_date() {
+        let mut result = make_structuring_result();
+        assert!(result.document_date.is_some());
+
+        let excluded = vec![ExcludedEntity {
+            entity_type: EntityCategory::Date,
+            entity_index: 0,
+        }];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 1);
+        assert!(result.document_date.is_none());
+    }
+
+    #[test]
+    fn remove_excluded_entities_empty_list_is_noop() {
+        let mut result = make_structuring_result();
+        let med_count = result.extracted_entities.medications.len();
+
+        let removed = remove_excluded_entities(&mut result, &[]);
+        assert_eq!(removed, 0);
+        assert_eq!(result.extracted_entities.medications.len(), med_count);
+    }
+
+    #[test]
+    fn remove_excluded_entities_out_of_bounds_skipped() {
+        let mut result = make_structuring_result();
+        let med_count = result.extracted_entities.medications.len();
+
+        let excluded = vec![ExcludedEntity {
+            entity_type: EntityCategory::Medication,
+            entity_index: 999,
+        }];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 0);
+        assert_eq!(result.extracted_entities.medications.len(), med_count);
+    }
+
+    #[test]
+    fn remove_excluded_entities_multiple_categories() {
+        let mut result = make_structuring_result();
+
+        let excluded = vec![
+            ExcludedEntity { entity_type: EntityCategory::Medication, entity_index: 1 },
+            ExcludedEntity { entity_type: EntityCategory::LabResult, entity_index: 0 },
+            ExcludedEntity { entity_type: EntityCategory::Professional, entity_index: 0 },
+        ];
+        let removed = remove_excluded_entities(&mut result, &excluded);
+
+        assert_eq!(removed, 3);
+        assert_eq!(result.extracted_entities.medications.len(), 1);
+        assert_eq!(
+            result.extracted_entities.medications[0].generic_name.as_deref(),
+            Some("Metformin"),
+        );
+        assert!(result.extracted_entities.lab_results.is_empty());
+        assert!(result.professional.is_none());
     }
 }

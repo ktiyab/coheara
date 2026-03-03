@@ -15,11 +15,13 @@
  *   - No recurring intervals — Ollama is local and user-controlled.
  */
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ModelInfo, ResolvedModel, ModelPullProgress, OllamaHealth } from '$lib/types/ai';
 import type { CapabilityTag } from '$lib/types/ai';
 import { isMedicalModel } from '$lib/types/ai';
 import type { StatusLevel, AiStatus } from '$lib/api/profile';
 import { classifyAiFailure } from '$lib/utils/ai-failure';
+import { isTauriEnv } from '$lib/utils/tauri';
 
 class AiStore {
 	models = $state<ModelInfo[]>([]);
@@ -45,6 +47,8 @@ class AiStore {
 
 	// Startup verify timer (one-shot, not recurring)
 	private _verifyTimer: ReturnType<typeof setTimeout> | null = null;
+	// Backend event listener
+	private _unlisten: UnlistenFn | null = null;
 
 	get isPulling(): boolean {
 		if (!this.pullProgress) return false;
@@ -141,6 +145,28 @@ class AiStore {
 		this.statusLevel = 'error';
 	}
 
+	/** Listen for backend ai-status-changed events (e.g. when RAG pipeline fails). */
+	async startListening(): Promise<void> {
+		if (!isTauriEnv() || this._unlisten) return;
+		this._unlisten = await listen<StatusLevel>('ai-status-changed', (event) => {
+			this.statusLevel = event.payload;
+			if (event.payload === 'degraded') {
+				this.statusSummary = 'AI service degraded — a recent operation failed';
+			} else if (event.payload === 'error') {
+				this.statusSummary = 'AI service error — check Ollama';
+				if (this.health) {
+					this.health = { ...this.health, reachable: false };
+				}
+			}
+		});
+	}
+
+	/** Stop listening for backend status events. */
+	stopListening(): void {
+		this._unlisten?.();
+		this._unlisten = null;
+	}
+
 	/**
 	 * One-shot startup initialization. Replaces the former 60s polling loop.
 	 *
@@ -214,12 +240,13 @@ class AiStore {
 		}
 	}
 
-	/** Clean up timers. Call on component destroy. */
+	/** Clean up timers and listeners. Call on component destroy. */
 	cleanup(): void {
 		if (this._verifyTimer) {
 			clearTimeout(this._verifyTimer);
 			this._verifyTimer = null;
 		}
+		this.stopListening();
 	}
 
 	/** F7: Clear all state on lock/switch to prevent stale AI status between profiles. */

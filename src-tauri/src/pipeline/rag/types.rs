@@ -28,6 +28,8 @@ pub enum QueryType {
 pub struct RagResponse {
     pub text: String,
     pub citations: Vec<Citation>,
+    /// ME-03: Guideline citations from clinical insights (deterministic, not LLM-generated).
+    pub guideline_citations: Vec<GuidelineCitation>,
     pub confidence: f32,
     pub query_type: QueryType,
     pub context_used: ContextSummary,
@@ -43,6 +45,19 @@ pub struct Citation {
     pub professional_name: Option<String>,
     pub chunk_text: String,
     pub relevance_score: f32,
+}
+
+/// ME-03: A clinical guideline citation from the invariant enrichment engine.
+///
+/// Unlike document citations (extracted from LLM output or chunk scores),
+/// guideline citations are deterministic — sourced from ClinicalInsight references.
+/// Examples: "ISH 2020", "KDIGO 2024", "WHO EML", "BTS 2017".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidelineCitation {
+    /// Guideline source identifier (e.g., "ISH 2020").
+    pub source: String,
+    /// Number of clinical insights that reference this guideline.
+    pub insight_count: usize,
 }
 
 /// Summary of context used for generation
@@ -90,6 +105,7 @@ pub struct StructuredContext {
     pub diagnoses: Vec<Diagnosis>,
     pub allergies: Vec<Allergy>,
     pub symptoms: Vec<Symptom>,
+    pub vital_signs: Vec<VitalSign>,
     pub recent_conversations: Vec<Message>,
 }
 
@@ -110,6 +126,7 @@ pub struct RetrievalParams {
     pub include_diagnoses: bool,
     pub include_allergies: bool,
     pub include_symptoms: bool,
+    pub include_vital_signs: bool,
     pub include_conversations: bool,
     pub temporal_weight: f32,
 }

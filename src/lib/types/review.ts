@@ -49,6 +49,11 @@ export interface FieldCorrection {
   corrected_value: string;
 }
 
+export interface ExcludedEntity {
+  entity_type: EntityCategory;
+  entity_index: number;
+}
+
 export interface ReviewConfirmResult {
   document_id: string;
   status: 'Confirmed' | 'Corrected';

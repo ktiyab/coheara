@@ -134,6 +134,8 @@ pub async fn unlock_profile(
                 color_index: None,
                 country: None,
                 address: None,
+                sex: None,
+                ethnicities: Vec::new(),
             });
 
         state.set_session(session).map_err(|e| e.to_string())?;
@@ -360,6 +362,44 @@ pub fn check_inactivity(state: State<'_, Arc<CoreState>>) -> bool {
 #[tauri::command]
 pub fn update_activity(state: State<'_, Arc<CoreState>>) {
     state.update_activity();
+}
+
+/// ME-04: Update demographics (sex, ethnicities) on an existing profile.
+#[tauri::command]
+pub fn update_profile_demographics(
+    profile_id: String,
+    sex: Option<String>,
+    ethnicities: Vec<String>,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<ProfileInfo, String> {
+    use crate::crypto::profile::{BiologicalSex, EthnicityGroup};
+
+    let id = Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
+
+    let parsed_sex = sex
+        .as_deref()
+        .map(|s| match s {
+            "Male" => Ok(BiologicalSex::Male),
+            "Female" => Ok(BiologicalSex::Female),
+            other => Err(format!("Invalid sex value: {other}. Expected 'Male' or 'Female'")),
+        })
+        .transpose()?;
+
+    let parsed_ethnicities: Vec<EthnicityGroup> = ethnicities
+        .iter()
+        .map(|e| {
+            serde_json::from_value(serde_json::Value::String(e.clone()))
+                .map_err(|_| format!("Invalid ethnicity value: {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    profile::update_profile_demographics(
+        &state.profiles_dir,
+        &id,
+        parsed_sex,
+        parsed_ethnicities,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Spec 46 [CG-02]: Get caregiver summaries for all dependents managed by the current user.

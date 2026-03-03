@@ -13,6 +13,7 @@
     "messages_aria": "Messages de la session",
     "new_conversation_title": "Nouvelle session",
     "stream_error_guidance": "Vérifiez qu'Ollama est en cours d'exécution, puis réessayez d'envoyer votre message.",
+    "stream_timeout": "Délai de réponse dépassé. L'IA traite peut-être une requête complexe — réessayez.",
     "conversation_start_error": "Impossible de démarrer une session. Veuillez réessayer.",
     "avatar_initial": "C",
     "streaming_searching": "Recherche dans vos documents...",
@@ -65,6 +66,12 @@
     "default_ask_changes": "Qu'est-ce qui a changé depuis mon dernier rendez-vous ?",
     "prefill_symptom": "Je ressens...",
     "prefill_medication": "Concernant mon médicament...",
-    "prefill_appointment": "J'ai un rendez-vous..."
+    "prefill_appointment": "J'ai un rendez-vous...",
+    "queue_waiting": "En attente de l'IA...",
+    "queue_acquiring": "Connexion à l'IA...",
+    "queue_pending": "{count, plural, one {# question en attente} other {# questions en attente}}",
+    "queue_position": "Position {position}",
+    "queue_unanswered": "Votre question n'a pas reçu de réponse.",
+    "queue_unanswered_retry": "Réessayer"
   }
 }

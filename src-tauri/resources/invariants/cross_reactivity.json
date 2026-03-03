@@ -1,0 +1,72 @@
+[
+  {
+    "primary": "aminopenicillin",
+    "cross_reactive": "aminocephalosporin",
+    "rate": "~16.5% skin test positive, ~1.9% clinical reaction",
+    "action": "Skin test before use. Higher risk than dissimilar-chain cephalosporins.",
+    "source": "EAACI 2020"
+  },
+  {
+    "primary": "penicillin",
+    "cross_reactive": "cephalosporin (dissimilar R1)",
+    "rate": "~2.1% skin test positive",
+    "action": "Generally safe; assess prior reaction severity.",
+    "source": "EAACI 2020"
+  },
+  {
+    "primary": "penicillin",
+    "cross_reactive": "3rd/4th gen cephalosporin",
+    "rate": "<1% (0.3% in challenge studies)",
+    "action": "Generally safe.",
+    "source": "Meta-analysis PMC7822086"
+  },
+  {
+    "primary": "penicillin",
+    "cross_reactive": "carbapenem",
+    "rate": "<1% (0.87%, 95% CI 0.32-2.32)",
+    "action": "Safe even with anaphylactic penicillin history (conditional recommendation).",
+    "source": "Picard et al. 2019"
+  },
+  {
+    "primary": "penicillin",
+    "cross_reactive": "monobactam (aztreonam)",
+    "rate": "Negligible",
+    "action": "Safe to use. Exception: aztreonam shares R1 with ceftazidime.",
+    "source": "ICON 2014"
+  },
+  {
+    "primary": "sulfonamide antibiotic",
+    "cross_reactive": "non-antibiotic sulfonamide (furosemide, thiazide, celecoxib)",
+    "rate": "No immunological cross-reactivity",
+    "action": "Safe — different antigenic determinant (arylamine group absent).",
+    "source": "ICON 2014"
+  },
+  {
+    "primary": "latex",
+    "cross_reactive": "banana, avocado, kiwi, chestnut",
+    "rate": "30-50% (up to 70%)",
+    "action": "Food allergy counseling; latex-fruit syndrome.",
+    "source": "WAO, JCM 2024"
+  },
+  {
+    "primary": "fluoroquinolone",
+    "cross_reactive": "other fluoroquinolone",
+    "rate": "2-5% (dual IgE + MRGPRX2 mechanism)",
+    "action": "Levofloxacin safest alternative. Skin test + challenge for others.",
+    "source": "EAACI, OFID 2022"
+  },
+  {
+    "primary": "morphine",
+    "cross_reactive": "codeine",
+    "rate": "MRGPRX2-mediated pseudoallergy (not IgE)",
+    "action": "Synthetic opioids (fentanyl, tramadol) rarely cross-react. Meperidine safe alternative.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "peg",
+    "cross_reactive": "polysorbate 80",
+    "rate": "Suggested but not consistently demonstrated",
+    "action": "Skin testing recommended for mRNA vaccine allergy evaluation.",
+    "source": "EAACI/ENDA 2022"
+  }
+]

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   ReviewData,
   FieldCorrection,
+  ExcludedEntity,
   ReviewConfirmResult,
   ReviewRejectResult,
 } from '$lib/types/review';
@@ -27,8 +28,9 @@ export async function updateExtractedField(
 export async function confirmReview(
   documentId: string,
   corrections: FieldCorrection[],
+  excludedEntities: ExcludedEntity[] = [],
 ): Promise<ReviewConfirmResult> {
-  return invoke<ReviewConfirmResult>('confirm_review', { documentId, corrections });
+  return invoke<ReviewConfirmResult>('confirm_review', { documentId, corrections, excludedEntities });
 }
 
 export async function rejectReview(

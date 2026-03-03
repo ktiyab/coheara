@@ -1,0 +1,121 @@
+[
+  {
+    "drug_a": "ssri",
+    "drug_b": "maoi",
+    "severity": "critical",
+    "description": "Serotonin accumulation leading to serotonin syndrome (potentially fatal). Minimum 14-day washout required (5 weeks for fluoxetine).",
+    "source": "WHO EML, EMA, STOPP/START v3"
+  },
+  {
+    "drug_a": "ssri",
+    "drug_b": "tramadol",
+    "severity": "high",
+    "description": "Serotonergic synergy increasing risk of serotonin syndrome.",
+    "source": "FAERS 2025, EMA"
+  },
+  {
+    "drug_a": "warfarin",
+    "drug_b": "fluoroquinolone",
+    "severity": "high",
+    "description": "CYP1A2 inhibition and vitamin K disruption causing excessive bleeding risk.",
+    "source": "EMA, MHRA"
+  },
+  {
+    "drug_a": "warfarin",
+    "drug_b": "nsaid",
+    "severity": "high",
+    "description": "Antiplatelet and anticoagulant synergy. GI bleeding risk doubles.",
+    "source": "STOPP/START v3, ESC"
+  },
+  {
+    "drug_a": "ace_inhibitor",
+    "drug_b": "k_sparing_diuretic",
+    "severity": "high",
+    "description": "Reduced potassium excretion leading to hyperkalemia and cardiac arrhythmia risk.",
+    "source": "KDIGO, STOPP/START v3"
+  },
+  {
+    "drug_a": "statin",
+    "drug_b": "clarithromycin",
+    "severity": "high",
+    "description": "CYP3A4 inhibition reduces statin metabolism. Risk of rhabdomyolysis (muscle breakdown leading to renal failure).",
+    "source": "ESC/EAS 2019, EMA"
+  },
+  {
+    "drug_a": "beta_blocker",
+    "drug_b": "verapamil",
+    "severity": "high",
+    "description": "Additive AV node depression causing severe bradycardia or heart block.",
+    "source": "STOPP/START v3, ESC"
+  },
+  {
+    "drug_a": "beta_blocker",
+    "drug_b": "diltiazem",
+    "severity": "high",
+    "description": "Additive AV node depression causing severe bradycardia or heart block.",
+    "source": "STOPP/START v3, ESC"
+  },
+  {
+    "drug_a": "metformin",
+    "drug_b": "iodinated contrast",
+    "severity": "moderate",
+    "description": "Contrast-induced nephropathy may reduce metformin clearance, risking lactic acidosis. Hold if eGFR <30 or AKI risk.",
+    "source": "ESUR 2025"
+  },
+  {
+    "drug_a": "alcohol",
+    "drug_b": "benzodiazepine",
+    "severity": "critical",
+    "description": "Additive CNS depression causing respiratory depression, potentially fatal.",
+    "source": "WHO, STOPP/START v3"
+  },
+  {
+    "drug_a": "alcohol",
+    "drug_b": "opioid",
+    "severity": "critical",
+    "description": "Additive CNS depression causing respiratory depression, potentially fatal.",
+    "source": "WHO, STOPP/START v3"
+  },
+  {
+    "drug_a": "lithium",
+    "drug_b": "nsaid",
+    "severity": "critical",
+    "description": "NSAIDs reduce lithium renal clearance by 25-40%, causing lithium toxicity (narrow therapeutic index).",
+    "source": "WHO EML, BNF"
+  },
+  {
+    "drug_a": "lithium",
+    "drug_b": "thiazide",
+    "severity": "high",
+    "description": "Thiazides increase lithium reabsorption. Lithium levels rise 25-40%, risking toxicity.",
+    "source": "WHO EML, Australian Prescriber"
+  },
+  {
+    "drug_a": "digoxin",
+    "drug_b": "amiodarone",
+    "severity": "high",
+    "description": "Amiodarone inhibits P-glycoprotein and renal clearance, doubling digoxin levels. Mandatory 50% dose reduction.",
+    "source": "ESC, WHO EML"
+  },
+  {
+    "drug_a": "digoxin",
+    "drug_b": "verapamil",
+    "severity": "high",
+    "description": "Reduced renal and hepatic digoxin clearance leading to digoxin toxicity.",
+    "source": "ESC"
+  },
+  {
+    "drug_a": "digoxin",
+    "drug_b": "k_depleting_diuretic",
+    "severity": "high",
+    "description": "Hypokalemia potentiates digoxin toxicity, causing cardiac arrhythmia at otherwise therapeutic levels.",
+    "source": "ESC, WHO EML"
+  },
+  {
+    "drug_a": "valproate",
+    "drug_b": "carbamazepine",
+    "severity": "high",
+    "description": "Valproate inhibits epoxide hydrolase, causing toxic carbamazepine-10,11-epoxide accumulation. Neurotoxicity despite normal carbamazepine levels.",
+    "source": "ILAE, WHO EML"
+  }
+]

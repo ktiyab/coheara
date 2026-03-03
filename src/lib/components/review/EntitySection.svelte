@@ -16,8 +16,9 @@
     warnings: PlausibilityWarning[];
     corrections: FieldCorrection[];
     onCorrection: (correction: FieldCorrection) => void;
+    onDismiss: (category: string, entityIndex: number) => void;
   }
-  let { category, entities, warnings, corrections, onCorrection }: Props = $props();
+  let { category, entities, warnings, corrections, onCorrection, onDismiss }: Props = $props();
 
   const categoryStyles: Record<EntityCategory, {
     i18nKey: string;
@@ -98,6 +99,7 @@
           {entity}
           {corrections}
           {onCorrection}
+          onDismiss={() => onDismiss(entity.category, entity.entityIndex)}
         />
       {/each}
     </div>

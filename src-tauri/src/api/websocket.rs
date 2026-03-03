@@ -419,7 +419,10 @@ async fn handle_chat_query(
         ).map_err(|e| format!("Failed to acquire Ollama: {e}"))?;
 
         let db_key = core.db_key().ok();
-        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref());
+        let registry = core.invariants();
+        // ME-04: Build demographics from active profile for sex/ethnicity-aware enrichment
+        let demographics = core.get_patient_demographics();
+        let rag_response = try_ws_rag_query(&sanitized.text, conv_uuid, &conn, &db_path, resolved_model.as_deref(), db_key.as_ref(), registry, demographics);
 
         match rag_response {
             Some(response) => {
@@ -536,6 +539,8 @@ fn try_ws_rag_query(
     db_path: &std::path::Path,
     resolved_model: Option<&str>,
     db_key: Option<&[u8; 32]>,
+    registry: &crate::invariants::InvariantRegistry,
+    demographics: Option<crate::crypto::profile::PatientDemographics>,
 ) -> Option<crate::pipeline::rag::types::RagResponse> {
     use crate::pipeline::rag::ollama::OllamaRagGenerator;
     use crate::pipeline::rag::orchestrator::DocumentRagPipeline;
@@ -548,7 +553,8 @@ fn try_ws_rag_query(
     let vector_store = SqliteVectorStore::new(db_path.to_path_buf(), db_key.copied());
     let embedder = crate::pipeline::storage::embedder::build_embedder();
 
-    let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn);
+    let pipeline = DocumentRagPipeline::new(&generator, &embedder, &vector_store, conn, registry)
+        .with_demographics(demographics);
     let query = PatientQuery {
         text: query_text.to_string(),
         conversation_id,

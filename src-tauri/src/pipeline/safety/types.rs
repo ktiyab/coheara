@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::pipeline::rag::types::{BoundaryCheck, Citation, QueryType};
+use crate::pipeline::rag::types::{BoundaryCheck, Citation, GuidelineCitation, QueryType};
 
 /// Outcome of the safety filter pipeline.
 ///
@@ -14,6 +14,8 @@ pub struct FilteredResponse {
     pub text: String,
     /// Original citations passed through from RAG.
     pub citations: Vec<Citation>,
+    /// ME-03: Guideline citations passed through from RAG (deterministic, not LLM-generated).
+    pub guideline_citations: Vec<GuidelineCitation>,
     /// Confidence from RAG (passed through).
     pub confidence: f32,
     /// Query type from RAG (passed through).

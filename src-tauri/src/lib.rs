@@ -32,6 +32,9 @@ pub mod ollama_service; // Centralized SLM access controller
 pub mod butler_service; // BTL-04: SLM lifecycle orchestrator
 pub mod import_queue; // BTL-10: Document import queue service
 pub mod import_queue_worker; // BTL-10 C4: Import queue background worker
+pub mod chat_queue; // CHAT-QUEUE-01: Chat queue service
+pub mod chat_queue_worker; // CHAT-QUEUE-01: Chat queue background worker
+pub mod invariants; // ME-03: Invariant Reference Engine
 
 
 use std::sync::Arc;
@@ -53,11 +56,25 @@ pub fn run() {
     // SEC-02-G08: Clean orphaned staging files from previous crashes
     crypto::cleanup_orphaned_staging(&config::profiles_dir());
 
+    // ME-03: Resolve resources directory for invariant registry loading.
+    // Tauri 2 bundles resources into the app; for development, use src-tauri/resources.
+    let resources_dir = std::path::PathBuf::from(
+        std::env::var("TAURI_RESOURCES_DIR")
+            .unwrap_or_else(|_| "resources".to_string()),
+    );
+    let core_state = core_state::CoreState::with_resources(
+        if resources_dir.exists() {
+            Some(resources_dir.as_path())
+        } else {
+            None
+        },
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Arc::new(core_state::CoreState::new()))
+        .manage(Arc::new(core_state))
         .setup(|app| {
             // LP-01: Start background batch extraction scheduler (graceful shutdown via handle)
             let scheduler_handle =
@@ -68,6 +85,9 @@ pub fn run() {
 
             // BTL-10 C4: Start import queue worker (processes queued jobs sequentially)
             import_queue_worker::start_import_queue_worker(app.handle().clone());
+
+            // CHAT-QUEUE-01: Start chat queue worker (processes queued messages sequentially)
+            chat_queue_worker::start_chat_queue_worker(app.handle().clone());
 
             Ok(())
         })
@@ -95,6 +115,7 @@ pub fn run() {
             commands::profile::delete_profile,
             commands::profile::check_inactivity,
             commands::profile::update_activity,
+            commands::profile::update_profile_demographics,
             commands::home::get_home_data,
             commands::home::get_more_documents,
             commands::home::get_document_detail,
@@ -112,6 +133,8 @@ pub fn run() {
             commands::chat::delete_conversation,
             commands::chat::set_message_feedback,
             commands::chat::get_prompt_suggestions,
+            commands::chat::get_chat_queue,
+            commands::chat::get_chat_queue_for_conversation,
             commands::review::get_review_data,
             commands::review::get_original_file,
             commands::review::update_extracted_field,

@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::db::sqlite;
+use crate::invariants::InvariantRegistry;
 use crate::models::enums::{AlertType, DismissedBy};
 
 use super::detection::{
@@ -28,16 +29,22 @@ use super::types::{
 pub struct DefaultCoherenceEngine {
     pub(crate) store: AlertStore,
     pub(crate) reference: CoherenceReferenceData,
+    /// ME-03: Invariant registry for enriched drug family matching.
+    invariants: InvariantRegistry,
     db_path: Option<PathBuf>,
     db_key: Option<[u8; 32]>,
 }
 
 impl DefaultCoherenceEngine {
     /// Create an in-memory-only engine (for tests).
+    ///
+    /// Uses an empty InvariantRegistry — hardcoded drug families provide
+    /// baseline detection. Use `with_invariants()` for registry-backed matching.
     pub fn new(reference: CoherenceReferenceData) -> Self {
         Self {
             store: AlertStore::new(),
             reference,
+            invariants: InvariantRegistry::empty(),
             db_path: None,
             db_key: None,
         }
@@ -49,6 +56,7 @@ impl DefaultCoherenceEngine {
     /// all alert store/dismiss operations to the database going forward.
     pub fn with_db(
         reference: CoherenceReferenceData,
+        invariants: InvariantRegistry,
         conn: &Connection,
         db_path: &Path,
         db_key: Option<[u8; 32]>,
@@ -57,6 +65,7 @@ impl DefaultCoherenceEngine {
         Ok(Self {
             store,
             reference,
+            invariants,
             db_path: Some(db_path.to_path_buf()),
             db_key,
         })
@@ -85,7 +94,7 @@ impl DefaultCoherenceEngine {
         let gaps = detect_gaps(document_id, data);
         let drifts = detect_drift(document_id, data, &self.reference);
         let temporals = detect_temporal(document_id, data);
-        let allergies = detect_allergy_conflicts(document_id, data, &self.reference);
+        let allergies = detect_allergy_conflicts(document_id, data, &self.reference, &self.invariants);
         let mut doses = detect_dose_issues(document_id, data, &self.reference);
         doses.extend(detect_daily_dose_accumulation(document_id, data, &self.reference));
         let criticals = detect_critical_labs(document_id, data);
@@ -551,7 +560,7 @@ mod tests {
     ) -> (DefaultCoherenceEngine, rusqlite::Connection) {
         let conn = crate::db::sqlite::open_database(db_path, None).unwrap();
         let ref_data = CoherenceReferenceData::load_test();
-        let engine = DefaultCoherenceEngine::with_db(ref_data, &conn, db_path, None).unwrap();
+        let engine = DefaultCoherenceEngine::with_db(ref_data, InvariantRegistry::empty(), &conn, db_path, None).unwrap();
         (engine, conn)
     }
 
@@ -600,7 +609,7 @@ mod tests {
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
         let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, InvariantRegistry::empty(), &conn2, &db_path, None).unwrap();
 
         let active = engine2.get_active_alerts(None).unwrap();
         assert_eq!(
@@ -629,7 +638,7 @@ mod tests {
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
         let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, InvariantRegistry::empty(), &conn2, &db_path, None).unwrap();
 
         let active = engine2.get_active_alerts(None).unwrap();
         assert!(
@@ -680,7 +689,7 @@ mod tests {
         drop(engine);
         let ref_data2 = CoherenceReferenceData::load_test();
         let conn2 = crate::db::sqlite::open_database(&db_path, None).unwrap();
-        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, &conn2, &db_path, None).unwrap();
+        let engine2 = DefaultCoherenceEngine::with_db(ref_data2, InvariantRegistry::empty(), &conn2, &db_path, None).unwrap();
 
         let critical = engine2.get_critical_alerts().unwrap();
         assert!(critical.is_empty(), "Dismissed critical should not survive reload");

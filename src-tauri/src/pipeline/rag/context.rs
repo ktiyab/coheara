@@ -1,3 +1,4 @@
+use crate::invariants::types::ClinicalInsight;
 use crate::models::*;
 
 use super::types::{AssembledContext, QueryType, RetrievedContext, ScoredChunk};
@@ -44,11 +45,13 @@ fn estimate_tokens(text: &str) -> usize {
 }
 
 /// Assemble retrieved context into a structured prompt section.
-/// Prioritizes: allergies > semantic chunks > medications > diagnoses > labs > symptoms.
+/// Prioritizes: allergies > clinical insights > semantic chunks > medications > diagnoses > labs > vitals > symptoms.
 /// M.7: Budget is language-aware — French text gets a tighter char limit to stay within token budget.
+/// ME-03: Clinical insights inserted at Priority 1.5 (after allergies, before semantic chunks).
 pub fn assemble_context(
     retrieved: &RetrievedContext,
     query_type: &QueryType,
+    insights: &[ClinicalInsight],
 ) -> AssembledContext {
     // M.7: Sample content to detect language for token budget adjustment
     let content_sample: String = retrieved
@@ -68,6 +71,17 @@ pub fn assemble_context(
         let section = format_allergies(&retrieved.structured_data.allergies);
         total_chars += section.len();
         sections.push(("KNOWN ALLERGIES", section));
+    }
+
+    // Priority 1.5: Clinical insights (ME-03 enrichment — deterministic, high value)
+    // I18N: Use detected content language for insight descriptions.
+    let insight_lang = if detect_french_content(&content_sample) { "fr" } else { "en" };
+    if !insights.is_empty() {
+        let section = format_clinical_insights(insights, insight_lang);
+        if total_chars + section.len() <= budget {
+            total_chars += section.len();
+            sections.push(("CLINICAL INSIGHTS", section));
+        }
     }
 
     // Priority 2: Most relevant semantic chunks (ordered by score)
@@ -118,7 +132,16 @@ pub fn assemble_context(
         }
     }
 
-    // Priority 6: Recent symptoms (for symptom queries)
+    // Priority 6: Vital signs (if room)
+    if !retrieved.structured_data.vital_signs.is_empty() && total_chars < budget {
+        let section = format_vital_signs(&retrieved.structured_data.vital_signs);
+        if total_chars + section.len() <= budget {
+            total_chars += section.len();
+            sections.push(("VITAL SIGNS", section));
+        }
+    }
+
+    // Priority 7: Recent symptoms (for symptom queries)
     if *query_type == QueryType::Symptom
         && !retrieved.structured_data.symptoms.is_empty()
         && total_chars < budget
@@ -154,6 +177,27 @@ fn format_allergies(allergies: &[Allergy]) -> String {
                 a.allergen,
                 a.severity.as_str(),
                 a.reaction.as_deref().unwrap_or("not specified")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Format clinical insights for the SLM context.
+///
+/// Format: `[SEVERITY] description — summary_key (source: X)`
+/// Insights are pre-sorted by severity (Critical first) from the enrichment engine.
+/// I18N: Uses detected content language for insight descriptions.
+fn format_clinical_insights(insights: &[ClinicalInsight], lang: &str) -> String {
+    insights
+        .iter()
+        .map(|i| {
+            format!(
+                "[{}] {} — {} (source: {})",
+                i.severity.as_str(),
+                i.description.get(lang),
+                i.summary_key,
+                i.source,
             )
         })
         .collect::<Vec<_>>()
@@ -214,6 +258,28 @@ fn format_labs(labs: &[LabResult]) -> String {
         .join("\n")
 }
 
+fn format_vital_signs(vitals: &[VitalSign]) -> String {
+    vitals
+        .iter()
+        .take(10)
+        .map(|v| {
+            let value_str = if let Some(secondary) = v.value_secondary {
+                format!("{}/{}", v.value_primary, secondary)
+            } else {
+                format!("{}", v.value_primary)
+            };
+            format!(
+                "- {} {} {} ({})",
+                v.vital_type.as_str(),
+                value_str,
+                v.unit,
+                v.recorded_at.format("%Y-%m-%d"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn format_symptoms(symptoms: &[Symptom]) -> String {
     symptoms
         .iter()
@@ -245,7 +311,7 @@ mod tests {
     #[test]
     fn empty_context_produces_empty_text() {
         let ctx = empty_context();
-        let assembled = assemble_context(&ctx, &QueryType::General);
+        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
         assert!(assembled.text.is_empty());
         assert_eq!(assembled.estimated_tokens, 0);
     }
@@ -264,7 +330,7 @@ mod tests {
             verified: true,
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::General);
+        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
         assert!(assembled.text.contains("KNOWN ALLERGIES"));
         assert!(assembled.text.contains("Penicillin"));
         assert!(assembled.text.contains("life_threatening"));
@@ -287,7 +353,7 @@ mod tests {
             });
         }
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
         // Allow buffer for XML tags; English content → 4 chars/token budget
         let en_budget = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN_EN;
         assert!(
@@ -322,7 +388,7 @@ mod tests {
             professional_name: None,
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
         // High score chunk should appear before low score
         let high_pos = assembled.text.find("High relevance").unwrap();
         let low_pos = assembled.text.find("Low relevance").unwrap();
@@ -355,7 +421,7 @@ mod tests {
             document_id: uuid::Uuid::new_v4(),
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
         assert!(assembled.text.contains("CURRENT MEDICATIONS"));
         assert!(assembled.text.contains("Metformin"));
     }
@@ -409,7 +475,7 @@ mod tests {
                 professional_name: None,
             });
         }
-        let fr_assembled = assemble_context(&fr_ctx, &QueryType::Factual);
+        let fr_assembled = assemble_context(&fr_ctx, &QueryType::Factual, &[]);
 
         // Same chunk count but English content → looser budget
         let mut en_ctx = empty_context();
@@ -427,13 +493,125 @@ mod tests {
                 professional_name: None,
             });
         }
-        let en_assembled = assemble_context(&en_ctx, &QueryType::Factual);
+        let en_assembled = assemble_context(&en_ctx, &QueryType::Factual, &[]);
 
         assert!(
             fr_assembled.chunks_included.len() < en_assembled.chunks_included.len(),
             "French ({}) should fit fewer chunks than English ({})",
             fr_assembled.chunks_included.len(),
             en_assembled.chunks_included.len(),
+        );
+    }
+
+    // ── ME-03: Clinical insights in context assembly ─────────
+
+    #[test]
+    fn clinical_insights_appear_before_semantic_chunks() {
+        use crate::invariants::types::*;
+
+        let mut ctx = empty_context();
+        ctx.semantic_chunks.push(ScoredChunk {
+            chunk_id: "c1".into(),
+            document_id: uuid::Uuid::new_v4(),
+            content: "Some document content here.".into(),
+            score: 0.8,
+            doc_type: "note".into(),
+            doc_date: None,
+            professional_name: None,
+        });
+
+        let insights = vec![ClinicalInsight {
+            kind: InsightKind::Classification,
+            severity: InsightSeverity::Warning,
+            summary_key: "BP 145/92 mmHg".to_string(),
+            description: InvariantLabel {
+                key: "bp_grade_1_htn",
+                en: "Grade 1 Hypertension",
+                fr: "Hypertension de grade 1",
+                de: "Hypertonie Grad 1",
+            },
+            source: "ISH 2020".to_string(),
+            related_entities: vec![],
+            meaning_factors: MeaningFactors::default(),
+        }];
+
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &insights);
+        assert!(assembled.text.contains("CLINICAL INSIGHTS"));
+        assert!(assembled.text.contains("Grade 1 Hypertension"));
+        assert!(assembled.text.contains("BP 145/92 mmHg"));
+        assert!(assembled.text.contains("ISH 2020"));
+
+        // Insights section should appear before document excerpts
+        let insights_pos = assembled.text.find("CLINICAL INSIGHTS").unwrap();
+        let doc_pos = assembled.text.find("DOCUMENT EXCERPT").unwrap();
+        assert!(insights_pos < doc_pos);
+    }
+
+    #[test]
+    fn empty_insights_produce_no_section() {
+        let ctx = empty_context();
+        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
+        assert!(!assembled.text.contains("CLINICAL INSIGHTS"));
+    }
+
+    #[test]
+    fn insights_consume_budget() {
+        use crate::invariants::types::*;
+
+        let mut ctx = empty_context();
+        // Fill with many chunks
+        for i in 0..100 {
+            ctx.semantic_chunks.push(ScoredChunk {
+                chunk_id: format!("c{i}"),
+                document_id: uuid::Uuid::new_v4(),
+                content: "A ".repeat(200),
+                score: 0.8,
+                doc_type: "note".into(),
+                doc_date: None,
+                professional_name: None,
+            });
+        }
+
+        // Assembly without insights
+        let without = assemble_context(&ctx, &QueryType::Factual, &[]);
+
+        // Create some insights
+        let insights = vec![
+            ClinicalInsight {
+                kind: InsightKind::Classification,
+                severity: InsightSeverity::Critical,
+                summary_key: "eGFR 28 mL/min".to_string(),
+                description: InvariantLabel {
+                    key: "ckd_g4",
+                    en: "CKD G4 — Severely decreased",
+                    fr: "MRC G4",
+                    de: "CKD G4",
+                },
+                source: "KDIGO 2024".to_string(),
+                related_entities: vec![],
+                meaning_factors: MeaningFactors::default(),
+            },
+            ClinicalInsight {
+                kind: InsightKind::Interaction,
+                severity: InsightSeverity::Critical,
+                summary_key: "warfarin + ibuprofen: bleeding risk".to_string(),
+                description: InvariantLabel {
+                    key: "drug_interaction",
+                    en: "Drug-drug interaction",
+                    fr: "Interaction",
+                    de: "Interaktion",
+                },
+                source: "WHO EML".to_string(),
+                related_entities: vec![],
+                meaning_factors: MeaningFactors::default(),
+            },
+        ];
+
+        // Assembly with insights — fewer chunks should fit
+        let with = assemble_context(&ctx, &QueryType::Factual, &insights);
+        assert!(
+            with.chunks_included.len() <= without.chunks_included.len(),
+            "Insights should consume budget, reducing chunk count"
         );
     }
 }

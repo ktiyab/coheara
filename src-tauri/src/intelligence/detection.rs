@@ -3,9 +3,11 @@ use uuid::Uuid;
 use crate::models::enums::{AbnormalFlag, AlertType, DiagnosisStatus, MedicationStatus};
 use crate::models::Medication;
 
+use crate::invariants::InvariantRegistry;
+
 use super::helpers::{
     dedup_symmetric_alerts, display_name, format_dose_mg, frequency_to_daily_multiplier,
-    is_same_drug_family, normalize_dose, normalize_frequency, parse_dose_to_mg,
+    is_same_drug_family_with_registry, normalize_dose, normalize_frequency, parse_dose_to_mg,
     resolve_generic_name,
 };
 use super::messages::MessageTemplates;
@@ -671,6 +673,7 @@ pub fn detect_allergy_conflicts(
     document_id: &Uuid,
     data: &RepositorySnapshot,
     reference: &CoherenceReferenceData,
+    registry: &InvariantRegistry,
 ) -> Vec<CoherenceAlert> {
     let mut alerts = Vec::new();
 
@@ -730,7 +733,7 @@ pub fn detect_allergy_conflicts(
             for allergy in &data.allergies {
                 let allergen_lower = allergy.allergen.to_lowercase();
                 if allergen_lower != *resolved_name
-                    && is_same_drug_family(&allergen_lower, resolved_name)
+                    && is_same_drug_family_with_registry(&allergen_lower, resolved_name, registry)
                 {
                     let med_display = display_name(med);
                     let message = MessageTemplates::allergy(
@@ -1550,7 +1553,8 @@ mod tests {
             Uuid::new_v4(), "amoxicillin", None, "500mg", "three times daily", None, doc,
         )];
 
-        let alerts = detect_allergy_conflicts(&doc, &data, &ref_data);
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let alerts = detect_allergy_conflicts(&doc, &data, &ref_data, &registry);
         assert!(!alerts.is_empty(), "Penicillin allergy should flag amoxicillin");
         assert!(alerts.iter().all(|a| a.severity == AlertSeverity::Critical));
     }
@@ -1576,7 +1580,8 @@ mod tests {
             Uuid::new_v4(), "ibuprofen", None, "400mg", "as needed", None, doc,
         )];
 
-        let alerts = detect_allergy_conflicts(&doc, &data, &ref_data);
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let alerts = detect_allergy_conflicts(&doc, &data, &ref_data, &registry);
         assert!(!alerts.is_empty(), "Aspirin allergy should flag ibuprofen (NSAID family)");
     }
 

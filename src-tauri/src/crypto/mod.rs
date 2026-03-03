@@ -52,4 +52,7 @@ pub enum CryptoError {
 
     #[error("Database error: {0}")]
     Database(#[from] crate::db::DatabaseError),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }

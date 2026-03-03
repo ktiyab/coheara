@@ -57,6 +57,15 @@ class NavigationStore {
 	screenParams = $state<Record<string, string>>({});
 	sidebarCollapsed = $state(false);
 
+	// CHAT-NAV-01: Active conversation persists across screen switches.
+	// Set by ChatScreen on create/load, cleared by "New Session" and F7 reset.
+	lastChatConversationId = $state<string | null>(null);
+
+	/** CHAT-NAV-01: Track active chat conversation for navigation persistence. */
+	setLastChat(id: string | null): void {
+		this.lastChatConversationId = id;
+	}
+
 	constructor() {
 		if (browser) {
 			const hash = window.location.hash.slice(1);
@@ -91,17 +100,18 @@ class NavigationStore {
 		this.previousScreen = 'home';
 		this.activeScreen = 'home';
 		this.screenParams = {};
+		this.lastChatConversationId = null;  // CHAT-NAV-01: F7 security
 		if (browser) {
 			history.replaceState(null, '', '#home');
 		}
 	}
 
-	navigate(screen: string, params?: Record<string, string>) {
+	navigate(screen: string, params?: Record<string, string>, options?: { replace?: boolean }) {
 		this.previousScreen = this.activeScreen;
 		this.screenParams = params ?? {};
 		this.activeScreen = screen;
 		if (browser) {
-			this.writeToHash();
+			this.writeToHash(options?.replace);
 		}
 	}
 
@@ -127,13 +137,18 @@ class NavigationStore {
 		}
 	}
 
-	private writeToHash() {
+	private writeToHash(replace = false) {
 		let hash = this.activeScreen;
 		const entries = Object.entries(this.screenParams).filter(([, v]) => v);
 		if (entries.length > 0) {
 			hash += '?' + new URLSearchParams(entries).toString();
 		}
-		history.pushState(null, '', '#' + hash);
+		const url = '#' + hash;
+		if (replace) {
+			history.replaceState(null, '', url);
+		} else {
+			history.pushState(null, '', url);
+		}
 	}
 }
 

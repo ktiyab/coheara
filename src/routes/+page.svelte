@@ -11,6 +11,7 @@
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
   import { importQueue } from '$lib/stores/importQueue.svelte';
+  import { chatQueue } from '$lib/stores/chatQueue.svelte';
   import { isTauriEnv } from '$lib/utils/tauri';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import AppShell from '$lib/components/navigation/AppShell.svelte';
@@ -67,6 +68,13 @@
     importQueue.startListening();
     importQueue.refresh().catch(() => {});
 
+    // CHAT-FIX-02: Listen for backend AI status change events (degraded/error)
+    ai.startListening();
+
+    // CHAT-QUEUE-01: Listen for chat queue events (app-level, persists across navigation)
+    chatQueue.startListening();
+    chatQueue.refresh().catch(() => {});
+
     // S.2+S.5: One-shot AI status check (immediate baseline + 30s verify)
     if (isTauriEnv()) {
       ai.startupCheck(
@@ -88,6 +96,7 @@
     ai.cleanup();
     extraction.stopListening();
     importQueue.stopListening();
+    chatQueue.stopListening();
   });
 </script>
 

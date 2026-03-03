@@ -1,0 +1,170 @@
+[
+  {
+    "key": "penicillin",
+    "name": "Penicillins",
+    "members": [
+      "penicillin", "amoxicillin", "ampicillin", "piperacillin",
+      "oxacillin", "nafcillin", "dicloxacillin", "flucloxacillin"
+    ],
+    "source": "WHO EML"
+  },
+  {
+    "key": "cephalosporin",
+    "name": "Cephalosporins",
+    "members": [
+      "cephalexin", "cefazolin", "ceftriaxone", "cefuroxime",
+      "cefixime", "cefpodoxime", "ceftazidime", "cefadroxil",
+      "cefprozil", "cefaclor"
+    ],
+    "source": "WHO EML"
+  },
+  {
+    "key": "sulfonamide",
+    "name": "Sulfonamides",
+    "members": [
+      "sulfamethoxazole", "sulfasalazine", "sulfadiazine",
+      "trimethoprim-sulfamethoxazole", "sulfisoxazole"
+    ],
+    "source": "WHO EML"
+  },
+  {
+    "key": "nsaid",
+    "name": "NSAIDs",
+    "members": [
+      "ibuprofen", "naproxen", "diclofenac", "indomethacin",
+      "piroxicam", "meloxicam", "celecoxib", "aspirin",
+      "ketorolac", "etoricoxib"
+    ],
+    "source": "WHO EML, STOPP/START v3"
+  },
+  {
+    "key": "statin",
+    "name": "Statins",
+    "members": [
+      "atorvastatin", "rosuvastatin", "simvastatin", "pravastatin",
+      "lovastatin", "fluvastatin", "pitavastatin"
+    ],
+    "source": "ESC/EAS 2019, WHO EML"
+  },
+  {
+    "key": "ace_inhibitor",
+    "name": "ACE Inhibitors",
+    "members": [
+      "lisinopril", "enalapril", "ramipril", "captopril",
+      "benazepril", "fosinopril", "quinapril", "perindopril"
+    ],
+    "source": "KDIGO 2024, WHO EML"
+  },
+  {
+    "key": "arb",
+    "name": "Angiotensin II Receptor Blockers",
+    "members": [
+      "losartan", "valsartan", "irbesartan", "candesartan",
+      "telmisartan", "olmesartan"
+    ],
+    "source": "KDIGO 2024, WHO EML"
+  },
+  {
+    "key": "opioid",
+    "name": "Opioids",
+    "members": [
+      "morphine", "codeine", "hydrocodone", "oxycodone",
+      "tramadol", "fentanyl", "methadone", "hydromorphone",
+      "meperidine", "buprenorphine"
+    ],
+    "source": "WHO Pain Ladder, STOPP/START v3"
+  },
+  {
+    "key": "fluoroquinolone",
+    "name": "Fluoroquinolones",
+    "members": [
+      "ciprofloxacin", "levofloxacin", "moxifloxacin",
+      "norfloxacin", "ofloxacin"
+    ],
+    "source": "WHO EML"
+  },
+  {
+    "key": "macrolide",
+    "name": "Macrolides",
+    "members": ["azithromycin", "clarithromycin", "erythromycin"],
+    "source": "WHO EML"
+  },
+  {
+    "key": "tetracycline",
+    "name": "Tetracyclines",
+    "members": ["tetracycline", "doxycycline", "minocycline"],
+    "source": "WHO EML"
+  },
+  {
+    "key": "beta_blocker",
+    "name": "Beta-Blockers",
+    "members": [
+      "metoprolol", "atenolol", "bisoprolol", "propranolol",
+      "carvedilol", "nebivolol"
+    ],
+    "source": "ESC 2023, WHO EML"
+  },
+  {
+    "key": "doac",
+    "name": "Direct Oral Anticoagulants",
+    "members": ["apixaban", "rivaroxaban", "dabigatran", "edoxaban"],
+    "source": "EHRA 2021, ESC 2024"
+  },
+  {
+    "key": "ssri",
+    "name": "SSRIs",
+    "members": [
+      "sertraline", "escitalopram", "fluoxetine", "citalopram",
+      "paroxetine", "fluvoxamine"
+    ],
+    "source": "WHO EML, STOPP/START v3"
+  },
+  {
+    "key": "ppi",
+    "name": "Proton Pump Inhibitors",
+    "members": [
+      "omeprazole", "pantoprazole", "esomeprazole",
+      "lansoprazole", "rabeprazole"
+    ],
+    "source": "STOPP/START v3, WHO EML"
+  },
+  {
+    "key": "anticonvulsant",
+    "name": "Anticonvulsants",
+    "members": [
+      "valproate", "carbamazepine", "phenytoin", "lamotrigine",
+      "levetiracetam", "topiramate"
+    ],
+    "source": "ILAE, WHO EML"
+  },
+  {
+    "key": "sulfonylurea",
+    "name": "Sulfonylureas",
+    "members": ["gliclazide", "glimepiride", "glipizide", "glyburide"],
+    "source": "WHO EML, KDIGO"
+  },
+  {
+    "key": "benzodiazepine",
+    "name": "Benzodiazepines",
+    "members": [
+      "diazepam", "lorazepam", "alprazolam", "clonazepam",
+      "midazolam", "oxazepam"
+    ],
+    "source": "WHO EML, STOPP/START v3"
+  },
+  {
+    "key": "thiazide",
+    "name": "Thiazide Diuretics",
+    "members": [
+      "hydrochlorothiazide", "chlorthalidone", "indapamide",
+      "metolazone"
+    ],
+    "source": "ESC 2023, WHO EML"
+  },
+  {
+    "key": "k_sparing_diuretic",
+    "name": "Potassium-Sparing Diuretics",
+    "members": ["spironolactone", "eplerenone", "amiloride", "triamterene"],
+    "source": "KDIGO, STOPP/START v3"
+  }
+]

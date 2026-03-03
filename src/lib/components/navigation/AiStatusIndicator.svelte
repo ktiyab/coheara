@@ -4,6 +4,7 @@
   import { t } from 'svelte-i18n';
   import { ai } from '$lib/stores/ai.svelte';
   import { extraction } from '$lib/stores/extraction.svelte';
+  import { chatQueue } from '$lib/stores/chatQueue.svelte';
   import { navigation } from '$lib/stores/navigation.svelte';
   import { ChevronDownIcon } from '$lib/components/icons/md';
 
@@ -161,6 +162,20 @@
               onclick={() => { navigation.navigate('home'); open = false; }}
             >
               {$t('settings.extraction_view') ?? 'Review'}
+            </button>
+          </div>
+        {/if}
+
+        {#if chatQueue.pendingCount > 0}
+          <div class="mt-2 pt-2 border-t border-stone-100 dark:border-gray-800 flex items-center justify-between">
+            <p class="text-xs text-stone-600 dark:text-gray-300">
+              {$t('chat.queue_pending', { values: { count: chatQueue.pendingCount } })}
+            </p>
+            <button
+              class="text-xs font-medium text-[var(--color-interactive)] hover:underline cursor-pointer"
+              onclick={() => { navigation.navigate('chat'); open = false; }}
+            >
+              {$t('chat.new_conversation')}
             </button>
           </div>
         {/if}

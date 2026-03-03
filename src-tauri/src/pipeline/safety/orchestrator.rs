@@ -58,6 +58,7 @@ impl SafetyFilter for SafetyFilterImpl {
             return Ok(FilteredResponse {
                 text: String::new(),
                 citations: response.citations.clone(),
+                guideline_citations: response.guideline_citations.clone(),
                 confidence: response.confidence,
                 query_type: response.query_type.clone(),
                 boundary_check: BoundaryCheck::OutOfBounds,
@@ -73,6 +74,7 @@ impl SafetyFilter for SafetyFilterImpl {
         Ok(FilteredResponse {
             text: response.text.clone(),
             citations: response.citations.clone(),
+            guideline_citations: response.guideline_citations.clone(),
             confidence: response.confidence,
             query_type: response.query_type.clone(),
             boundary_check: response.boundary_check.clone(),
@@ -125,6 +127,7 @@ mod tests {
         RagResponse {
             text: text.to_string(),
             citations: vec![],
+            guideline_citations: vec![],
             confidence: 0.85,
             query_type: QueryType::Factual,
             context_used: ContextSummary {

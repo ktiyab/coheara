@@ -18,7 +18,9 @@ use crate::db;
 use crate::device_manager::DeviceManager;
 use crate::distribution::DistributionServer;
 use crate::butler_service::ButlerService;
+use crate::chat_queue::ChatQueueService;
 use crate::import_queue::ImportQueueService;
+use crate::invariants::InvariantRegistry;
 use crate::ollama_service::OllamaService;
 use crate::pairing::PairingManager;
 use crate::pipeline::structuring::preferences::ActiveModelResolver;
@@ -75,11 +77,46 @@ pub struct CoreState {
     ai_verified: AtomicBool,
     /// BTL-10: Import queue service — document import lifecycle manager.
     import_queue: ImportQueueService,
+    /// CHAT-QUEUE-01: Chat queue service — deferred message lifecycle manager.
+    chat_queue: ChatQueueService,
+    /// ME-03: Invariant Reference Engine — curated medical knowledge.
+    invariant_registry: InvariantRegistry,
 }
 
 impl CoreState {
     /// Create a new CoreState with defaults.
     pub fn new() -> Self {
+        Self::with_resources(None)
+    }
+
+    /// Create a new CoreState, loading invariant registry from the given resources dir.
+    ///
+    /// ME-03: If `resources_dir` is provided, loads curated medical reference data
+    /// (drug families, interactions, cross-reactivity, monitoring schedules) from JSON.
+    /// Falls back to empty registry on load failure (graceful degradation).
+    pub fn with_resources(resources_dir: Option<&std::path::Path>) -> Self {
+        let invariant_registry = match resources_dir {
+            Some(dir) => {
+                match InvariantRegistry::load(dir) {
+                    Ok(registry) => {
+                        tracing::info!(
+                            drug_families = registry.drug_families().len(),
+                            interactions = registry.interaction_pairs().len(),
+                            cross_reactivity = registry.cross_reactivity().len(),
+                            monitoring = registry.monitoring_schedules().len(),
+                            "ME-03: Invariant registry loaded"
+                        );
+                        registry
+                    }
+                    Err(e) => {
+                        tracing::warn!("ME-03: Failed to load invariant registry: {e}");
+                        InvariantRegistry::empty()
+                    }
+                }
+            }
+            None => InvariantRegistry::empty(),
+        };
+
         Self {
             session: RwLock::new(None),
             session_cache: RwLock::new(SessionCache::new()),
@@ -96,6 +133,8 @@ impl CoreState {
             butler: ButlerService::new(),
             ai_verified: AtomicBool::new(false),
             import_queue: ImportQueueService::new(),
+            chat_queue: ChatQueueService::new(),
+            invariant_registry,
         }
     }
 
@@ -417,6 +456,16 @@ impl CoreState {
         &self.import_queue
     }
 
+    /// CHAT-QUEUE-01: Access the chat queue service.
+    pub fn chat_queue(&self) -> &ChatQueueService {
+        &self.chat_queue
+    }
+
+    /// ME-03: Access the invariant reference registry.
+    pub fn invariants(&self) -> &InvariantRegistry {
+        &self.invariant_registry
+    }
+
     /// S.1: Check if AI generation has been verified.
     pub fn is_ai_verified(&self) -> bool {
         self.ai_verified.load(Ordering::Relaxed)
@@ -425,6 +474,17 @@ impl CoreState {
     /// S.1: Mark AI generation as verified (after successful test generation).
     pub fn set_ai_verified(&self, verified: bool) {
         self.ai_verified.store(verified, Ordering::Relaxed);
+    }
+
+    /// ME-04: Build PatientDemographics from the active profile.
+    /// Returns None if no session is active or profile not found.
+    pub fn get_patient_demographics(&self) -> Option<crate::crypto::profile::PatientDemographics> {
+        use crate::crypto::profile::{self, PatientDemographics};
+        let guard = self.read_session().ok()?;
+        let session = guard.as_ref()?;
+        let profiles = profile::list_profiles(&self.profiles_dir).ok()?;
+        let info = profiles.into_iter().find(|p| p.id == session.profile_id)?;
+        Some(PatientDemographics::from_profile(&info))
     }
 
     /// I18N-03: Get the user's preferred language from user_preferences.
@@ -656,6 +716,8 @@ mod tests {
             butler: ButlerService::new(),
             ai_verified: AtomicBool::new(false),
             import_queue: ImportQueueService::new(),
+            chat_queue: ChatQueueService::new(),
+            invariant_registry: InvariantRegistry::empty(),
         };
         assert!(state.check_timeout());
     }

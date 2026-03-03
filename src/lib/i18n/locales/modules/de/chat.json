@@ -13,6 +13,7 @@
     "messages_aria": "Sitzungsnachrichten",
     "new_conversation_title": "Neue Sitzung",
     "stream_error_guidance": "Überprüfen Sie, ob Ollama läuft, und versuchen Sie dann erneut, Ihre Nachricht zu senden.",
+    "stream_timeout": "Zeitüberschreitung bei der Antwort. Die KI verarbeitet möglicherweise eine komplexe Anfrage — versuchen Sie es erneut.",
     "conversation_start_error": "Sitzung konnte nicht gestartet werden. Bitte versuchen Sie es erneut.",
     "avatar_initial": "C",
     "streaming_searching": "Ihre Dokumente werden durchsucht...",
@@ -65,6 +66,12 @@
     "default_ask_changes": "Was hat sich seit meinem letzten Termin geändert?",
     "prefill_symptom": "Ich fühle mich...",
     "prefill_medication": "Zu meinem Medikament...",
-    "prefill_appointment": "Ich habe einen Termin..."
+    "prefill_appointment": "Ich habe einen Termin...",
+    "queue_waiting": "Warten auf KI...",
+    "queue_acquiring": "Verbindung zur KI...",
+    "queue_pending": "{count, plural, one {# Frage ausstehend} other {# Fragen ausstehend}}",
+    "queue_position": "Position {position}",
+    "queue_unanswered": "Ihre Frage wurde nicht beantwortet.",
+    "queue_unanswered_retry": "Erneut versuchen"
   }
 }

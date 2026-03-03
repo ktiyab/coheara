@@ -4,15 +4,16 @@
   import type { ReviewEntity, FieldCorrection, EntityCategory } from '$lib/types/review';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import Badge from '$lib/components/ui/Badge.svelte';
-  import { ChevronDownIcon, EditIcon } from '$lib/components/icons/md';
+  import { ChevronDownIcon } from '$lib/components/icons/md';
   import EntityEditPanel from './EntityEditPanel.svelte';
 
   interface Props {
     entity: ReviewEntity;
     corrections: FieldCorrection[];
     onCorrection: (correction: FieldCorrection) => void;
+    onDismiss: () => void;
   }
-  let { entity, corrections, onCorrection }: Props = $props();
+  let { entity, corrections, onCorrection, onDismiss }: Props = $props();
 
   let expanded = $state(false);
 
@@ -135,11 +136,6 @@
       </Badge>
     {/if}
 
-    <span class="text-stone-300 dark:text-gray-600 opacity-0 group-hover:opacity-100
-                 transition-opacity shrink-0 {expanded ? '' : ''}">
-      <EditIcon class="w-3.5 h-3.5" />
-    </span>
-
     <ChevronDownIcon
       class="w-4 h-4 text-stone-400 dark:text-gray-500 transition-transform shrink-0
              {expanded ? 'rotate-180' : ''}"
@@ -152,6 +148,7 @@
       {corrections}
       {onCorrection}
       onCollapse={() => expanded = false}
+      {onDismiss}
     />
   {/if}
 </div>

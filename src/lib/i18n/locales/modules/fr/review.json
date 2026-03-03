@@ -2,6 +2,7 @@
   "review": {
     "confirm_error_guidance": "Vos corrections sont enregistrées localement. Essayez de confirmer à nouveau.",
     "reject_error_guidance": "Veuillez réessayer. Si le problème persiste, retournez à l'accueil.",
+    "delete_error_guidance": "Impossible de supprimer le document. Veuillez réessayer.",
     "flagged_heading": "Certains champs nécessitent une vérification",
     "flagged_description": "Il y a {count, plural, one {# champ dont} other {# champs dont}} je ne suis pas sûr. Souhaitez-vous {count, plural, one {le} other {les}} vérifier d'abord ?",
     "check_flagged": "Vérifier les champs signalés",
