@@ -88,7 +88,7 @@
           </p>
         </div>
         <button
-          class="flex-shrink-0 text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300
+          class="flex-shrink-0 text-stone-400 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300
                  min-h-[44px] min-w-[44px] flex items-center justify-center"
           onclick={() => handleDismiss(alert.id)}
           disabled={dismissing === alert.id}

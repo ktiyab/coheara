@@ -253,6 +253,7 @@ pub(crate) fn emit_filtered_response(
                 full_text: display_text.clone(),
                 confidence,
                 boundary_check: boundary_str,
+                grounding: format!("{:?}", filtered.grounding),
             },
         },
     );
@@ -316,6 +317,7 @@ pub(crate) fn emit_placeholder_response(
                 full_text: placeholder.to_string(),
                 confidence: 0.0,
                 boundary_check: "Understanding".to_string(),
+                grounding: "None".to_string(),
             },
         },
     );

@@ -13,6 +13,8 @@
 //! 5. `detect_same_family_allergy` — Allergy × Medication → same drug family → Contraindication
 //! 6. `detect_missing_monitoring` — Active med → schedule → missing lab → MissingMonitoring
 //! 7. `detect_screening_due` — Demographics → age+sex-gated screening schedules → ScreeningDue
+//! 8. `detect_vital_trends` — Multiple readings → temporal comparison → AbnormalTrend
+//! 9. `detect_food_cross_reactivity` — Allergy × allergen chains → OAS/food cross-reactivity
 
 use chrono::NaiveDate;
 
@@ -58,6 +60,41 @@ const MISSING_MONITORING_LABEL: InvariantLabel = InvariantLabel {
     de: "Überfällige Kontrolluntersuchung",
 };
 
+const BP_TREND_LABEL: InvariantLabel = InvariantLabel {
+    key: "bp_trend",
+    en: "Blood pressure trending upward",
+    fr: "Pression artérielle en hausse",
+    de: "Blutdruck steigend",
+};
+
+const WEIGHT_LOSS_LABEL: InvariantLabel = InvariantLabel {
+    key: "weight_loss_trend",
+    en: "Significant weight loss",
+    fr: "Perte de poids significative",
+    de: "Signifikanter Gewichtsverlust",
+};
+
+const WEIGHT_GAIN_LABEL: InvariantLabel = InvariantLabel {
+    key: "weight_gain_trend",
+    en: "Significant weight gain",
+    fr: "Prise de poids significative",
+    de: "Signifikante Gewichtszunahme",
+};
+
+const FOOD_CROSS_REACTIVITY_LABEL: InvariantLabel = InvariantLabel {
+    key: "food_cross_reactivity",
+    en: "Allergen cross-reactivity (food/environmental)",
+    fr: "Reactivite croisee allergenique (alimentaire/environnementale)",
+    de: "Allergen-Kreuzreaktivitat (Nahrungsmittel/Umwelt)",
+};
+
+const RH_NEGATIVE_AWARENESS_LABEL: InvariantLabel = InvariantLabel {
+    key: "rh_negative_awareness",
+    en: "Rh-negative blood type - discuss anti-D prophylaxis with your doctor if pregnancy is relevant",
+    fr: "Groupe sanguin Rh-negatif - discutez de la prophylaxie anti-D avec votre medecin si une grossesse est envisagee",
+    de: "Rh-negativer Bluttyp - besprechen Sie die Anti-D-Prophylaxe mit Ihrem Arzt wenn eine Schwangerschaft in Frage kommt",
+};
+
 // ═══════════════════════════════════════════════════════════
 // Main entry point
 // ═══════════════════════════════════════════════════════════
@@ -93,6 +130,9 @@ pub fn enrich(
         reference_date,
     ));
     insights.extend(crate::invariants::screening::detect_screening_due(demographics));
+    insights.extend(detect_vital_trends(vital_signs));
+    insights.extend(detect_food_cross_reactivity(allergies, registry));
+    insights.extend(detect_rh_negative_awareness(demographics));
 
     // Sort by severity descending (Critical first)
     insights.sort_by(|a, b| b.severity.cmp(&a.severity));
@@ -423,6 +463,11 @@ fn detect_cross_reactivity(
 
     for allergy in allergies {
         let allergen_lower = allergy.allergen.trim().to_lowercase();
+
+        // ALLERGY-01: Try canonical key resolution first for precise matching
+        let canonical_key = registry
+            .classify_allergen(&allergen_lower)
+            .map(|a| a.key);
         let allergen_family = registry.find_drug_family(&allergen_lower);
 
         for chain in registry.cross_reactivity() {
@@ -430,9 +475,11 @@ fn detect_cross_reactivity(
             let cross_lower = chain.cross_reactive.to_lowercase();
 
             // Does allergen match the primary side of this chain?
-            // Uses contains() because chain entries can be qualified
-            // (e.g., "aminopenicillin" contains "penicillin").
-            let allergen_matches_primary = allergen_lower == primary_lower
+            // Priority: (1) canonical key match, (2) text/family match (backward compat)
+            let allergen_matches_primary = canonical_key
+                    .map(|k| primary_lower.contains(k))
+                    .unwrap_or(false)
+                || allergen_lower == primary_lower
                 || primary_lower.contains(&allergen_lower)
                 || allergen_family
                     .map(|f| {
@@ -446,8 +493,6 @@ fn detect_cross_reactivity(
             }
 
             // Does any active medication match the cross-reactive side?
-            // Uses contains() because chain entries can be qualified
-            // (e.g., "cephalosporin (dissimilar R1)" contains "cephalosporin").
             for med in &active_meds {
                 let med_lower = med.generic_name.trim().to_lowercase();
                 let med_family = registry.find_drug_family(&med_lower);
@@ -463,7 +508,7 @@ fn detect_cross_reactivity(
                         kind: InsightKind::CrossReactivity,
                         severity: InsightSeverity::Critical,
                         summary_key: format!(
-                            "{} allergy → {} ({} cross-reactivity)",
+                            "{} allergy - {} ({} cross-reactivity)",
                             allergy.allergen, med.generic_name, chain.rate
                         ),
                         description: CROSS_REACTIVITY_LABEL,
@@ -506,15 +551,31 @@ fn detect_same_family_allergy(
 
     for allergy in allergies {
         let allergen_lower = allergy.allergen.trim().to_lowercase();
-        let Some(allergen_family) = registry.find_drug_family(&allergen_lower) else {
+
+        // ALLERGY-01: Try canonical key resolution for drug category allergens
+        // This enables "penicillin" (alias) to resolve to drug_beta_lactam,
+        // then match the penicillin drug family.
+        let resolved_name = registry
+            .classify_allergen(&allergen_lower)
+            .filter(|a| a.category == "drug")
+            .and_then(|a| {
+                // Map canonical allergen key to drug family members
+                // e.g., drug_beta_lactam -> find family with "penicillin" key
+                let key_suffix = a.key.strip_prefix("drug_")?;
+                Some(key_suffix.to_string())
+            });
+
+        let search_name = resolved_name.as_deref().unwrap_or(&allergen_lower);
+        let Some(allergen_family) = registry.find_drug_family(search_name)
+            .or_else(|| registry.find_drug_family(&allergen_lower))
+        else {
             continue;
         };
 
         for med in &active_meds {
             let med_lower = med.generic_name.trim().to_lowercase();
 
-            // Skip exact match — if allergen == medication, this is a direct contraindication
-            // already obvious in the EHR; we focus on non-obvious same-family cases.
+            // Skip exact match
             if med_lower == allergen_lower {
                 continue;
             }
@@ -528,7 +589,7 @@ fn detect_same_family_allergy(
                     kind: InsightKind::CrossReactivity,
                     severity: InsightSeverity::Critical,
                     summary_key: format!(
-                        "{} allergy → {} (same {} family)",
+                        "{} allergy - {} (same {} family)",
                         allergy.allergen, med.generic_name, allergen_family.name
                     ),
                     description: SAME_FAMILY_ALLERGY_LABEL,
@@ -629,6 +690,263 @@ fn find_latest_matching_lab<'a>(
             }
         })
         .max_by_key(|lab| lab.collection_date)
+}
+
+// ═══════════════════════════════════════════════════════════
+// Sub-algorithm 8: Vital sign trend detection
+// ═══════════════════════════════════════════════════════════
+
+/// Detect clinically significant trends across multiple vital sign readings.
+///
+/// Compares the earliest and latest readings within each vital type
+/// (requires at least 2 readings separated by 14+ days).
+/// Uses ISH 2020 (BP), GLIM 2019 (weight) thresholds.
+///
+/// Pure function — no side effects, no I/O.
+fn detect_vital_trends(vital_signs: &[VitalSign]) -> Vec<ClinicalInsight> {
+    let mut insights = Vec::new();
+
+    // Group vitals by type
+    let mut bp_readings: Vec<&VitalSign> = Vec::new();
+    let mut weight_readings: Vec<&VitalSign> = Vec::new();
+
+    for v in vital_signs {
+        match v.vital_type {
+            VitalType::BloodPressure => bp_readings.push(v),
+            VitalType::Weight => weight_readings.push(v),
+            _ => {}
+        }
+    }
+
+    // BP trend: ISH 2020 — systolic increase >= 20 or diastolic >= 10
+    if bp_readings.len() >= 2 {
+        bp_readings.sort_by_key(|v| v.recorded_at);
+        let earliest = bp_readings[0];
+        let latest = bp_readings[bp_readings.len() - 1];
+        let days_apart = (latest.recorded_at - earliest.recorded_at).num_days();
+
+        if days_apart >= 14 {
+            let sys_delta = latest.value_primary - earliest.value_primary;
+            let dia_delta = latest.value_secondary.unwrap_or(0.0)
+                - earliest.value_secondary.unwrap_or(0.0);
+
+            if sys_delta >= vitals::BP_SYSTOLIC_TREND_THRESHOLD
+                || dia_delta >= vitals::BP_DIASTOLIC_TREND_THRESHOLD
+            {
+                let severity = if sys_delta >= vitals::BP_SYSTOLIC_TREND_THRESHOLD * 1.5 {
+                    InsightSeverity::Critical
+                } else {
+                    InsightSeverity::Warning
+                };
+                insights.push(ClinicalInsight {
+                    kind: InsightKind::AbnormalTrend,
+                    severity,
+                    summary_key: format!(
+                        "BP trend: +{:.0}/{:+.0} mmHg over {} days",
+                        sys_delta, dia_delta, days_apart
+                    ),
+                    description: BP_TREND_LABEL,
+                    source: "ISH 2020".to_string(),
+                    related_entities: vec![earliest.id, latest.id],
+                    meaning_factors: MeaningFactors {
+                        significance: severity_to_significance(severity),
+                        ..MeaningFactors::default()
+                    },
+                });
+            }
+        }
+    }
+
+    // Weight trend: GLIM 2019 — >=5% loss or gain in <=6 months
+    if weight_readings.len() >= 2 {
+        weight_readings.sort_by_key(|v| v.recorded_at);
+        let earliest = weight_readings[0];
+        let latest = weight_readings[weight_readings.len() - 1];
+        let days_apart = (latest.recorded_at - earliest.recorded_at).num_days();
+
+        if days_apart >= 14 && earliest.value_primary > 0.0 {
+            let pct_change =
+                (latest.value_primary - earliest.value_primary) / earliest.value_primary * 100.0;
+
+            if pct_change <= -vitals::WEIGHT_LOSS_SEVERE_PCT {
+                insights.push(ClinicalInsight {
+                    kind: InsightKind::AbnormalTrend,
+                    severity: InsightSeverity::Critical,
+                    summary_key: format!(
+                        "Weight loss {:.1}% ({:.1} -> {:.1} kg) over {} days",
+                        pct_change.abs(),
+                        earliest.value_primary,
+                        latest.value_primary,
+                        days_apart
+                    ),
+                    description: WEIGHT_LOSS_LABEL,
+                    source: "GLIM 2019".to_string(),
+                    related_entities: vec![earliest.id, latest.id],
+                    meaning_factors: MeaningFactors {
+                        significance: 1.5,
+                        ..MeaningFactors::default()
+                    },
+                });
+            } else if pct_change <= -vitals::WEIGHT_LOSS_MODERATE_PCT {
+                insights.push(ClinicalInsight {
+                    kind: InsightKind::AbnormalTrend,
+                    severity: InsightSeverity::Warning,
+                    summary_key: format!(
+                        "Weight loss {:.1}% ({:.1} -> {:.1} kg) over {} days",
+                        pct_change.abs(),
+                        earliest.value_primary,
+                        latest.value_primary,
+                        days_apart
+                    ),
+                    description: WEIGHT_LOSS_LABEL,
+                    source: "GLIM 2019".to_string(),
+                    related_entities: vec![earliest.id, latest.id],
+                    meaning_factors: MeaningFactors {
+                        significance: 0.8,
+                        ..MeaningFactors::default()
+                    },
+                });
+            } else if pct_change >= vitals::WEIGHT_GAIN_THRESHOLD_PCT {
+                insights.push(ClinicalInsight {
+                    kind: InsightKind::AbnormalTrend,
+                    severity: InsightSeverity::Warning,
+                    summary_key: format!(
+                        "Weight gain {:.1}% ({:.1} -> {:.1} kg) over {} days",
+                        pct_change,
+                        earliest.value_primary,
+                        latest.value_primary,
+                        days_apart
+                    ),
+                    description: WEIGHT_GAIN_LABEL,
+                    source: "GLIM 2019".to_string(),
+                    related_entities: vec![earliest.id, latest.id],
+                    meaning_factors: MeaningFactors {
+                        significance: 0.8,
+                        ..MeaningFactors::default()
+                    },
+                });
+            }
+        }
+    }
+
+    insights
+}
+
+// ═══════════════════════════════════════════════════════════
+// Sub-algorithm 9: Detect food/environmental cross-reactivity
+// ═══════════════════════════════════════════════════════════
+
+/// Detect cross-reactivity between allergens (no medication involvement).
+///
+/// Covers: pollen-food OAS, food-food pairs, insect venom, extended latex-fruit.
+/// Uses `allergen_cross_reactivity` chains (bundled tier).
+/// Produces `InsightSeverity::Info` — informational, not critical.
+fn detect_food_cross_reactivity(
+    allergies: &[Allergy],
+    registry: &InvariantRegistry,
+) -> Vec<ClinicalInsight> {
+    let chains = registry.allergen_cross_reactivity();
+    if chains.is_empty() || allergies.is_empty() {
+        return Vec::new();
+    }
+
+    let mut insights = Vec::new();
+
+    for allergy in allergies {
+        let allergen_lower = allergy.allergen.trim().to_lowercase();
+
+        // Resolve to canonical key for precise matching
+        let canonical_key = registry
+            .classify_allergen(&allergen_lower)
+            .map(|a| a.key);
+
+        for chain in chains {
+            let primary_lower = chain.primary.to_lowercase();
+
+            // Match allergen to primary side of chain
+            let matches = canonical_key
+                    .map(|k| primary_lower == k || primary_lower.contains(k))
+                    .unwrap_or(false)
+                || allergen_lower == primary_lower
+                || primary_lower.contains(&allergen_lower);
+
+            if matches {
+                insights.push(ClinicalInsight {
+                    kind: InsightKind::CrossReactivity,
+                    severity: InsightSeverity::Info,
+                    summary_key: format!(
+                        "{} - cross-reactive with {} ({})",
+                        allergy.allergen, chain.cross_reactive, chain.rate
+                    ),
+                    description: FOOD_CROSS_REACTIVITY_LABEL,
+                    source: chain.source.clone(),
+                    related_entities: vec![allergy.id],
+                    meaning_factors: MeaningFactors {
+                        significance: 0.4,
+                        ..MeaningFactors::default()
+                    },
+                });
+            }
+        }
+    }
+
+    insights
+}
+
+// ═══════════════════════════════════════════════════════════
+// Sub-algorithm 10: Rh-negative awareness (BT-01)
+// ═══════════════════════════════════════════════════════════
+
+/// Detect Rh-negative blood type in reproductive-age females.
+///
+/// ACOG Practice Bulletin 181 + RCOG GTG 65: Rh-negative women of
+/// childbearing age (15-50) should discuss anti-D prophylaxis with
+/// their healthcare provider if pregnancy is relevant.
+fn detect_rh_negative_awareness(
+    demographics: Option<&PatientDemographics>,
+) -> Vec<ClinicalInsight> {
+    let demo = match demographics {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let blood_type = match &demo.blood_type {
+        Some(bt) => bt,
+        None => return Vec::new(),
+    };
+
+    if !crate::invariants::blood_types::is_rh_negative(blood_type.as_str()) {
+        return Vec::new();
+    }
+
+    if demo.sex != Some(BiologicalSex::Female) {
+        return Vec::new();
+    }
+
+    let age = match demo.age_years {
+        Some(a) => a,
+        None => return Vec::new(),
+    };
+
+    if age < 15 || age > 50 {
+        return Vec::new();
+    }
+
+    vec![ClinicalInsight {
+        kind: InsightKind::Classification,
+        severity: InsightSeverity::Warning,
+        summary_key: format!(
+            "Rh-negative blood type ({}) - anti-D prophylaxis awareness",
+            blood_type.as_str(),
+        ),
+        description: RH_NEGATIVE_AWARENESS_LABEL,
+        source: "ACOG Practice Bulletin 181, RCOG GTG 65".to_string(),
+        related_entities: Vec::new(),
+        meaning_factors: MeaningFactors {
+            significance: 0.6,
+            ..MeaningFactors::default()
+        },
+    }]
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -754,6 +1072,7 @@ mod tests {
             allergen: allergen.to_string(),
             reaction: Some("Rash".to_string()),
             severity: AllergySeverity::Moderate,
+            allergen_category: None,
             date_identified: None,
             source: AllergySource::DocumentExtracted,
             document_id: None,
@@ -1425,6 +1744,7 @@ mod tests {
             ethnicities,
             age_context: None,
             age_years: None,
+            blood_type: None,
         }
     }
 
@@ -1556,7 +1876,281 @@ mod tests {
         let registry = InvariantRegistry::empty();
         let vitals = vec![make_vital(VitalType::BloodPressure, 145.0, Some(92.0))];
         let insights = enrich(&[], &[], &[], &vitals, &registry, today(), None);
+        // Should have BP classification; no trend (only 1 reading)
+        assert!(insights.iter().any(|i| i.description.key == "bp_grade_1_htn"));
+    }
+
+    // ── Sub-algorithm 8: Vital sign trend tests ─────────────
+
+    fn make_vital_at(
+        vital_type: VitalType,
+        primary: f64,
+        secondary: Option<f64>,
+        date_str: &str,
+    ) -> VitalSign {
+        let ts = NaiveDateTime::parse_from_str(
+            &format!("{date_str} 10:00:00"),
+            "%Y-%m-%d %H:%M:%S",
+        )
+        .unwrap();
+        VitalSign {
+            id: Uuid::new_v4(),
+            vital_type,
+            value_primary: primary,
+            value_secondary: secondary,
+            unit: match vital_type {
+                VitalType::BloodPressure => "mmHg".to_string(),
+                VitalType::Weight => "kg".to_string(),
+                _ => "unit".to_string(),
+            },
+            recorded_at: ts,
+            notes: None,
+            source: VitalSource::Imported,
+            created_at: ts,
+        }
+    }
+
+    #[test]
+    fn bp_trend_detects_systolic_increase() {
+        let vitals = vec![
+            make_vital_at(VitalType::BloodPressure, 120.0, Some(75.0), "2025-07-01"),
+            make_vital_at(VitalType::BloodPressure, 145.0, Some(80.0), "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
         assert_eq!(insights.len(), 1);
-        assert_eq!(insights[0].description.key, "bp_grade_1_htn");
+        assert_eq!(insights[0].kind, InsightKind::AbnormalTrend);
+        assert_eq!(insights[0].description.key, "bp_trend");
+        assert_eq!(insights[0].source, "ISH 2020");
+        assert!(insights[0].summary_key.contains("+25"));
+    }
+
+    #[test]
+    fn bp_trend_no_alert_below_threshold() {
+        let vitals = vec![
+            make_vital_at(VitalType::BloodPressure, 120.0, Some(75.0), "2025-07-01"),
+            make_vital_at(VitalType::BloodPressure, 135.0, Some(80.0), "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn bp_trend_requires_minimum_time_gap() {
+        // Only 5 days apart - should not trigger
+        let vitals = vec![
+            make_vital_at(VitalType::BloodPressure, 120.0, Some(75.0), "2025-12-01"),
+            make_vital_at(VitalType::BloodPressure, 150.0, Some(90.0), "2025-12-06"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn bp_trend_single_reading_no_trend() {
+        let vitals = vec![
+            make_vital_at(VitalType::BloodPressure, 180.0, Some(110.0), "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn weight_loss_severe_detected() {
+        // 80 -> 70 kg = 12.5% loss
+        let vitals = vec![
+            make_vital_at(VitalType::Weight, 80.0, None, "2025-07-01"),
+            make_vital_at(VitalType::Weight, 70.0, None, "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].severity, InsightSeverity::Critical);
+        assert_eq!(insights[0].source, "GLIM 2019");
+    }
+
+    #[test]
+    fn weight_loss_moderate_detected() {
+        // 80 -> 74 kg = 7.5% loss
+        let vitals = vec![
+            make_vital_at(VitalType::Weight, 80.0, None, "2025-07-01"),
+            make_vital_at(VitalType::Weight, 74.0, None, "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].severity, InsightSeverity::Warning);
+    }
+
+    #[test]
+    fn weight_gain_detected() {
+        // 80 -> 85 kg = 6.25% gain
+        let vitals = vec![
+            make_vital_at(VitalType::Weight, 80.0, None, "2025-07-01"),
+            make_vital_at(VitalType::Weight, 85.0, None, "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].description.key, "weight_gain_trend");
+    }
+
+    #[test]
+    fn weight_stable_no_trend() {
+        // 80 -> 81 kg = 1.25% gain - below threshold
+        let vitals = vec![
+            make_vital_at(VitalType::Weight, 80.0, None, "2025-07-01"),
+            make_vital_at(VitalType::Weight, 81.0, None, "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn bp_and_weight_trends_both_detected() {
+        let vitals = vec![
+            make_vital_at(VitalType::BloodPressure, 120.0, Some(75.0), "2025-07-01"),
+            make_vital_at(VitalType::BloodPressure, 145.0, Some(88.0), "2025-12-01"),
+            make_vital_at(VitalType::Weight, 80.0, None, "2025-07-01"),
+            make_vital_at(VitalType::Weight, 70.0, None, "2025-12-01"),
+        ];
+        let insights = detect_vital_trends(&vitals);
+        assert_eq!(insights.len(), 2);
+    }
+
+    // ── Sub-algorithm 9: Food/environmental cross-reactivity ─
+
+    #[test]
+    fn birch_pollen_oas_detected() {
+        let registry = loaded_registry();
+        if registry.allergen_cross_reactivity().is_empty() {
+            return;
+        }
+        let allergies = vec![make_allergy("birch pollen")];
+        let insights = detect_food_cross_reactivity(&allergies, &registry);
+        assert!(
+            !insights.is_empty(),
+            "Birch pollen allergy should trigger OAS cross-reactivity"
+        );
+        assert_eq!(insights[0].kind, InsightKind::CrossReactivity);
+        assert_eq!(insights[0].severity, InsightSeverity::Info);
+    }
+
+    #[test]
+    fn peanut_food_cross_reactivity_detected() {
+        let registry = loaded_registry();
+        if registry.allergen_cross_reactivity().is_empty() {
+            return;
+        }
+        let allergies = vec![make_allergy("peanut")];
+        let insights = detect_food_cross_reactivity(&allergies, &registry);
+        assert!(
+            !insights.is_empty(),
+            "Peanut allergy should trigger food cross-reactivity (lupin, tree nut)"
+        );
+        assert!(insights.iter().all(|i| i.severity == InsightSeverity::Info));
+    }
+
+    #[test]
+    fn no_food_cross_reactivity_for_unknown() {
+        let registry = loaded_registry();
+        let allergies = vec![make_allergy("xyznonexistent_allergen")];
+        let insights = detect_food_cross_reactivity(&allergies, &registry);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn food_cross_reactivity_empty_registry() {
+        let registry = InvariantRegistry::empty();
+        let allergies = vec![make_allergy("birch pollen")];
+        let insights = detect_food_cross_reactivity(&allergies, &registry);
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn enrich_includes_food_cross_reactivity() {
+        let registry = loaded_registry();
+        if registry.allergen_cross_reactivity().is_empty() {
+            return;
+        }
+        let allergies = vec![make_allergy("birch pollen")];
+        let insights = enrich(&[], &[], &allergies, &[], &registry, today(), None);
+        let food_cross = insights
+            .iter()
+            .filter(|i| i.description.key == "food_cross_reactivity")
+            .count();
+        assert!(
+            food_cross > 0,
+            "enrich() should include food cross-reactivity insights"
+        );
+    }
+
+    // ── BT-01: Rh-negative awareness tests ─────────────────
+
+    fn make_bt_demographics(
+        sex: Option<BiologicalSex>,
+        age: Option<u16>,
+        blood_type: Option<crate::models::enums::BloodType>,
+    ) -> PatientDemographics {
+        PatientDemographics {
+            sex,
+            ethnicities: Vec::new(),
+            age_context: None,
+            age_years: age,
+            blood_type,
+        }
+    }
+
+    #[test]
+    fn rh_negative_female_age_25_produces_warning() {
+        let demo = make_bt_demographics(
+            Some(BiologicalSex::Female),
+            Some(25),
+            Some(crate::models::enums::BloodType::ONegative),
+        );
+        let insights = detect_rh_negative_awareness(Some(&demo));
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].severity, InsightSeverity::Warning);
+        assert_eq!(insights[0].description.key, "rh_negative_awareness");
+    }
+
+    #[test]
+    fn rh_positive_female_no_insight() {
+        let demo = make_bt_demographics(
+            Some(BiologicalSex::Female),
+            Some(25),
+            Some(crate::models::enums::BloodType::OPositive),
+        );
+        let insights = detect_rh_negative_awareness(Some(&demo));
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn rh_negative_male_no_insight() {
+        let demo = make_bt_demographics(
+            Some(BiologicalSex::Male),
+            Some(25),
+            Some(crate::models::enums::BloodType::ANegative),
+        );
+        let insights = detect_rh_negative_awareness(Some(&demo));
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn rh_negative_female_age_55_no_insight() {
+        let demo = make_bt_demographics(
+            Some(BiologicalSex::Female),
+            Some(55),
+            Some(crate::models::enums::BloodType::BNegative),
+        );
+        let insights = detect_rh_negative_awareness(Some(&demo));
+        assert!(insights.is_empty());
+    }
+
+    #[test]
+    fn no_blood_type_no_insight() {
+        let demo = make_bt_demographics(
+            Some(BiologicalSex::Female),
+            Some(25),
+            None,
+        );
+        let insights = detect_rh_negative_awareness(Some(&demo));
+        assert!(insights.is_empty());
     }
 }

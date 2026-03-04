@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::analyzer::RuleBasedAnalyzer;
 use super::context::load_patient_context;
-use super::extractors::{AppointmentExtractor, MedicationExtractor, SymptomExtractor};
+use super::extractors::{AppointmentExtractor, MedicationExtractor, SymptomExtractor, VitalSignExtractor};
 use super::runner::{run_full_batch, BatchRunner};
 use super::scheduler::SqliteBatchScheduler;
 use super::store::SqlitePendingStore;
@@ -133,6 +133,7 @@ fn try_run_batch(app: &AppHandle) -> Result<(), String> {
             Box::new(SymptomExtractor::new()),
             Box::new(MedicationExtractor::new()),
             Box::new(AppointmentExtractor::new()),
+            Box::new(VitalSignExtractor::new()),
         ],
         run_config.clone(),
     );

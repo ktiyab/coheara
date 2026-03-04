@@ -2,6 +2,7 @@ use regex::Regex;
 use rusqlite::Connection;
 use uuid::Uuid;
 
+use super::scored_context::GroundingLevel;
 use super::types::{BoundaryCheck, Citation, GuidelineCitation, ScoredChunk};
 use crate::invariants::types::ClinicalInsight;
 use crate::db::repository::get_document;
@@ -115,8 +116,10 @@ pub fn parse_boundary_check(response: &str) -> (BoundaryCheck, String) {
             return (check, cleaned_response);
         }
     }
-    // No boundary check found — treat as out of bounds
-    (BoundaryCheck::OutOfBounds, response.to_string())
+    // No boundary check found — default to Understanding.
+    // The LLM was given context-only grounding via system prompt;
+    // a missing tag is a format issue, not a safety issue.
+    (BoundaryCheck::Understanding, response.to_string())
 }
 
 /// Clean citation markers from patient-visible text.
@@ -127,19 +130,30 @@ pub fn clean_citations_for_display(text: &str) -> String {
 }
 
 /// Calculate response confidence based on context quality.
+///
+/// ME-01: Confidence is now data-driven via GroundingLevel (computed from scored
+/// medical items). BoundaryCheck still gates safety (OutOfBounds = blocked),
+/// but the base confidence comes from the data, not the SLM's self-report.
 pub fn calculate_confidence(
     boundary_check: &BoundaryCheck,
+    grounding: GroundingLevel,
     citations_count: usize,
     semantic_chunks_used: usize,
 ) -> f32 {
+    // Safety gate: NoContext and OutOfBounds always zero
+    match boundary_check {
+        BoundaryCheck::NoContext | BoundaryCheck::OutOfBounds => return 0.0,
+        _ => {}
+    }
+
     let mut confidence: f32 = 0.0;
 
-    // Boundary check contributes to confidence
-    match boundary_check {
-        BoundaryCheck::Understanding => confidence += 0.4,
-        BoundaryCheck::Awareness => confidence += 0.3,
-        BoundaryCheck::Preparation => confidence += 0.3,
-        BoundaryCheck::OutOfBounds => return 0.0,
+    // Data-driven grounding (replaces LLM self-report as base score)
+    match grounding {
+        GroundingLevel::High => confidence += 0.45,
+        GroundingLevel::Moderate => confidence += 0.30,
+        GroundingLevel::Low => confidence += 0.15,
+        GroundingLevel::None => confidence += 0.05,
     }
 
     // Citations boost confidence
@@ -198,10 +212,17 @@ mod tests {
     }
 
     #[test]
-    fn missing_boundary_check_returns_out_of_bounds() {
+    fn missing_boundary_check_defaults_to_understanding() {
+        // BUG-2 fix: missing tag is a format issue, not a safety issue.
+        // The LLM was given context-only grounding via system prompt.
         let (check, text) = parse_boundary_check("Some random response without boundary");
-        assert_eq!(check, BoundaryCheck::OutOfBounds);
+        assert_eq!(check, BoundaryCheck::Understanding);
         assert_eq!(text, "Some random response without boundary");
+    }
+
+    #[test]
+    fn no_context_confidence_is_zero() {
+        assert_eq!(calculate_confidence(&BoundaryCheck::NoContext, GroundingLevel::None, 0, 0), 0.0);
     }
 
     #[test]
@@ -270,22 +291,34 @@ mod tests {
     }
 
     #[test]
-    fn confidence_understanding_with_citations() {
-        let conf = calculate_confidence(&BoundaryCheck::Understanding, 2, 3);
-        assert!(conf > 0.5);
+    fn confidence_high_grounding_with_citations() {
+        let conf = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::High, 2, 3);
+        // High grounding (0.45) + 2 citations (0.30) + 3 chunks (0.18) = 0.93
+        assert!(conf > 0.7);
         assert!(conf <= 1.0);
     }
 
     #[test]
     fn confidence_out_of_bounds_is_zero() {
-        let conf = calculate_confidence(&BoundaryCheck::OutOfBounds, 3, 5);
+        let conf = calculate_confidence(&BoundaryCheck::OutOfBounds, GroundingLevel::High, 3, 5);
         assert_eq!(conf, 0.0);
     }
 
     #[test]
     fn confidence_capped_at_one() {
-        let conf = calculate_confidence(&BoundaryCheck::Understanding, 10, 20);
+        let conf = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::High, 10, 20);
         assert!(conf <= 1.0);
+    }
+
+    #[test]
+    fn confidence_grounding_levels_ordered() {
+        let high = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::High, 1, 1);
+        let moderate = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::Moderate, 1, 1);
+        let low = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::Low, 1, 1);
+        let none = calculate_confidence(&BoundaryCheck::Understanding, GroundingLevel::None, 1, 1);
+        assert!(high > moderate, "High > Moderate: {} > {}", high, moderate);
+        assert!(moderate > low, "Moderate > Low: {} > {}", moderate, low);
+        assert!(low > none, "Low > None: {} > {}", low, none);
     }
 
     // --- validate_citations ---

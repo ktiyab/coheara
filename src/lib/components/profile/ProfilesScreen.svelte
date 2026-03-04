@@ -61,7 +61,7 @@
   <!-- Your profile section -->
   {#if activeInfo}
     <section class="mb-8">
-      <h2 class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+      <h2 class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wider mb-3">
         {$t('profile.your_profile_section')}
       </h2>
       <ProfileCard
@@ -79,7 +79,7 @@
   <!-- Family members section -->
   {#if profile.isSelfManaged}
     <section class="mb-8">
-      <h2 class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+      <h2 class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wider mb-3">
         {$t('profile.family_section')}
       </h2>
 
@@ -102,7 +102,7 @@
           <p class="text-sm text-stone-500 dark:text-gray-400">
             {$t('profile.no_family_members')}
           </p>
-          <p class="text-xs text-stone-400 dark:text-gray-500 mt-1">
+          <p class="text-xs text-stone-400 dark:text-gray-400 mt-1">
             {$t('profile.no_family_hint')}
           </p>
         </div>

@@ -35,6 +35,8 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
             include_symptoms: false,
             include_vital_signs: true,
             include_conversations: false,
+            include_screening_records: true,
+            include_entity_connections: true,
             temporal_weight: 0.2,
         },
         QueryType::Exploratory => RetrievalParams {
@@ -46,6 +48,8 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
             include_symptoms: true,
             include_vital_signs: true,
             include_conversations: true,
+            include_screening_records: true,
+            include_entity_connections: true,
             temporal_weight: 0.5,
         },
         QueryType::Symptom => RetrievalParams {
@@ -57,6 +61,8 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
             include_symptoms: true,
             include_vital_signs: false,
             include_conversations: false,
+            include_screening_records: false,
+            include_entity_connections: true,
             temporal_weight: 0.7,
         },
         QueryType::Timeline => RetrievalParams {
@@ -68,6 +74,8 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
             include_symptoms: true,
             include_vital_signs: true,
             include_conversations: false,
+            include_screening_records: true,
+            include_entity_connections: true,
             temporal_weight: 1.0,
         },
         QueryType::General => RetrievalParams {
@@ -79,6 +87,8 @@ pub fn retrieval_strategy(query_type: &QueryType) -> RetrievalParams {
             include_symptoms: false,
             include_vital_signs: false,
             include_conversations: false,
+            include_screening_records: false,
+            include_entity_connections: false,
             temporal_weight: 0.3,
         },
     }

@@ -86,6 +86,24 @@ pub struct MonitoringSchedule {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Allergen Alias — bundled JSON
+// ═══════════════════════════════════════════════════════════
+
+/// An alias mapping a common name to a canonical allergen key.
+///
+/// Used for: autocomplete, classification of free-text allergens,
+/// multilingual allergen recognition.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AllergenAlias {
+    /// Common name or brand name (lowercase, natural language).
+    pub alias: String,
+    /// Canonical allergen key (matches `CanonicalAllergen.key`).
+    pub canonical_key: String,
+    /// Language code (en, fr, de).
+    pub lang: String,
+}
+
+// ═══════════════════════════════════════════════════════════
 // Loader
 // ═══════════════════════════════════════════════════════════
 
@@ -133,6 +151,8 @@ pub fn load_bundled(
         interaction_pairs: load_json(resources_dir, "interaction_pairs.json")?,
         cross_reactivity: load_json(resources_dir, "cross_reactivity.json")?,
         monitoring_schedules: load_json(resources_dir, "monitoring_schedules.json")?,
+        allergen_cross_reactivity: load_json(resources_dir, "allergen_cross_reactivity.json")?,
+        allergen_aliases: load_json(resources_dir, "allergen_aliases.json")?,
     })
 }
 
@@ -143,6 +163,8 @@ pub struct BundledInvariants {
     pub interaction_pairs: Vec<InteractionPair>,
     pub cross_reactivity: Vec<CrossReactivityChain>,
     pub monitoring_schedules: Vec<MonitoringSchedule>,
+    pub allergen_cross_reactivity: Vec<CrossReactivityChain>,
+    pub allergen_aliases: Vec<AllergenAlias>,
 }
 
 impl Default for BundledInvariants {
@@ -152,6 +174,8 @@ impl Default for BundledInvariants {
             interaction_pairs: Vec::new(),
             cross_reactivity: Vec::new(),
             monitoring_schedules: Vec::new(),
+            allergen_cross_reactivity: Vec::new(),
+            allergen_aliases: Vec::new(),
         }
     }
 }
@@ -169,6 +193,8 @@ mod tests {
         assert!(bundled.interaction_pairs.is_empty());
         assert!(bundled.cross_reactivity.is_empty());
         assert!(bundled.monitoring_schedules.is_empty());
+        assert!(bundled.allergen_cross_reactivity.is_empty());
+        assert!(bundled.allergen_aliases.is_empty());
     }
 
     #[test]
@@ -178,6 +204,8 @@ mod tests {
         assert!(b.interaction_pairs.is_empty());
         assert!(b.cross_reactivity.is_empty());
         assert!(b.monitoring_schedules.is_empty());
+        assert!(b.allergen_cross_reactivity.is_empty());
+        assert!(b.allergen_aliases.is_empty());
     }
 
     #[test]
@@ -220,6 +248,20 @@ mod tests {
         let chains: Vec<CrossReactivityChain> = serde_json::from_str(json).unwrap();
         assert_eq!(chains.len(), 1);
         assert_eq!(chains[0].primary, "aminopenicillin");
+    }
+
+    #[test]
+    fn allergen_alias_deserialize() {
+        let json = r#"[{
+            "alias": "penicillin",
+            "canonical_key": "drug_beta_lactam",
+            "lang": "en"
+        }]"#;
+        let aliases: Vec<AllergenAlias> = serde_json::from_str(json).unwrap();
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].alias, "penicillin");
+        assert_eq!(aliases[0].canonical_key, "drug_beta_lactam");
+        assert_eq!(aliases[0].lang, "en");
     }
 
     #[test]
@@ -354,5 +396,39 @@ mod tests {
             "Metformin should have HbA1c + eGFR monitoring, got {}",
             metformin_monitoring.len()
         );
+    }
+
+    #[test]
+    fn load_real_allergen_cross_reactivity() {
+        let Some(dir) = real_resources_dir() else { return };
+        let bundled = load_bundled(&dir).unwrap();
+        assert!(
+            bundled.allergen_cross_reactivity.len() >= 20,
+            "Expected 20+ allergen cross-reactivity chains, got {}",
+            bundled.allergen_cross_reactivity.len()
+        );
+        // Verify birch-OAS chain exists
+        let has_birch_oas = bundled
+            .allergen_cross_reactivity
+            .iter()
+            .any(|c| c.primary.contains("birch"));
+        assert!(has_birch_oas, "Missing birch pollen OAS cross-reactivity");
+    }
+
+    #[test]
+    fn load_real_allergen_aliases() {
+        let Some(dir) = real_resources_dir() else { return };
+        let bundled = load_bundled(&dir).unwrap();
+        assert!(
+            bundled.allergen_aliases.len() >= 150,
+            "Expected 150+ allergen aliases, got {}",
+            bundled.allergen_aliases.len()
+        );
+        // Verify penicillin alias exists
+        let has_penicillin = bundled
+            .allergen_aliases
+            .iter()
+            .any(|a| a.alias == "penicillin" && a.canonical_key == "drug_beta_lactam");
+        assert!(has_penicillin, "Missing penicillin -> drug_beta_lactam alias");
     }
 }

@@ -62,6 +62,19 @@ const APPOINTMENT_KEYWORDS: &[&str] = &[
     "Krankenhaus", "Klinik",
 ];
 
+const VITAL_SIGN_KEYWORDS: &[&str] = &[
+    // EN
+    "blood pressure", "temperature", "weight", "heart rate", "pulse",
+    "blood sugar", "blood glucose", "oxygen", "spo2", "bpm",
+    "systolic", "diastolic", "mmhg",
+    // FR
+    "tension art\u{00e9}rielle", "temp\u{00e9}rature", "poids", "fr\u{00e9}quence cardiaque",
+    "pouls", "glyc\u{00e9}mie", "oxyg\u{00e8}ne", "saturation",
+    // DE
+    "Blutdruck", "Temperatur", "Gewicht", "Herzfrequenz", "Puls",
+    "Blutzucker", "Sauerstoff", "S\u{00e4}ttigung",
+];
+
 // ═══════════════════════════════════════════
 // L2: Regex Patterns
 // ═══════════════════════════════════════════
@@ -94,6 +107,28 @@ static APPOINTMENT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"(?i)(?:appointment|visit|seeing)\s+(?:with|at|on|for)\s+",
         r"(?i)(?:next|this|coming)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)",
         r"(?i)(?:dr\.?|doctor|prof\.?)\s+[A-Z\u{00C0}-\u{00FF}]\w+",
+    ]
+    .iter()
+    .filter_map(|p| Regex::new(p).ok())
+    .collect()
+});
+
+static VITAL_SIGN_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    [
+        // Blood pressure: "120/80", "130 over 85"
+        r"\d{2,3}\s*/\s*\d{2,3}",
+        r"(?i)\d{2,3}\s+over\s+\d{2,3}",
+        // Temperature: "38.5°C", "37.2 degrees", "100.4°F"
+        r"(?i)\d{2,3}\.?\d*\s*(?:°[CF]|degrees?|grad)",
+        // Weight: "75 kg", "165 lbs", "80 kilos"
+        r"(?i)\d{2,3}\.?\d*\s*(?:kg|lbs?|kilos?|pounds?)",
+        // Heart rate / pulse: "72 bpm", "pulse 80"
+        r"(?i)(?:pulse|heart\s*rate|pouls|puls)\s*(?:is|was|of|:)?\s*\d{2,3}",
+        r"(?i)\d{2,3}\s*bpm",
+        // Blood glucose: "120 mg/dL", "6.5 mmol"
+        r"(?i)\d{2,3}\.?\d*\s*(?:mg/dl|mmol)",
+        // Oxygen saturation: "97%", "SpO2 98"
+        r"(?i)(?:spo2|sao2|sat(?:uration)?)\s*(?:is|was|:)?\s*\d{2,3}\s*%?",
     ]
     .iter()
     .filter_map(|p| Regex::new(p).ok())
@@ -134,12 +169,13 @@ fn has_pattern(text: &str, patterns: &[Regex]) -> bool {
 }
 
 /// Classify a single patient message against all domains.
-/// Returns a bitmask-like tuple: (symptom, medication, appointment).
-fn classify_message(content: &str) -> (bool, bool, bool) {
+/// Returns a bitmask-like tuple: (symptom, medication, appointment, vital_sign).
+fn classify_message(content: &str) -> (bool, bool, bool, bool) {
     let symptom = has_keyword(content, SYMPTOM_KEYWORDS) || has_pattern(content, &SYMPTOM_PATTERNS);
     let medication = has_keyword(content, MEDICATION_KEYWORDS) || has_pattern(content, &MEDICATION_PATTERNS);
     let appointment = has_keyword(content, APPOINTMENT_KEYWORDS) || has_pattern(content, &APPOINTMENT_PATTERNS);
-    (symptom, medication, appointment)
+    let vital_sign = has_keyword(content, VITAL_SIGN_KEYWORDS) || has_pattern(content, &VITAL_SIGN_PATTERNS);
+    (symptom, medication, appointment, vital_sign)
 }
 
 // ═══════════════════════════════════════════
@@ -171,13 +207,14 @@ impl ConversationAnalyzer for RuleBasedAnalyzer {
         let mut symptom_signals = Vec::new();
         let mut medication_signals = Vec::new();
         let mut appointment_signals = Vec::new();
+        let mut vital_sign_signals = Vec::new();
 
         for msg in &conversation.messages {
             if msg.role != "patient" {
                 continue;
             }
 
-            let (is_symptom, is_medication, is_appointment) = classify_message(&msg.content);
+            let (is_symptom, is_medication, is_appointment, is_vital_sign) = classify_message(&msg.content);
 
             if is_symptom {
                 symptom_signals.push(msg.index);
@@ -187,6 +224,9 @@ impl ConversationAnalyzer for RuleBasedAnalyzer {
             }
             if is_appointment {
                 appointment_signals.push(msg.index);
+            }
+            if is_vital_sign {
+                vital_sign_signals.push(msg.index);
             }
         }
 
@@ -212,6 +252,14 @@ impl ConversationAnalyzer for RuleBasedAnalyzer {
             domains.push(DomainMatch {
                 domain: ExtractionDomain::Appointment,
                 signal_message_indices: appointment_signals,
+                detection_confidence: 0.8,
+            });
+        }
+
+        if !vital_sign_signals.is_empty() {
+            domains.push(DomainMatch {
+                domain: ExtractionDomain::VitalSign,
+                signal_message_indices: vital_sign_signals,
                 detection_confidence: 0.8,
             });
         }
@@ -707,6 +755,104 @@ mod tests {
         // Msg 0 should only be symptom, not medication or appointment
         let sym = symptom.unwrap();
         assert!(sym.signal_message_indices.contains(&0));
+    }
+
+    // ── Vital sign detection ──
+
+    #[test]
+    fn vital_sign_blood_pressure_keyword_detected() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "My blood pressure was 130/85 this morning"),
+            make_message(1, "coheara", "That's noted."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "Blood pressure should trigger vital sign domain");
+    }
+
+    #[test]
+    fn vital_sign_temperature_pattern_detected() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "I measured 38.5°C this evening"),
+            make_message(1, "coheara", "That's elevated."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "Temperature pattern should trigger vital sign domain");
+    }
+
+    #[test]
+    fn vital_sign_weight_pattern_detected() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "I weigh 75 kg now"),
+            make_message(1, "coheara", "OK."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "Weight pattern should trigger vital sign domain");
+    }
+
+    #[test]
+    fn vital_sign_french_keyword_detected() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "Ma tension art\u{00e9}rielle est 140/90"),
+            make_message(1, "coheara", "Not\u{00e9}."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "French vital sign keywords should be detected");
+    }
+
+    #[test]
+    fn vital_sign_german_keyword_detected() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "Mein Blutdruck war 125/80"),
+            make_message(1, "coheara", "Notiert."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "German vital sign keywords should be detected");
+    }
+
+    #[test]
+    fn vital_sign_heart_rate_bpm_pattern() {
+        let conv = make_conversation(vec![
+            make_message(0, "patient", "My resting heart rate is 72 bpm"),
+            make_message(1, "coheara", "OK."),
+        ]);
+
+        let analyzer = RuleBasedAnalyzer::new();
+        let result = analyzer.analyze(&conv);
+
+        let vs_domains: Vec<_> = result.domains.iter()
+            .filter(|d| d.domain == ExtractionDomain::VitalSign)
+            .collect();
+        assert!(!vs_domains.is_empty(), "Heart rate BPM pattern should trigger vital sign domain");
     }
 
     // ── Date normalization ──

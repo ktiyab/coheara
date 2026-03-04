@@ -26,6 +26,7 @@
   import MessageQueueStatus from './MessageQueueStatus.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
   import ChatEmptyState from './ChatEmptyState.svelte';
+  import DateSeparator from './DateSeparator.svelte';
   import QuickActionChips from './QuickActionChips.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { ArrowUpIcon, PlusIcon } from '$lib/components/icons/md';
@@ -69,6 +70,11 @@
       }
     }
     return null;
+  }
+
+  /** REVIEW-01: Extract date key (YYYY-MM-DD) from ISO timestamp for date grouping. */
+  function dateKeyOf(timestamp: string): string {
+    return timestamp.slice(0, 10);
   }
 
   // Persistent listener handles (CHAT-QUEUE-01: replaced per-send pattern)
@@ -474,7 +480,10 @@
       />
     {:else}
       <div class="flex flex-col gap-4 max-w-2xl mx-auto">
-        {#each messages as message (message.id)}
+        {#each messages as message, i (message.id)}
+          {#if i === 0 || dateKeyOf(message.timestamp) !== dateKeyOf(messages[i - 1].timestamp)}
+            <DateSeparator date={message.timestamp} />
+          {/if}
           <MessageBubble
             {message}
           />
@@ -555,7 +564,7 @@
               class="w-8 h-8 flex items-center justify-center rounded-lg transition-colors
                      {canSend
                        ? 'bg-[var(--color-success)] text-white hover:opacity-90'
-                       : 'bg-stone-100 dark:bg-gray-700 text-stone-400 dark:text-gray-500 cursor-not-allowed'}"
+                       : 'bg-stone-100 dark:bg-gray-700 text-stone-400 dark:text-gray-400 cursor-not-allowed'}"
               onclick={handleSend}
               disabled={!canSend}
               aria-label={$t('chat.send_aria')}
@@ -566,7 +575,7 @@
         </div>
       </div>
       <!-- Medical AI disclaimer -->
-      <p class="text-xs text-stone-400 dark:text-gray-500 text-center mt-2">
+      <p class="text-xs text-stone-400 dark:text-gray-400 text-center mt-2">
         {$t('chat.ai_disclaimer')}
       </p>
     </div>

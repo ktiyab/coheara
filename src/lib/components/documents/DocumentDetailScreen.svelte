@@ -351,14 +351,14 @@
               <span class="text-sm font-medium text-stone-700 dark:text-gray-200">
                 {$t('documents.detail_processing_details')}
               </span>
-              <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 transition-transform
+              <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-400 transition-transform
                                        {provenanceExpanded ? 'rotate-180' : ''}" />
             </button>
             {#if provenanceExpanded}
               <div class="px-4 pb-4 space-y-3">
                 {#each processingLog as entry (entry.id)}
                   <div class="flex items-start gap-3 text-sm">
-                    <ClockIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                    <ClockIcon class="w-4 h-4 text-stone-400 dark:text-gray-400 mt-0.5 shrink-0" />
                     <div class="flex-1 min-w-0">
                       <p class="text-stone-800 dark:text-gray-100">
                         {entry.processing_stage === 'Extraction'
@@ -369,7 +369,7 @@
                         {entry.model_name}{#if entry.model_variant} ({entry.model_variant}){/if}
                       </p>
                       {#if entry.completed_at && entry.started_at}
-                        <p class="text-xs text-stone-400 dark:text-gray-500">
+                        <p class="text-xs text-stone-400 dark:text-gray-400">
                           {computeDuration(entry.started_at, entry.completed_at)}
                         </p>
                       {/if}
@@ -541,18 +541,18 @@
                 <span class="text-sm font-medium text-stone-800 dark:text-gray-100">
                   {resolveEntityName(conn.source_type, conn.source_id)}
                 </span>
-                <span class="text-xs text-stone-400 dark:text-gray-500">&rarr;</span>
+                <span class="text-xs text-stone-400 dark:text-gray-400">&rarr;</span>
                 <span class="text-xs italic text-stone-500 dark:text-gray-400">
                   {$t(RELATIONSHIP_KEYS[conn.relationship_type])}
                 </span>
-                <span class="text-xs text-stone-400 dark:text-gray-500">&rarr;</span>
+                <span class="text-xs text-stone-400 dark:text-gray-400">&rarr;</span>
                 <span class="text-sm font-medium text-stone-800 dark:text-gray-100">
                   {resolveEntityName(conn.target_type, conn.target_id)}
                 </span>
               </div>
               <div class="flex items-center gap-2 mt-1">
                 <Badge variant="info" size="sm">{Math.round(conn.confidence * 100)}%</Badge>
-                <span class="text-xs text-stone-400 dark:text-gray-500">{conn.source_type} &rarr; {conn.target_type}</span>
+                <span class="text-xs text-stone-400 dark:text-gray-400">{conn.source_type} &rarr; {conn.target_type}</span>
               </div>
             </div>
           {/each}

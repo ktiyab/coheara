@@ -1,0 +1,177 @@
+[
+  {
+    "primary": "env_pollen_tree_birch",
+    "cross_reactive": "apple, cherry, peach, pear, hazelnut, carrot, celery, kiwi",
+    "rate": "50-75% (Bet v 1 homologs: PR-10 protein family)",
+    "action": "Oral allergy syndrome counseling. Cooking denatures PR-10, reducing risk.",
+    "source": "EAACI OAS 2024, AAAAI"
+  },
+  {
+    "primary": "env_pollen_tree_birch",
+    "cross_reactive": "soy (Gly m 4)",
+    "rate": "10-15% (severe reactions reported with soy drinks)",
+    "action": "Monitor soy consumption in birch-pollen-allergic patients. Fermented soy safer.",
+    "source": "EAACI OAS 2024"
+  },
+  {
+    "primary": "env_pollen_weed_ragweed",
+    "cross_reactive": "melon, banana, zucchini, cucumber",
+    "rate": "30-50% (profilin cross-reactivity)",
+    "action": "OAS counseling. Typically mild oral symptoms. Cooking reduces risk.",
+    "source": "EAACI OAS 2024, AAAAI"
+  },
+  {
+    "primary": "env_pollen_weed_mugwort",
+    "cross_reactive": "celery, carrot, spices (anise, fennel, coriander)",
+    "rate": "25-40% (celery-mugwort-spice syndrome, LTP pathway)",
+    "action": "Celery-mugwort-spice syndrome counseling. LTP-mediated reactions may be severe.",
+    "source": "EAACI OAS 2024"
+  },
+  {
+    "primary": "env_pollen_weed_mugwort",
+    "cross_reactive": "chamomile, sunflower seeds",
+    "rate": "15-25% (Compositae family cross-reactivity)",
+    "action": "Avoid herbal teas with chamomile. Monitor sunflower seed consumption.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "env_pollen_grass",
+    "cross_reactive": "tomato, peach, melon, orange, peanut",
+    "rate": "20-30% (profilin-mediated, typically mild OAS)",
+    "action": "OAS counseling. Usually mild. Cooking eliminates profilin reactivity.",
+    "source": "EAACI OAS 2024"
+  },
+  {
+    "primary": "env_pollen_tree_cedar",
+    "cross_reactive": "tomato, bell pepper",
+    "rate": "10-20% (Japanese cedar-tomato syndrome)",
+    "action": "Monitor tomato consumption during pollen season.",
+    "source": "WAO/ARIA 2024"
+  },
+  {
+    "primary": "food_peanut",
+    "cross_reactive": "food_lupin",
+    "rate": "17-35% (vicilin/legumin homology)",
+    "action": "Lupin flour avoidance counseling. Common in EU bakery products.",
+    "source": "AAAAI 2022, EU 1169/2011"
+  },
+  {
+    "primary": "food_peanut",
+    "cross_reactive": "food_tree_nut",
+    "rate": "25-40% (co-sensitization, not always clinical cross-reactivity)",
+    "action": "Individual nut assessment recommended. Blanket avoidance may be unnecessary.",
+    "source": "AAAAI 2022"
+  },
+  {
+    "primary": "food_shellfish",
+    "cross_reactive": "food_mollusc",
+    "rate": "10-15% (tropomyosin homology)",
+    "action": "Individual assessment. Tropomyosin-driven; also cross-reacts with dust mite.",
+    "source": "AAAAI 2022"
+  },
+  {
+    "primary": "food_shellfish",
+    "cross_reactive": "env_dust_mite, env_cockroach",
+    "rate": "10-20% (tropomyosin pan-allergen)",
+    "action": "Monitor dust mite/cockroach exposure in shellfish-allergic patients.",
+    "source": "WAO 2024"
+  },
+  {
+    "primary": "food_milk",
+    "cross_reactive": "goat milk, sheep milk",
+    "rate": "~90% (casein homology >85%)",
+    "action": "Avoid all ruminant milks. Plant-based alternatives recommended.",
+    "source": "AAAAI 2022, EAACI 2024"
+  },
+  {
+    "primary": "food_tree_nut",
+    "cross_reactive": "cashew-pistachio pair",
+    "rate": "30-60% (Anacardiaceae family, Ana o 3/Pis v 3 homology)",
+    "action": "If allergic to one, test for the other before consumption.",
+    "source": "AAAAI 2022"
+  },
+  {
+    "primary": "food_tree_nut",
+    "cross_reactive": "walnut-pecan pair",
+    "rate": "30-50% (Juglandaceae family, Jug r 1/Car i 1 homology)",
+    "action": "If allergic to one, test for the other before consumption.",
+    "source": "AAAAI 2022"
+  },
+  {
+    "primary": "food_egg",
+    "cross_reactive": "influenza vaccine (egg-based)",
+    "rate": "<1% clinical reaction (ovalbumin content <0.12 mcg/dose)",
+    "action": "Current guidelines: safe to administer. No special precautions for mild egg allergy.",
+    "source": "CDC ACIP 2023, AAAAI 2022"
+  },
+  {
+    "primary": "food_wheat",
+    "cross_reactive": "food_gluten (rye, barley, oats)",
+    "rate": "Variable (IgE wheat allergy differs from celiac disease)",
+    "action": "Distinguish IgE-mediated wheat allergy from celiac disease. Different management.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "env_latex",
+    "cross_reactive": "mango, passion fruit, papaya, fig, pineapple",
+    "rate": "10-30% (extended latex-fruit syndrome, chitinases/hevein)",
+    "action": "Extended latex-fruit counseling beyond classic banana/avocado/kiwi/chestnut.",
+    "source": "WAO 2024, EAACI Latex"
+  },
+  {
+    "primary": "insect_wasp",
+    "cross_reactive": "insect_hornet",
+    "rate": "50-75% (hyaluronidase homology, Vespidae family)",
+    "action": "Test for both venoms. VIT may cover both with wasp venom.",
+    "source": "EAACI 2024, AAAAI 2016"
+  },
+  {
+    "primary": "insect_honeybee",
+    "cross_reactive": "insect_wasp",
+    "rate": "10-15% (CCD-mediated, often clinically irrelevant)",
+    "action": "Component-resolved diagnosis recommended to distinguish true vs. CCD cross-reactivity.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "insect_honeybee",
+    "cross_reactive": "insect_hornet",
+    "rate": "5-10% (limited homology, often CCD-mediated)",
+    "action": "Component-resolved diagnosis recommended.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "food_fish",
+    "cross_reactive": "other fish species (parvalbumin pan-allergen)",
+    "rate": "50-70% (parvalbumin Gad c 1 homology across species)",
+    "action": "Some tolerate specific fish. Individual assessment by species via component testing.",
+    "source": "EAACI 2024"
+  },
+  {
+    "primary": "food_soy",
+    "cross_reactive": "food_peanut, food_lupin",
+    "rate": "5-15% (legume family cross-sensitization)",
+    "action": "Individual legume assessment. Most soy-allergic patients tolerate other legumes.",
+    "source": "AAAAI 2022"
+  },
+  {
+    "primary": "excipient_peg",
+    "cross_reactive": "excipient_polysorbate",
+    "rate": "Suggested but inconsistently demonstrated",
+    "action": "Skin testing for both before mRNA vaccines or PEG-containing drugs.",
+    "source": "EAACI/ENDA 2022"
+  },
+  {
+    "primary": "excipient_gelatin",
+    "cross_reactive": "MMR vaccine, varicella vaccine, influenza vaccine (gelatin-containing)",
+    "rate": "Rare but documented IgE-mediated reactions",
+    "action": "Gelatin skin test before gelatin-containing vaccines if prior reaction.",
+    "source": "CDC ACIP, AAAAI"
+  },
+  {
+    "primary": "drug_nsaid",
+    "cross_reactive": "aspirin (COX-1 inhibition pathway)",
+    "rate": "Cross-intolerance in NSAID-exacerbated respiratory disease (NERD)",
+    "action": "COX-2 selective inhibitors (celecoxib) generally tolerated. Aspirin desensitization for cardiac indications.",
+    "source": "EAACI/ENDA 2020, AAAAI 2022"
+  }
+]

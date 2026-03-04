@@ -811,6 +811,185 @@ OUTPUT FORMAT:\n\
 }
 
 // ═══════════════════════════════════════════
+// Vital Sign Extractor
+// ═══════════════════════════════════════════
+
+pub struct VitalSignExtractor;
+
+impl VitalSignExtractor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl DomainExtractor for VitalSignExtractor {
+    fn domain(&self) -> ExtractionDomain {
+        ExtractionDomain::VitalSign
+    }
+
+    fn build_prompt(&self, input: &ExtractionInput) -> String {
+        format!(
+            "You are a health information extractor. Read the patient's conversation \
+and extract ALL vital sign measurements explicitly mentioned. Output valid JSON.\n\
+Consolidate: if the same vital sign type appears in multiple messages, produce ONE entry \
+with the most recent value.\n\n\
+RULES:\n\
+1. Extract ONLY vital signs the patient explicitly states with a numeric value.\n\
+2. NEVER invent values or measurements.\n\
+3. For missing fields, use null.\n\
+4. Dates: resolve relative references to ISO dates. TODAY is {date}.\n\
+5. NEVER extract information from ASSISTANT messages. Extract ONLY from PATIENT messages.\n\
+   If the only context for a field comes from an ASSISTANT message, use null.\n\
+6. Vital types: temperature, blood_pressure, weight, height, heart_rate, blood_glucose, oxygen_saturation.\n\
+7. For blood_pressure, value_primary = systolic, value_secondary = diastolic.\n\
+8. Convert units to metric if clearly stated in imperial (lbs to kg, F to C).\n\n\
+CONVERSATION (messages marked [S] contain vital sign information):\n\
+{messages}\n\n\
+OUTPUT FORMAT:\n\
+```json\n\
+{{\n\
+  \"vital_signs\": [\n\
+    {{\n\
+      \"vital_type\": \"temperature|blood_pressure|weight|height|heart_rate|blood_glucose|oxygen_saturation\",\n\
+      \"value_primary\": 120.0,\n\
+      \"value_secondary\": 80.0 or null,\n\
+      \"unit\": \"mmHg|°C|kg|cm|bpm|mg/dL|%\" or null,\n\
+      \"recorded_at_hint\": \"ISO date or null\",\n\
+      \"notes\": \"additional context or null\",\n\
+      \"source_messages\": [0, 2]\n\
+    }}\n\
+  ]\n\
+}}\n\
+```",
+            date = input.conversation_date,
+            messages = format_messages(&input.messages),
+        )
+    }
+
+    fn parse_response(&self, response: &str) -> Result<Vec<ExtractedItem>, ExtractionError> {
+        let json_str = extract_json_block(response)?;
+
+        let raw: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| ExtractionError::JsonParsing(format!("VitalSign parse error: {e}")))?;
+        let raw_vitals = raw.get("vital_signs").and_then(|v| v.as_array());
+
+        #[derive(serde::Deserialize)]
+        struct VitalSignResponse {
+            #[serde(default)]
+            vital_signs: Vec<ExtractedVitalSignData>,
+        }
+
+        let parsed: VitalSignResponse = serde_json::from_str(json_str)
+            .map_err(|e| ExtractionError::JsonParsing(format!("VitalSign parse error: {e}")))?;
+
+        Ok(parsed
+            .vital_signs
+            .into_iter()
+            .enumerate()
+            .map(|(i, vs)| {
+                let raw_src = raw_vitals
+                    .and_then(|arr| arr.get(i))
+                    .and_then(|obj| obj.get("source_messages"));
+                let source_msgs = match raw_src {
+                    Some(v) => normalize_source_indices(v, 0),
+                    None => vs.source_messages.clone(),
+                };
+                ExtractedItem {
+                    domain: ExtractionDomain::VitalSign,
+                    data: serde_json::to_value(&vs).unwrap_or_default(),
+                    confidence: 0.0,
+                    source_message_indices: source_msgs,
+                }
+            })
+            .collect())
+    }
+
+    fn validate(&self, items: &[ExtractedItem]) -> ValidationResult {
+        use crate::models::VitalType;
+
+        let mut valid = Vec::new();
+        let mut warnings = Vec::new();
+        let mut rejected = 0;
+
+        for item in items {
+            let vital_type_str = item.data.get("vital_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if VitalType::from_str(vital_type_str).is_none() {
+                warnings.push(format!("Unknown vital type '{vital_type_str}'"));
+                rejected += 1;
+                continue;
+            }
+
+            let value_primary = item.data.get("value_primary")
+                .and_then(|v| v.as_f64());
+
+            if value_primary.is_none() {
+                warnings.push("VitalSign missing value_primary".to_string());
+                rejected += 1;
+                continue;
+            }
+
+            let val = value_primary.unwrap();
+
+            // Plausibility checks per type
+            let plausible = match vital_type_str {
+                "temperature" => (30.0..=45.0).contains(&val),
+                "blood_pressure" => (50.0..=300.0).contains(&val),
+                "weight" => (1.0..=500.0).contains(&val),
+                "height" => (30.0..=300.0).contains(&val),
+                "heart_rate" => (20.0..=300.0).contains(&val),
+                "blood_glucose" => (10.0..=1000.0).contains(&val),
+                "oxygen_saturation" => (50.0..=100.0).contains(&val),
+                _ => true,
+            };
+
+            if !plausible {
+                warnings.push(format!("{vital_type_str} value {val} outside plausible range"));
+                rejected += 1;
+                continue;
+            }
+
+            valid.push(item.clone());
+        }
+
+        ValidationResult {
+            items: valid,
+            warnings,
+            rejected_count: rejected,
+        }
+    }
+
+    fn consolidate(&self, items: Vec<ExtractedItem>) -> Vec<ExtractedItem> {
+        use std::collections::HashMap;
+        let mut groups: HashMap<String, Vec<ExtractedItem>> = HashMap::new();
+
+        for item in items {
+            let vital_type = item.data.get("vital_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            groups.entry(vital_type).or_default().push(item);
+        }
+
+        groups
+            .into_values()
+            .map(|group| {
+                if group.len() == 1 {
+                    return group.into_iter().next().unwrap();
+                }
+                // Keep the most recent (last) entry
+                group
+                    .into_iter()
+                    .last()
+                    .unwrap()
+            })
+            .collect()
+    }
+}
+
+// ═══════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════
 
@@ -1521,5 +1700,161 @@ mod tests {
         // Signal message (index 4) should be preserved if possible
         let has_signal = trimmed.iter().any(|m| m.index == 4);
         assert!(has_signal, "Signal messages should be preserved during trimming");
+    }
+
+    // ── VitalSign extractor ──
+
+    #[test]
+    fn vital_sign_extractor_domain() {
+        assert_eq!(VitalSignExtractor::new().domain(), ExtractionDomain::VitalSign);
+    }
+
+    #[test]
+    fn vital_sign_prompt_contains_types() {
+        let extractor = VitalSignExtractor::new();
+        let prompt = extractor.build_prompt(&sample_input());
+        assert!(prompt.contains("temperature"), "Prompt should list vital types");
+        assert!(prompt.contains("blood_pressure"), "Prompt should list vital types");
+        assert!(prompt.contains("value_primary"), "Prompt should show schema");
+    }
+
+    #[test]
+    fn parse_vital_sign_json() {
+        let response = r#"```json
+{
+  "vital_signs": [
+    {
+      "vital_type": "blood_pressure",
+      "value_primary": 130.0,
+      "value_secondary": 85.0,
+      "unit": "mmHg",
+      "recorded_at_hint": "2026-02-20",
+      "notes": "morning reading",
+      "source_messages": [0]
+    }
+  ]
+}
+```"#;
+
+        let extractor = VitalSignExtractor::new();
+        let items = extractor.parse_response(response).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].domain, ExtractionDomain::VitalSign);
+        assert_eq!(items[0].data["vital_type"], "blood_pressure");
+        assert_eq!(items[0].data["value_primary"], 130.0);
+        assert_eq!(items[0].data["value_secondary"], 85.0);
+    }
+
+    #[test]
+    fn validate_rejects_vital_sign_unknown_type() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::VitalSign,
+            data: serde_json::json!({"vital_type": "invalid", "value_primary": 37.0}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = VitalSignExtractor::new();
+        let result = extractor.validate(&items);
+        assert_eq!(result.rejected_count, 1);
+    }
+
+    #[test]
+    fn validate_rejects_vital_sign_missing_value() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::VitalSign,
+            data: serde_json::json!({"vital_type": "temperature"}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = VitalSignExtractor::new();
+        let result = extractor.validate(&items);
+        assert_eq!(result.rejected_count, 1);
+    }
+
+    #[test]
+    fn validate_rejects_implausible_temperature() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::VitalSign,
+            data: serde_json::json!({"vital_type": "temperature", "value_primary": 500.0}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = VitalSignExtractor::new();
+        let result = extractor.validate(&items);
+        assert_eq!(result.rejected_count, 1);
+    }
+
+    #[test]
+    fn validate_accepts_valid_vital_sign() {
+        let items = vec![ExtractedItem {
+            domain: ExtractionDomain::VitalSign,
+            data: serde_json::json!({"vital_type": "blood_pressure", "value_primary": 120.0, "value_secondary": 80.0}),
+            confidence: 0.0,
+            source_message_indices: vec![0],
+        }];
+
+        let extractor = VitalSignExtractor::new();
+        let result = extractor.validate(&items);
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.rejected_count, 0);
+    }
+
+    #[test]
+    fn consolidate_merges_duplicate_vital_signs() {
+        let items = vec![
+            ExtractedItem {
+                domain: ExtractionDomain::VitalSign,
+                data: serde_json::json!({"vital_type": "weight", "value_primary": 74.0}),
+                confidence: 0.0,
+                source_message_indices: vec![0],
+            },
+            ExtractedItem {
+                domain: ExtractionDomain::VitalSign,
+                data: serde_json::json!({"vital_type": "weight", "value_primary": 75.0}),
+                confidence: 0.0,
+                source_message_indices: vec![2],
+            },
+        ];
+
+        let extractor = VitalSignExtractor::new();
+        let consolidated = extractor.consolidate(items);
+        assert_eq!(consolidated.len(), 1, "Should merge same vital type");
+        assert_eq!(consolidated[0].data["value_primary"], 75.0, "Should keep most recent");
+    }
+
+    #[test]
+    fn consolidate_keeps_different_vital_types() {
+        let items = vec![
+            ExtractedItem {
+                domain: ExtractionDomain::VitalSign,
+                data: serde_json::json!({"vital_type": "weight", "value_primary": 75.0}),
+                confidence: 0.0,
+                source_message_indices: vec![0],
+            },
+            ExtractedItem {
+                domain: ExtractionDomain::VitalSign,
+                data: serde_json::json!({"vital_type": "temperature", "value_primary": 37.2}),
+                confidence: 0.0,
+                source_message_indices: vec![2],
+            },
+        ];
+
+        let extractor = VitalSignExtractor::new();
+        let consolidated = extractor.consolidate(items);
+        assert_eq!(consolidated.len(), 2, "Different vital types should stay separate");
+    }
+
+    #[test]
+    fn vital_sign_prompt_contains_assistant_exclusion_rule() {
+        let extractor = VitalSignExtractor::new();
+        let prompt = extractor.build_prompt(&sample_input());
+        assert!(
+            prompt.contains("NEVER extract information from ASSISTANT"),
+            "Prompt should contain assistant content exclusion rule"
+        );
     }
 }

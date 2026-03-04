@@ -45,6 +45,15 @@
     "citation_excerpt_heading": "Extrait source",
     "citation_relevance_heading": "Pertinence",
     "citation_view_full": "Voir le document complet",
+    "document_preview_title": "Apercu du document",
+    "document_preview_loading": "Chargement du document...",
+    "document_preview_error": "Impossible de charger le document",
+    "preview_medications": "Medicaments",
+    "preview_lab_results": "Resultats d'analyses",
+    "preview_diagnoses": "Diagnostics",
+    "preview_allergies": "Allergies",
+    "preview_no_entities": "Aucune donnee extraite dans ce document",
+    "preview_entity_count": "{count, plural, one {# element extrait} other {# elements extraits}}",
     "suggestions_query_header": "Posez-moi une question",
     "suggestions_expression_header": "Ou notez comment vous vous sentez",
     "quick_actions_aria": "Actions rapides",
@@ -72,6 +81,8 @@
     "queue_pending": "{count, plural, one {# question en attente} other {# questions en attente}}",
     "queue_position": "Position {position}",
     "queue_unanswered": "Votre question n'a pas reçu de réponse.",
-    "queue_unanswered_retry": "Réessayer"
+    "queue_unanswered_retry": "Réessayer",
+    "date_today": "Aujourd'hui",
+    "date_yesterday": "Hier"
   }
 }

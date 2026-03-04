@@ -508,6 +508,6 @@ mod tests {
             .collect();
 
         store.store_pending(&conn, &items).unwrap();
-        assert_eq!(store.get_pending_count(&conn).unwrap(), 3);
+        assert_eq!(store.get_pending_count(&conn).unwrap(), 4);
     }
 }

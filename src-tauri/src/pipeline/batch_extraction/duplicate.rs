@@ -23,6 +23,7 @@ pub fn check_duplicate(
         ExtractionDomain::Symptom => check_symptom_duplicate(conn, extracted_data, conversation_date),
         ExtractionDomain::Medication => check_medication_duplicate(conn, extracted_data),
         ExtractionDomain::Appointment => check_appointment_duplicate(conn, extracted_data),
+        ExtractionDomain::VitalSign => check_vital_sign_duplicate(conn, extracted_data, conversation_date),
     }
 }
 
@@ -157,6 +158,40 @@ fn check_appointment_duplicate(
         if professional_name.is_empty() {
             return DuplicateStatus::AlreadyTracked { existing_id };
         }
+        return DuplicateStatus::PossibleDuplicate { existing_id };
+    }
+
+    DuplicateStatus::New
+}
+
+/// VitalSign: match on vital_type within 1 day of conversation.
+fn check_vital_sign_duplicate(
+    conn: &Connection,
+    data: &serde_json::Value,
+    conversation_date: NaiveDate,
+) -> DuplicateStatus {
+    let vital_type = data.get("vital_type").and_then(|v| v.as_str()).unwrap_or("");
+
+    if vital_type.is_empty() {
+        return DuplicateStatus::New;
+    }
+
+    let from = conversation_date - chrono::Duration::days(1);
+    let to = conversation_date + chrono::Duration::days(1);
+    let from_str = from.format("%Y-%m-%d").to_string();
+    let to_str = to.format("%Y-%m-%d").to_string();
+
+    let result: Result<(String,), _> = conn.query_row(
+        "SELECT id FROM vital_signs
+         WHERE vital_type = ?1
+           AND recorded_at >= ?2
+           AND recorded_at <= ?3
+         LIMIT 1",
+        rusqlite::params![vital_type, from_str, to_str],
+        |row| Ok((row.get(0)?,)),
+    );
+
+    if let Ok((existing_id,)) = result {
         return DuplicateStatus::PossibleDuplicate { existing_id };
     }
 

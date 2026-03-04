@@ -22,10 +22,22 @@
   let selectedEthnicities = $state<EthnicityGroup[]>(
     identity.ethnicities as EthnicityGroup[]
   );
+  let bloodType = $state<string | null>(identity.blood_type ?? null);
   let weight = $state(identity.weight_kg?.toString() ?? '');
   let height = $state(identity.height_cm?.toString() ?? '');
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+
+  const BLOOD_TYPE_OPTIONS = [
+    { key: 'o_positive', display: 'O+' },
+    { key: 'o_negative', display: 'O-' },
+    { key: 'a_positive', display: 'A+' },
+    { key: 'a_negative', display: 'A-' },
+    { key: 'b_positive', display: 'B+' },
+    { key: 'b_negative', display: 'B-' },
+    { key: 'ab_positive', display: 'AB+' },
+    { key: 'ab_negative', display: 'AB-' },
+  ] as const;
 
   // Validation
   let weightNum = $derived(weight ? parseFloat(weight) : NaN);
@@ -65,7 +77,7 @@
     saveError = null;
 
     try {
-      await updateProfileDemographics(identity.profile_id, sex, selectedEthnicities);
+      await updateProfileDemographics(identity.profile_id, sex, selectedEthnicities, bloodType);
 
       const wn = parseFloat(weight);
       if (!isNaN(wn) && wn >= 20 && wn <= 300) {
@@ -109,7 +121,7 @@
         {$t('me.edit_title')}
       </h2>
       <button onclick={onclose}
-        class="text-stone-400 dark:text-gray-500 hover:text-stone-600
+        class="text-stone-400 dark:text-gray-400 hover:text-stone-600
                dark:hover:text-gray-300">
         <CloseIcon class="w-5 h-5" />
       </button>
@@ -146,6 +158,35 @@
             {$t('profile.sex_skip')}
           </button>
         </div>
+      </fieldset>
+
+      <!-- Blood Type -->
+      <fieldset>
+        <legend class="text-sm font-medium text-stone-700 dark:text-gray-300 mb-2">
+          {$t('me.blood_type_label')}
+        </legend>
+        <div class="grid grid-cols-4 gap-2">
+          {#each BLOOD_TYPE_OPTIONS as opt}
+            <button
+              onclick={() => bloodType = bloodType === opt.key ? null : opt.key}
+              class="px-3 py-2 rounded-lg text-sm font-bold transition-colors
+                {bloodType === opt.key
+                  ? 'bg-red-600 text-white'
+                  : 'bg-stone-100 dark:bg-gray-800 text-stone-600 dark:text-gray-300 hover:bg-stone-200 dark:hover:bg-gray-700'}"
+            >
+              {opt.display}
+            </button>
+          {/each}
+        </div>
+        <button
+          onclick={() => bloodType = null}
+          class="mt-2 px-3 py-1.5 rounded-full text-xs transition-colors
+            {bloodType === null
+              ? 'bg-stone-600 dark:bg-gray-600 text-white'
+              : 'bg-stone-100 dark:bg-gray-800 text-stone-500 dark:text-gray-400 hover:bg-stone-200 dark:hover:bg-gray-700'}"
+        >
+          {$t('me.blood_type_unknown')}
+        </button>
       </fieldset>
 
       <!-- Ethnicities -->
@@ -190,7 +231,7 @@
                 bg-white dark:bg-gray-800 text-stone-800 dark:text-gray-100"
             />
             <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs
-                         text-stone-400 dark:text-gray-500">
+                         text-stone-400 dark:text-gray-400">
               {$t('profile.weight_unit')}
             </span>
           </div>
@@ -215,7 +256,7 @@
                 bg-white dark:bg-gray-800 text-stone-800 dark:text-gray-100"
             />
             <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs
-                         text-stone-400 dark:text-gray-500">
+                         text-stone-400 dark:text-gray-400">
               {$t('profile.height_unit')}
             </span>
           </div>
@@ -224,7 +265,7 @@
           {/if}
         </div>
       </div>
-      <p class="text-xs text-stone-400 dark:text-gray-500">
+      <p class="text-xs text-stone-400 dark:text-gray-400">
         {$t('profile.step_health_body_hint')}
       </p>
 

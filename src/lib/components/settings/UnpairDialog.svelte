@@ -54,7 +54,7 @@
         <li>{$t('devices.unpair_delete_data')}</li>
         <li>{$t('devices.unpair_revoke')}</li>
       </ul>
-      <p class="text-xs text-stone-400 dark:text-gray-500">{$t('devices.unpair_repaired_note')}</p>
+      <p class="text-xs text-stone-400 dark:text-gray-400">{$t('devices.unpair_repaired_note')}</p>
     </div>
 
     <!-- Actions -->

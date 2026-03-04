@@ -7,6 +7,14 @@ pub mod citation;
 pub mod conversation;
 pub mod orchestrator;
 pub mod ollama;
+// ME-01: Medical Meaning Engine scoring pipeline
+pub mod medical_item;
+pub mod domain;
+pub mod scoring;
+pub mod graph_walk;
+pub mod factors;
+pub mod scoring_pipeline;
+pub mod scored_context;
 
 use thiserror::Error;
 use uuid::Uuid;

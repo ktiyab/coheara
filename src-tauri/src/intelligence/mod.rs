@@ -6,3 +6,4 @@ pub mod emergency;
 pub mod store;
 pub mod detection;
 pub mod engine;
+pub mod invariant_bridge;

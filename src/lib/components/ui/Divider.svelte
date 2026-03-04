@@ -27,7 +27,7 @@
 {#if label}
   <div class="flex items-center gap-3 {marginClass}">
     <div class="flex-1 border-t border-stone-200 dark:border-gray-700"></div>
-    <span class="text-xs text-stone-400 dark:text-gray-500 font-medium uppercase tracking-wide">{label}</span>
+    <span class="text-xs text-stone-400 dark:text-gray-400 font-medium uppercase tracking-wide">{label}</span>
     <div class="flex-1 border-t border-stone-200 dark:border-gray-700"></div>
   </div>
 {:else}

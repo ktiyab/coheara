@@ -20,3 +20,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_records_unique
 
 CREATE INDEX IF NOT EXISTS idx_screening_records_profile
     ON screening_records(profile_id);
+
+-- Schema version bump
+INSERT INTO schema_version (version, applied_at) VALUES (21, datetime('now'));

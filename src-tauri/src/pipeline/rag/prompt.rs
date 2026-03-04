@@ -37,9 +37,20 @@ pub fn build_conversation_prompt(
 
     // Include recent conversation history (last 4 messages for context).
     // Sanitize each message to prevent prior injection queries from re-amplifying (SEC-01-G09).
+    // G7: Annotate messages with feedback so SLM adjusts behavior.
     let recent: Vec<_> = conversation_history.iter().rev().take(4).rev().collect();
     if !recent.is_empty() {
+        let has_negative = recent.iter().any(|m| {
+            m.feedback == Some(crate::models::enums::MessageFeedback::NotHelpful)
+        });
+
         prompt.push_str("<CONVERSATION_HISTORY>\n");
+        if has_negative {
+            prompt.push_str(
+                "[Responses marked NOT HELPFUL did not satisfy the patient. \
+                 Give a different, more specific answer.]\n",
+            );
+        }
         for msg in recent {
             let role = match msg.role {
                 MessageRole::Patient => "Patient",
@@ -48,7 +59,12 @@ pub fn build_conversation_prompt(
             let safe_content = sanitize_patient_input(&msg.content, 2000)
                 .map(|s| s.text)
                 .unwrap_or_else(|_| msg.content.clone());
-            prompt.push_str(&format!("{}: {}\n", role, safe_content));
+            let feedback_tag = match msg.feedback {
+                Some(crate::models::enums::MessageFeedback::NotHelpful) => " [NOT HELPFUL]",
+                Some(crate::models::enums::MessageFeedback::Helpful) => " [HELPFUL]",
+                None => "",
+            };
+            prompt.push_str(&format!("{}: {}{}\n", role, safe_content, feedback_tag));
         }
         prompt.push_str("</CONVERSATION_HISTORY>\n\n");
     }
@@ -101,6 +117,7 @@ pub fn no_context_response_i18n(lang: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::enums::MessageFeedback;
     use crate::pipeline::rag::types::AssembledContext;
     use uuid::Uuid;
 
@@ -242,6 +259,76 @@ mod tests {
     fn no_context_response_unknown_defaults_en() {
         let resp = no_context_response_i18n("ja");
         assert!(resp.contains("medical documents"));
+    }
+
+    // ── G7: Feedback loop tests ────────────────────────────────────
+
+    #[test]
+    fn feedback_not_helpful_adds_tag_and_preamble() {
+        let context = mock_context("Some context");
+        let history = vec![
+            Message {
+                id: Uuid::new_v4(),
+                conversation_id: Uuid::new_v4(),
+                role: MessageRole::Patient,
+                content: "What is metformin for?".into(),
+                timestamp: chrono::Local::now().naive_local(),
+                source_chunks: None,
+                confidence: None,
+                feedback: None,
+            },
+            Message {
+                id: Uuid::new_v4(),
+                conversation_id: Uuid::new_v4(),
+                role: MessageRole::Coheara,
+                content: "Metformin is a medication.".into(),
+                timestamp: chrono::Local::now().naive_local(),
+                source_chunks: None,
+                confidence: Some(0.6),
+                feedback: Some(MessageFeedback::NotHelpful),
+            },
+        ];
+        let prompt = build_conversation_prompt("Why am I taking it?", &context, &history);
+        assert!(prompt.contains("[NOT HELPFUL]"));
+        assert!(prompt.contains("did not satisfy the patient"));
+        assert!(prompt.contains("different, more specific"));
+    }
+
+    #[test]
+    fn feedback_helpful_adds_tag_no_preamble() {
+        let context = mock_context("Some context");
+        let history = vec![Message {
+            id: Uuid::new_v4(),
+            conversation_id: Uuid::new_v4(),
+            role: MessageRole::Coheara,
+            content: "Your documents show metformin 500mg for Type 2 Diabetes.".into(),
+            timestamp: chrono::Local::now().naive_local(),
+            source_chunks: None,
+            confidence: Some(0.9),
+            feedback: Some(MessageFeedback::Helpful),
+        }];
+        let prompt = build_conversation_prompt("Thanks", &context, &history);
+        assert!(prompt.contains("[HELPFUL]"));
+        assert!(!prompt.contains("did not satisfy"));
+    }
+
+    #[test]
+    fn no_feedback_no_tags() {
+        let context = mock_context("Some context");
+        let history = vec![Message {
+            id: Uuid::new_v4(),
+            conversation_id: Uuid::new_v4(),
+            role: MessageRole::Coheara,
+            content: "Some answer.".into(),
+            timestamp: chrono::Local::now().naive_local(),
+            source_chunks: None,
+            confidence: Some(0.8),
+            feedback: None,
+        }];
+        let prompt = build_conversation_prompt("Follow up", &context, &history);
+        assert!(!prompt.contains("[HELPFUL]"));
+        assert!(!prompt.contains("[NOT HELPFUL]"));
+        assert!(!prompt.contains("did not satisfy"));
     }
 
     // ── History sanitization test (C.9) ─────────────────────────────

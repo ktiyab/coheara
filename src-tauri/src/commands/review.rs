@@ -297,7 +297,11 @@ pub fn confirm_review(
         .ok_or("Invalid profile directory")?;
 
     let storage_pipeline =
-        crate::pipeline::storage::orchestrator::build_storage_pipeline(session, profiles_dir);
+        crate::pipeline::storage::orchestrator::build_storage_pipeline(
+            session,
+            profiles_dir,
+            state.invariants().clone(),
+        );
 
     let storage_result = crate::pipeline::storage::types::StoragePipeline::store(
         &storage_pipeline,

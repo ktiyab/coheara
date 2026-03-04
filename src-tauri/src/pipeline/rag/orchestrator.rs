@@ -162,7 +162,9 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             || !retrieved.structured_data.allergies.is_empty()
             || !retrieved.structured_data.lab_results.is_empty()
             || !retrieved.structured_data.symptoms.is_empty()
-            || !retrieved.structured_data.vital_signs.is_empty();
+            || !retrieved.structured_data.vital_signs.is_empty()
+            || !retrieved.structured_data.screening_records.is_empty()
+            || !retrieved.structured_data.entity_connections.is_empty();
 
         if !has_semantic && !has_structured {
             return Ok(self.no_context_result(query_type));
@@ -181,8 +183,31 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             self.demographics.as_ref(),
         );
 
+        // Step 4.8: ME-01 — Score all medical items with weighted equation
+        // M(item, query) = D * R * V * T * S * (1-U)
+        // Pre-computes meaning so SLM articulates, not discovers.
+        let verification_ctx = build_verification_context(self.conn, &retrieved.structured_data);
+        let alert_counts = build_alert_counts(self.conn);
+        let scoring_result = super::scoring_pipeline::run_scoring(
+            &query.text,
+            &retrieved.structured_data,
+            &retrieved.structured_data.entity_connections,
+            &alert_counts,
+            &verification_ctx,
+        );
+        let scored_section = super::scored_context::format_scored_context(
+            &scoring_result,
+            &retrieved.structured_data.entity_connections,
+        );
+
         // Step 5: Assemble context within token budget
-        let assembled = assemble_context(&retrieved, &query_type, &insights);
+        let mut assembled = assemble_context(&retrieved, &query_type, &insights, self.demographics.as_ref());
+
+        // Prepend scored context (highest-priority medical intelligence)
+        if !scored_section.is_empty() {
+            assembled.text = format!("{}\n\n{}", scored_section, assembled.text);
+            assembled.estimated_tokens += scored_section.len() / 4;
+        }
 
         if assembled.text.is_empty() {
             return Ok(self.no_context_result(query_type));
@@ -223,9 +248,11 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         // Step 11: Clean citation markers from display text
         let display_text = clean_citations_for_display(&cleaned_response);
 
-        // Step 12: Calculate confidence
+        // Step 12: Calculate confidence (ME-01: data-driven via GroundingLevel)
+        let grounding = super::scored_context::compute_grounding(&scoring_result);
         let confidence = calculate_confidence(
             &boundary_check,
+            grounding,
             citations.len(),
             assembled.chunks_included.len(),
         );
@@ -255,6 +282,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             query_type,
             context_used,
             boundary_check,
+            grounding,
         })
     }
 
@@ -290,7 +318,9 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             || !retrieved.structured_data.allergies.is_empty()
             || !retrieved.structured_data.lab_results.is_empty()
             || !retrieved.structured_data.symptoms.is_empty()
-            || !retrieved.structured_data.vital_signs.is_empty();
+            || !retrieved.structured_data.vital_signs.is_empty()
+            || !retrieved.structured_data.screening_records.is_empty()
+            || !retrieved.structured_data.entity_connections.is_empty();
 
         if !has_semantic && !has_structured {
             return Ok(self.no_context_result(query_type));
@@ -307,7 +337,27 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             self.demographics.as_ref(),
         );
 
-        let assembled = assemble_context(&retrieved, &query_type, &insights);
+        // Step 4.8: ME-01 — Score all medical items (streaming path)
+        let verification_ctx = build_verification_context(self.conn, &retrieved.structured_data);
+        let alert_counts = build_alert_counts(self.conn);
+        let scoring_result = super::scoring_pipeline::run_scoring(
+            &query.text,
+            &retrieved.structured_data,
+            &retrieved.structured_data.entity_connections,
+            &alert_counts,
+            &verification_ctx,
+        );
+        let scored_section = super::scored_context::format_scored_context(
+            &scoring_result,
+            &retrieved.structured_data.entity_connections,
+        );
+
+        let mut assembled = assemble_context(&retrieved, &query_type, &insights, self.demographics.as_ref());
+
+        if !scored_section.is_empty() {
+            assembled.text = format!("{}\n\n{}", scored_section, assembled.text);
+            assembled.estimated_tokens += scored_section.len() / 4;
+        }
 
         if assembled.text.is_empty() {
             return Ok(self.no_context_result(query_type));
@@ -339,8 +389,10 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
         let citations = validate_citations(self.conn, raw_citations);
         let display_text = clean_citations_for_display(&cleaned_response);
 
+        let grounding = super::scored_context::compute_grounding(&scoring_result);
         let confidence = calculate_confidence(
             &boundary_check,
+            grounding,
             citations.len(),
             assembled.chunks_included.len(),
         );
@@ -366,6 +418,7 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
             query_type,
             context_used,
             boundary_check,
+            grounding,
         })
     }
 
@@ -381,7 +434,8 @@ impl<'a, G: LlmGenerate, E: EmbeddingModel, V: VectorSearch> DocumentRagPipeline
                 structured_records_used: 0,
                 total_context_tokens: 0,
             },
-            boundary_check: super::types::BoundaryCheck::OutOfBounds,
+            boundary_check: super::types::BoundaryCheck::NoContext,
+            grounding: super::scored_context::GroundingLevel::None,
         }
     }
 
@@ -403,6 +457,64 @@ fn build_context_summary(
         structured_records_used: structured_count,
         total_context_tokens: assembled.estimated_tokens,
     }
+}
+
+/// Build verification context from DB: document_id -> (verified, confirmed).
+///
+/// Collects unique document IDs from structured data, then batch-looks up
+/// each document's `verified` flag and `pipeline_status == Confirmed`.
+fn build_verification_context(
+    conn: &Connection,
+    structured: &super::types::StructuredContext,
+) -> super::factors::VerificationContext {
+    use crate::models::enums::PipelineStatus;
+    use std::collections::HashSet;
+
+    // Collect unique document IDs from all entity types
+    let mut doc_ids = HashSet::new();
+    for med in &structured.medications {
+        doc_ids.insert(med.document_id);
+    }
+    for lab in &structured.lab_results {
+        doc_ids.insert(lab.document_id);
+    }
+    for dx in &structured.diagnoses {
+        doc_ids.insert(dx.document_id);
+    }
+    for allergy in &structured.allergies {
+        if let Some(id) = allergy.document_id {
+            doc_ids.insert(id);
+        }
+    }
+
+    let mut doc_status = std::collections::HashMap::new();
+    for doc_id in doc_ids {
+        if let Ok(Some(doc)) = crate::db::repository::get_document(conn, &doc_id) {
+            doc_status.insert(
+                doc_id,
+                (doc.verified, doc.pipeline_status == PipelineStatus::Confirmed),
+            );
+        }
+    }
+
+    super::factors::VerificationContext { doc_status }
+}
+
+/// Build alert entity counts from DB: entity_id -> count of open alerts.
+///
+/// Loads all undismissed coherence alerts, then counts how many alerts
+/// reference each entity UUID.
+fn build_alert_counts(conn: &Connection) -> std::collections::HashMap<uuid::Uuid, usize> {
+    let alerts = crate::db::repository::load_active_coherence_alerts(conn)
+        .unwrap_or_default();
+
+    let mut counts = std::collections::HashMap::new();
+    for alert in &alerts {
+        for entity_id in &alert.entity_ids {
+            *counts.entry(*entity_id).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 #[cfg(test)]
@@ -465,6 +577,8 @@ mod tests {
 
     #[test]
     fn no_context_returns_helpful_message() {
+        // BUG-1 fix: NoContext boundary check passes safety filter,
+        // so user sees the helpful "import documents first" message.
         let conn = open_memory_database().unwrap();
         let llm = MockLlm::understanding("Some response");
         let embedder = MockEmbedder;
@@ -479,6 +593,7 @@ mod tests {
 
         let result = pipeline.query(&query).unwrap();
         assert!(result.text.contains("documents"));
+        assert_eq!(result.boundary_check, BoundaryCheck::NoContext);
         assert_eq!(result.confidence, 0.0);
         assert!(result.citations.is_empty());
     }
@@ -519,9 +634,11 @@ mod tests {
     }
 
     #[test]
-    fn out_of_bounds_response_has_zero_confidence() {
+    fn missing_boundary_tag_defaults_to_understanding() {
+        // BUG-2 fix: LLM forgetting BOUNDARY_CHECK tag is a format issue,
+        // not a safety issue. Should pass through with Understanding.
         let conn = open_memory_database().unwrap();
-        let llm = MockLlm::out_of_bounds();
+        let llm = MockLlm::out_of_bounds(); // returns text WITHOUT BOUNDARY_CHECK: line
         let embedder = MockEmbedder;
         let mut vector_store = InMemoryVectorSearch::new();
 
@@ -543,8 +660,8 @@ mod tests {
         let query = make_query(conv_id, "Should I stop taking my medication?");
 
         let result = pipeline.query(&query).unwrap();
-        assert_eq!(result.boundary_check, BoundaryCheck::OutOfBounds);
-        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.boundary_check, BoundaryCheck::Understanding);
+        assert!(result.confidence > 0.0);
     }
 
     #[test]

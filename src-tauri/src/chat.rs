@@ -68,6 +68,8 @@ pub enum StreamChunkPayload {
         full_text: String,
         confidence: f32,
         boundary_check: String,
+        /// ME-01: Data-driven grounding level ("High", "Moderate", "Low", "None").
+        grounding: String,
     },
     Error { message: String },
 }

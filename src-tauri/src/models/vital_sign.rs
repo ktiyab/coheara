@@ -61,6 +61,7 @@ impl VitalType {
 pub enum VitalSource {
     Manual,
     Imported,
+    Extracted,
 }
 
 impl VitalSource {
@@ -68,6 +69,7 @@ impl VitalSource {
         match self {
             VitalSource::Manual => "manual",
             VitalSource::Imported => "imported",
+            VitalSource::Extracted => "extracted",
         }
     }
 
@@ -75,9 +77,17 @@ impl VitalSource {
         match s {
             "manual" => Some(VitalSource::Manual),
             "imported" => Some(VitalSource::Imported),
+            "extracted" => Some(VitalSource::Extracted),
             _ => None,
         }
     }
+}
+
+/// REVIEW-01: Lightweight trend data point for sparkline charts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VitalTrendPoint {
+    pub value: f64,
+    pub recorded_at: String,
 }
 
 /// A single vital sign measurement.

@@ -107,6 +107,32 @@ pub fn insert_screening_record(
     Ok(id)
 }
 
+/// Get all screening records in the database (profile-agnostic).
+///
+/// Used by RAG pipeline where the DB connection is already profile-scoped.
+pub fn get_all_screening_records(conn: &Connection) -> Result<Vec<ScreeningRecord>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, profile_id, screening_key, dose_number, completed_at, provider, notes
+         FROM screening_records
+         ORDER BY screening_key, dose_number",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let completed_str: String = row.get(4)?;
+        let completed_at = NaiveDate::parse_from_str(&completed_str, "%Y-%m-%d")
+            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+        Ok(ScreeningRecord {
+            id: row.get(0)?,
+            profile_id: row.get(1)?,
+            screening_key: row.get(2)?,
+            dose_number: row.get(3)?,
+            completed_at,
+            provider: row.get(5)?,
+            notes: row.get(6)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
 /// Delete a screening record by ID, scoped to profile.
 ///
 /// Returns true if a row was deleted, false if not found.

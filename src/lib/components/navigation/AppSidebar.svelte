@@ -190,9 +190,9 @@
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm text-stone-700 dark:text-gray-300 truncate font-medium">{profile.name ?? 'Patient'}</p>
-          <p class="text-xs text-stone-400 dark:text-gray-500 truncate">{$t('nav.profile_status_active') ?? 'Active profile'}</p>
+          <p class="text-xs text-stone-400 dark:text-gray-400 truncate">{$t('nav.profile_status_active') ?? 'Active profile'}</p>
         </div>
-        <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-500 flex-shrink-0 transition-transform {popoverOpen ? 'rotate-180' : ''}" />
+        <ChevronDownIcon class="w-4 h-4 text-stone-400 dark:text-gray-400 flex-shrink-0 transition-transform {popoverOpen ? 'rotate-180' : ''}" />
       </button>
     {/if}
 

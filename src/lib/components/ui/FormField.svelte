@@ -49,7 +49,7 @@
      ${error
        ? 'border-red-300 dark:border-red-500 focus:border-red-500 dark:focus:border-red-400'
        : 'border-stone-300 dark:border-gray-600 focus:border-[var(--color-primary)]'}
-     ${disabled ? 'bg-stone-100 dark:bg-gray-800 text-stone-400 dark:text-gray-500 cursor-not-allowed' : ''}`
+     ${disabled ? 'bg-stone-100 dark:bg-gray-800 text-stone-400 dark:text-gray-400 cursor-not-allowed' : ''}`
   );
 </script>
 
@@ -82,7 +82,7 @@
       {error}
     </p>
   {:else if hint}
-    <p id={descriptionId} class="text-sm text-stone-400 dark:text-gray-500 mt-1">
+    <p id={descriptionId} class="text-sm text-stone-400 dark:text-gray-400 mt-1">
       {hint}
     </p>
   {/if}

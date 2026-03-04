@@ -53,7 +53,7 @@
                    ? 'bg-[var(--color-interactive)] text-white'
                    : isCurrent
                      ? 'bg-[var(--color-interactive)] text-white'
-                     : 'border-2 border-stone-300 dark:border-gray-600 text-stone-400 dark:text-gray-500'}"
+                     : 'border-2 border-stone-300 dark:border-gray-600 text-stone-400 dark:text-gray-400'}"
           aria-current={isCurrent ? 'step' : undefined}
           aria-label={$t('profile.setup_step', { values: { current: step, total: totalSteps } })}
         >

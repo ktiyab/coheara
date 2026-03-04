@@ -188,7 +188,7 @@
 
     <!-- Chevron (only for tappable non-failed cards) -->
     {#if !isFailed && !isRejected}
-      <ChevronRightIcon class="w-6 h-6 text-stone-400 dark:text-gray-500 mt-0.5 shrink-0" />
+      <ChevronRightIcon class="w-6 h-6 text-stone-400 dark:text-gray-400 mt-0.5 shrink-0" />
     {/if}
   </div>
 </button>

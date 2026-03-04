@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use uuid::Uuid;
 
 use crate::db::DatabaseError;
-use crate::models::{VitalSign, VitalSource, VitalType};
+use crate::models::{VitalSign, VitalSource, VitalTrendPoint, VitalType};
 
 /// Insert a vital sign record.
 pub fn insert_vital_sign(conn: &Connection, vs: &VitalSign) -> Result<(), DatabaseError> {
@@ -81,6 +81,18 @@ pub fn get_latest_vital_sign(
     }
 }
 
+/// Get all vital signs, ordered by recorded_at ascending.
+/// Profile-agnostic (DB connection is already profile-scoped).
+pub fn get_all_vital_signs(conn: &Connection) -> Result<Vec<VitalSign>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, vital_type, value_primary, value_secondary, unit, recorded_at, notes, source, created_at
+         FROM vital_signs
+         ORDER BY recorded_at ASC",
+    )?;
+    let rows = stmt.query_map([], row_to_vital_sign)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
+}
+
 /// Delete a vital sign by ID.
 pub fn delete_vital_sign(conn: &Connection, id: &Uuid) -> Result<(), DatabaseError> {
     let affected = conn.execute(
@@ -94,6 +106,30 @@ pub fn delete_vital_sign(conn: &Connection, id: &Uuid) -> Result<(), DatabaseErr
         });
     }
     Ok(())
+}
+
+/// REVIEW-01: Get recent trend data points for sparkline charts.
+///
+/// Returns `value_primary` and `recorded_at` for the last `days` days,
+/// ordered chronologically (ASC). Lightweight — no full VitalSign hydration.
+pub fn get_vital_trend(
+    conn: &Connection,
+    vital_type: &VitalType,
+    days: u32,
+) -> Result<Vec<VitalTrendPoint>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT value_primary, recorded_at
+         FROM vital_signs
+         WHERE vital_type = ?1 AND recorded_at >= datetime('now', ?2)
+         ORDER BY recorded_at ASC",
+    )?;
+    let cutoff = format!("-{days} days");
+    let rows = stmt.query_map(params![vital_type.as_str(), cutoff], |row| {
+        let value: f64 = row.get(0)?;
+        let recorded_at: String = row.get(1)?;
+        Ok(VitalTrendPoint { value, recorded_at })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DatabaseError::from)
 }
 
 fn row_to_vital_sign(row: &rusqlite::Row) -> Result<VitalSign, rusqlite::Error> {
@@ -216,5 +252,25 @@ mod tests {
 
         let weights = get_vital_signs_by_type(&conn, &VitalType::Weight).unwrap();
         assert_eq!(weights.len(), 1);
+    }
+
+    #[test]
+    fn get_vital_trend_returns_recent_points() {
+        let conn = test_db();
+        insert_vital_sign(&conn, &make_vital(VitalType::Temperature, 37.0)).unwrap();
+        insert_vital_sign(&conn, &make_vital(VitalType::Temperature, 37.5)).unwrap();
+        insert_vital_sign(&conn, &make_vital(VitalType::Weight, 75.0)).unwrap();
+
+        let trend = get_vital_trend(&conn, &VitalType::Temperature, 30).unwrap();
+        assert_eq!(trend.len(), 2);
+        assert!((trend[0].value - 37.0).abs() < 0.01);
+        assert!((trend[1].value - 37.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn get_vital_trend_empty_for_no_data() {
+        let conn = test_db();
+        let trend = get_vital_trend(&conn, &VitalType::HeartRate, 7).unwrap();
+        assert!(trend.is_empty());
     }
 }

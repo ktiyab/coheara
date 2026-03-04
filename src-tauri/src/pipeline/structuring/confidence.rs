@@ -150,6 +150,7 @@ mod tests {
             lab_results: vec![],
             procedures: vec![],
             referrals: vec![],
+            blood_type: None,
         }
     }
 

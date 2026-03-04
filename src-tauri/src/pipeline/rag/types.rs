@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::RagError;
+use super::scored_context::GroundingLevel;
 use crate::crypto::ProfileSession;
 use crate::models::*;
 
@@ -34,6 +35,8 @@ pub struct RagResponse {
     pub query_type: QueryType,
     pub context_used: ContextSummary,
     pub boundary_check: BoundaryCheck,
+    /// ME-01: Data-driven grounding level (computed from scored items, not LLM self-report).
+    pub grounding: GroundingLevel,
 }
 
 /// A source citation linking a response claim to a document
@@ -74,6 +77,9 @@ pub enum BoundaryCheck {
     Understanding,
     Awareness,
     Preparation,
+    /// No patient data available - not a safety issue, just empty database.
+    /// The helpful "import documents first" message should pass through safety.
+    NoContext,
     OutOfBounds,
 }
 
@@ -107,6 +113,10 @@ pub struct StructuredContext {
     pub symptoms: Vec<Symptom>,
     pub vital_signs: Vec<VitalSign>,
     pub recent_conversations: Vec<Message>,
+    /// ME-06/G5: Screening and vaccination records for RAG context.
+    pub screening_records: Vec<crate::db::repository::ScreeningRecord>,
+    /// B2-G6: Entity connections (semantic graph edges between entities).
+    pub entity_connections: Vec<crate::models::entity_connection::EntityConnection>,
 }
 
 /// Retrieved context from both data layers
@@ -128,6 +138,10 @@ pub struct RetrievalParams {
     pub include_symptoms: bool,
     pub include_vital_signs: bool,
     pub include_conversations: bool,
+    /// ME-06/G5: Include screening and vaccination records in RAG context.
+    pub include_screening_records: bool,
+    /// B2-G6: Include entity connections (semantic graph edges) in RAG context.
+    pub include_entity_connections: bool,
     pub temporal_weight: f32,
 }
 

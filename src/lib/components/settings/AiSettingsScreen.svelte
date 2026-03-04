@@ -294,7 +294,7 @@
             {$t('ai.installed_models', { values: { count: ai.models.length } })}
           </h2>
           <button
-            class="p-1.5 text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300 rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
+            class="p-1.5 text-stone-400 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300 rounded-lg hover:bg-stone-100 dark:hover:bg-gray-800 transition-colors"
             onclick={refreshModels}
             aria-label={$t('ai.refresh_models')}
           >
@@ -364,7 +364,7 @@
                       <ModelTagChip {tag} />
                     {/each}
                   {:else}
-                    <span class="text-xs text-stone-400 dark:text-gray-500">{$t('ai.no_tags')}</span>
+                    <span class="text-xs text-stone-400 dark:text-gray-400">{$t('ai.no_tags')}</span>
                   {/if}
                   <button
                     class="text-xs text-[var(--color-interactive)] hover:underline ml-1"

@@ -36,7 +36,7 @@ export type StreamChunkPayload =
   | { type: 'Token'; text: string }
   | { type: 'Citation'; citation: CitationView }
   | { type: 'GuidelineCitations'; citations: GuidelineCitationView[] }
-  | { type: 'Done'; full_text: string; confidence: number; boundary_check: string }
+  | { type: 'Done'; full_text: string; confidence: number; boundary_check: string; grounding: string }
   | { type: 'Error'; message: string };
 
 export interface ChatStreamEvent {

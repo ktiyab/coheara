@@ -88,6 +88,16 @@ str_enum!(AllergySource {
     PatientReported => "patient_reported",
 });
 
+str_enum!(AllergenCategory {
+    Food => "food",
+    Drug => "drug",
+    Environmental => "environmental",
+    Insect => "insect",
+    Latex => "latex",
+    Excipient => "excipient",
+    Other => "other",
+});
+
 str_enum!(SymptomSource {
     PatientReported => "patient_reported",
     GuidedCheckin => "guided_checkin",
@@ -116,6 +126,10 @@ str_enum!(AlertType {
     Dose => "dose",
     Critical => "critical",
     Temporal => "temporal",
+    Interaction => "interaction",
+    Monitoring => "monitoring",
+    Screening => "screening",
+    Trend => "trend",
 });
 
 str_enum!(DismissedBy {
@@ -146,6 +160,17 @@ str_enum!(PipelineStatus {
     Confirmed => "confirmed",
     Failed => "failed",
     Rejected => "rejected",
+});
+
+str_enum!(BloodType {
+    OPositive => "o_positive",
+    ONegative => "o_negative",
+    APositive => "a_positive",
+    ANegative => "a_negative",
+    BPositive => "b_positive",
+    BNegative => "b_negative",
+    ABPositive => "ab_positive",
+    ABNegative => "ab_negative",
 });
 
 #[cfg(test)]
@@ -205,6 +230,23 @@ mod tests {
         ] {
             assert_eq!(variant.as_str(), s);
             assert_eq!(AllergySeverity::from_str(s).unwrap(), variant);
+        }
+    }
+
+    #[test]
+    fn blood_type_round_trip() {
+        for (variant, s) in [
+            (BloodType::OPositive, "o_positive"),
+            (BloodType::ONegative, "o_negative"),
+            (BloodType::APositive, "a_positive"),
+            (BloodType::ANegative, "a_negative"),
+            (BloodType::BPositive, "b_positive"),
+            (BloodType::BNegative, "b_negative"),
+            (BloodType::ABPositive, "ab_positive"),
+            (BloodType::ABNegative, "ab_negative"),
+        ] {
+            assert_eq!(variant.as_str(), s);
+            assert_eq!(BloodType::from_str(s).unwrap(), variant);
         }
     }
 

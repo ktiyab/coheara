@@ -425,6 +425,7 @@ mod tests {
                 }
             }),
             age_years: age,
+            blood_type: None,
         }
     }
 

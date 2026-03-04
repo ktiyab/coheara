@@ -82,6 +82,14 @@ pub enum AlertDetail {
     Allergy(AllergyDetail),
     Dose(DoseDetail),
     Critical(CriticalDetail),
+    /// B2: Drug-drug interaction bridged from invariant engine.
+    Interaction(InteractionBridgeDetail),
+    /// B2: Missing monitoring lab bridged from invariant engine.
+    Monitoring(MonitoringBridgeDetail),
+    /// B2: Overdue screening bridged from invariant engine.
+    Screening(ScreeningBridgeDetail),
+    /// B2: Vital sign trend bridged from invariant engine.
+    Trend(TrendBridgeDetail),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +210,54 @@ pub struct CriticalDetail {
 }
 
 // ---------------------------------------------------------------------------
+// B2: Bridge detail types (ClinicalInsight → CoherenceAlert)
+// ---------------------------------------------------------------------------
+
+/// Drug-drug interaction detected by invariant engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InteractionBridgeDetail {
+    /// Machine key (e.g., "warfarin_aspirin_interaction").
+    pub insight_key: String,
+    /// Clinical guideline source (e.g., "Drug Interaction Database").
+    pub source: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+/// Medication requires lab monitoring that is missing or overdue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringBridgeDetail {
+    /// Machine key (e.g., "missing_inr_for_warfarin").
+    pub insight_key: String,
+    /// Clinical guideline source.
+    pub source: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+/// Age/sex-appropriate screening that is overdue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreeningBridgeDetail {
+    /// Machine key (e.g., "screening_colorectal").
+    pub insight_key: String,
+    /// Clinical guideline source.
+    pub source: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+/// Vital sign trend crossing clinical threshold.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendBridgeDetail {
+    /// Machine key (e.g., "bp_rising_trend").
+    pub insight_key: String,
+    /// Clinical guideline source (e.g., "ISH 2020").
+    pub source: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+// ---------------------------------------------------------------------------
 // Dismissal
 // ---------------------------------------------------------------------------
 
@@ -234,6 +290,14 @@ pub struct AlertCounts {
     pub allergies: usize,
     pub doses: usize,
     pub criticals: usize,
+    /// B2: Drug-drug interactions bridged from invariant engine.
+    pub interactions: usize,
+    /// B2: Missing monitoring labs bridged from invariant engine.
+    pub monitorings: usize,
+    /// B2: Overdue screenings bridged from invariant engine.
+    pub screenings: usize,
+    /// B2: Vital sign trends bridged from invariant engine.
+    pub trends: usize,
 }
 
 impl AlertCounts {
@@ -246,6 +310,10 @@ impl AlertCounts {
             + self.allergies
             + self.doses
             + self.criticals
+            + self.interactions
+            + self.monitorings
+            + self.screenings
+            + self.trends
     }
 }
 
@@ -268,6 +336,10 @@ pub struct RepositorySnapshot {
     pub dose_changes: Vec<DoseChange>,
     pub compound_ingredients: Vec<CompoundIngredient>,
     pub dismissed_alert_keys: std::collections::HashSet<(String, String)>,
+    /// B2: Vital signs for invariant bridge (trend detection, vital classification).
+    pub vital_signs: Vec<crate::models::VitalSign>,
+    /// B2: Patient demographics for invariant bridge (screening due detection).
+    pub demographics: Option<crate::crypto::profile::PatientDemographics>,
 }
 
 impl RepositorySnapshot {
@@ -416,8 +488,12 @@ mod tests {
             allergies: 0,
             doses: 1,
             criticals: 1,
+            interactions: 2,
+            monitorings: 1,
+            screenings: 1,
+            trends: 0,
         };
-        assert_eq!(counts.total(), 9);
+        assert_eq!(counts.total(), 13);
     }
 
     #[test]

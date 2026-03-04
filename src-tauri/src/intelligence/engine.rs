@@ -13,6 +13,7 @@ use super::detection::{
     detect_daily_dose_accumulation, detect_dose_issues, detect_drift, detect_duplicates,
     detect_gaps, detect_temporal,
 };
+use super::invariant_bridge;
 use super::emergency::EmergencyProtocol;
 use super::reference::CoherenceReferenceData;
 use super::store::AlertStore;
@@ -83,7 +84,7 @@ impl DefaultCoherenceEngine {
         })
     }
 
-    /// Run all 8 detection algorithms and collect alerts.
+    /// Run all detection algorithms (8 coherence + invariant bridge) and collect alerts.
     fn run_detections(
         &self,
         document_id: &Uuid,
@@ -99,6 +100,22 @@ impl DefaultCoherenceEngine {
         doses.extend(detect_daily_dose_accumulation(document_id, data, &self.reference));
         let criticals = detect_critical_labs(document_id, data);
 
+        // B2: Bridge invariant engine insights to coherence alerts
+        let bridged = invariant_bridge::detect_from_invariants(data, &self.invariants);
+        let mut interactions = Vec::new();
+        let mut monitorings = Vec::new();
+        let mut screenings = Vec::new();
+        let mut trends = Vec::new();
+        for alert in bridged {
+            match alert.alert_type {
+                crate::models::enums::AlertType::Interaction => interactions.push(alert),
+                crate::models::enums::AlertType::Monitoring => monitorings.push(alert),
+                crate::models::enums::AlertType::Screening => screenings.push(alert),
+                crate::models::enums::AlertType::Trend => trends.push(alert),
+                _ => {} // should not happen
+            }
+        }
+
         let counts = AlertCounts {
             conflicts: conflicts.len(),
             duplicates: duplicates.len(),
@@ -108,6 +125,10 @@ impl DefaultCoherenceEngine {
             allergies: allergies.len(),
             doses: doses.len(),
             criticals: criticals.len(),
+            interactions: interactions.len(),
+            monitorings: monitorings.len(),
+            screenings: screenings.len(),
+            trends: trends.len(),
         };
 
         let all_alerts = conflicts
@@ -119,6 +140,10 @@ impl DefaultCoherenceEngine {
             .chain(allergies)
             .chain(doses)
             .chain(criticals)
+            .chain(interactions)
+            .chain(monitorings)
+            .chain(screenings)
+            .chain(trends)
             .collect();
 
         (all_alerts, counts)
@@ -276,6 +301,8 @@ mod tests {
             dose_changes: vec![],
             compound_ingredients: vec![],
             dismissed_alert_keys: HashSet::new(),
+            vital_signs: vec![],
+            demographics: None,
         }
     }
 
@@ -358,6 +385,7 @@ mod tests {
             allergen: "penicillin".into(),
             reaction: Some("anaphylaxis".into()),
             severity: AllergySeverity::Severe,
+            allergen_category: None,
             date_identified: None,
             source: AllergySource::DocumentExtracted,
             document_id: Some(Uuid::new_v4()),

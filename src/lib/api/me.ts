@@ -1,7 +1,7 @@
 /** L3-06: Me Screen API — single IPC call for health overview. */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { MeOverview } from '$lib/types/me';
+import type { MeOverview, VitalTrendPoint } from '$lib/types/me';
 
 /** ME-04: `lang` is the UI locale — ensures backend labels match display language. */
 export async function getMeOverview(lang: string): Promise<MeOverview> {
@@ -38,6 +38,14 @@ export async function recordScreening(
 		provider: provider ?? null,
 		notes: notes ?? null,
 	});
+}
+
+/** REVIEW-01: Get vital sign trend data for sparkline charts. */
+export async function getVitalTrend(
+	vitalType: string,
+	days?: number,
+): Promise<VitalTrendPoint[]> {
+	return invoke('get_vital_trend', { vitalType, days: days ?? null });
 }
 
 /** ME-06: Delete a screening record by ID. */

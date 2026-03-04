@@ -34,6 +34,9 @@ pub struct ExtractedEntities {
     pub procedures: Vec<ExtractedProcedure>,
     pub referrals: Vec<ExtractedReferral>,
     pub instructions: Vec<ExtractedInstruction>,
+    /// BT-01: Blood type extracted from document (scalar, one per patient).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blood_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::enums::{AllergySeverity, AllergySource};
+use super::enums::{AllergenCategory, AllergySeverity, AllergySource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Allergy {
@@ -10,6 +10,7 @@ pub struct Allergy {
     pub allergen: String,
     pub reaction: Option<String>,
     pub severity: AllergySeverity,
+    pub allergen_category: Option<AllergenCategory>,
     pub date_identified: Option<NaiveDate>,
     pub source: AllergySource,
     pub document_id: Option<Uuid>,

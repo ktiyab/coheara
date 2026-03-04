@@ -32,8 +32,23 @@ use crate::models::{LabResult, VitalSign, VitalType};
 pub struct MeOverview {
     pub identity: MeIdentity,
     pub alerts: Vec<MeInsight>,
+    pub allergies: Vec<AllergyInfo>,
     pub reference_ranges: Vec<ReferenceRange>,
     pub screenings: Vec<ScreeningInfo>,
+}
+
+/// ALLERGY-01 B6: Allergy info for the Me screen allergy section.
+#[derive(Debug, Clone, Serialize)]
+pub struct AllergyInfo {
+    pub id: String,
+    pub allergen: String,
+    pub reaction: Option<String>,
+    pub severity: String,
+    pub category: Option<String>,
+    pub date_identified: Option<String>,
+    pub source: String,
+    pub verified: bool,
+    pub cross_reactivities: Vec<String>,
 }
 
 /// Identity zone: who the user is.
@@ -47,6 +62,10 @@ pub struct MeIdentity {
     pub age: Option<u32>,
     pub sex: Option<String>,
     pub ethnicities: Vec<String>,
+    /// BT-01: Blood type key (e.g. "o_positive").
+    pub blood_type: Option<String>,
+    /// BT-01: Human-readable blood type display (e.g. "O+").
+    pub blood_type_display: Option<String>,
     pub weight_kg: Option<f64>,
     pub height_cm: Option<f64>,
     pub bmi: Option<f64>,
@@ -847,6 +866,36 @@ fn build_screening_info(
         .collect()
 }
 
+/// ALLERGY-01 B6: Build allergy info with cross-reactivity notes.
+fn build_allergy_info(
+    allergies: &[crate::models::Allergy],
+    registry: &crate::invariants::InvariantRegistry,
+) -> Vec<AllergyInfo> {
+    allergies
+        .iter()
+        .map(|a| {
+            let cross = registry.find_all_cross_reactivity(&a.allergen);
+            let cross_notes: Vec<String> = cross
+                .iter()
+                .take(3)
+                .map(|c| format!("{} ({})", c.cross_reactive, c.rate))
+                .collect();
+
+            AllergyInfo {
+                id: a.id.to_string(),
+                allergen: a.allergen.clone(),
+                reaction: a.reaction.clone(),
+                severity: a.severity.as_str().to_string(),
+                category: a.allergen_category.as_ref().map(|c| c.as_str().to_string()),
+                date_identified: a.date_identified.map(|d| d.to_string()),
+                source: a.source.as_str().to_string(),
+                verified: a.verified,
+                cross_reactivities: cross_notes,
+            }
+        })
+        .collect()
+}
+
 // ═══════════════════════════════════════════════════════════
 // Assembly
 // ═══════════════════════════════════════════════════════════
@@ -886,6 +935,14 @@ pub fn assemble_me_overview(
         .as_ref()
         .map(|d| d.ethnicities.iter().map(|e| format!("{e:?}")).collect())
         .unwrap_or_default();
+
+    // BT-01: Blood type from demographics + display from registry
+    let blood_type = demographics
+        .as_ref()
+        .and_then(|d| d.blood_type.as_ref().map(|bt| bt.as_str().to_string()));
+    let blood_type_display = blood_type.as_deref().and_then(|key| {
+        crate::invariants::blood_types::find_blood_type(key).map(|info| info.display.to_string())
+    });
 
     // Fetch entities (12-month window for labs and vitals)
     let today = Local::now().date_naive();
@@ -945,6 +1002,9 @@ pub fn assemble_me_overview(
         crate::db::get_screening_records(conn, &profile_id).unwrap_or_default();
     let screenings = build_screening_info(lang, demographics.as_ref(), &screening_records);
 
+    // ALLERGY-01 B6: Build allergy info with cross-reactivity notes
+    let allergy_infos = build_allergy_info(&allergies, registry);
+
     Ok(MeOverview {
         identity: MeIdentity {
             profile_id,
@@ -952,6 +1012,8 @@ pub fn assemble_me_overview(
             age,
             sex,
             ethnicities,
+            blood_type,
+            blood_type_display,
             weight_kg,
             height_cm,
             bmi,
@@ -959,6 +1021,7 @@ pub fn assemble_me_overview(
             allergy_count: allergies.len(),
         },
         alerts,
+        allergies: allergy_infos,
         reference_ranges,
         screenings,
     })
@@ -972,6 +1035,7 @@ pub fn assemble_me_overview(
 mod tests {
     use super::*;
     use crate::invariants::types::{InvariantLabel, MeaningFactors};
+    use crate::models::enums::{AllergySeverity, AllergenCategory, AllergySource};
     use uuid::Uuid;
 
     // --- Insight helpers (kept from L3-06) ---
@@ -1141,6 +1205,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(45),
+            blood_type: None,
         };
         let ranges = build_reference_ranges("en", Some(&male_demo), &[], &[]);
         let hb = ranges.iter().find(|r| r.key == "hemoglobin").unwrap();
@@ -1160,6 +1225,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::EastAsian],
             age_context: Some(AgeContext::Adult),
             age_years: Some(35),
+            blood_type: None,
         };
         let ranges = build_reference_ranges("en", Some(&asian_demo), &[], &[]);
         let bmi = ranges.iter().find(|r| r.key == "bmi").unwrap();
@@ -1213,6 +1279,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(39),
+            blood_type: None,
         };
         let screenings = build_screening_info("en", Some(&demo), &[]);
         // Male sees: prostate, colorectal, AAA (3 cancer) + 8 vaccines = 11
@@ -1235,6 +1302,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(55),
+            blood_type: None,
         };
         let screenings = build_screening_info("en", Some(&demo), &[]);
         // Female sees: mammography, cervical, colorectal, osteoporosis (4 cancer) + 8 vaccines = 12
@@ -1257,6 +1325,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(55),
+            blood_type: None,
         };
         let screenings = build_screening_info("en", Some(&demo), &[]);
         assert_eq!(screenings.len(), 14);
@@ -1274,6 +1343,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(55),
+            blood_type: None,
         };
         let screenings = build_screening_info("en", Some(&demo), &[]);
         // ME-04 B1: Female now sees 12 (4 cancer + 8 vaccines) — male schedules filtered
@@ -1505,6 +1575,7 @@ mod tests {
             ethnicities: vec![],
             age_context: Some(AgeContext::Adult),
             age_years: Some(55),
+            blood_type: None,
         };
         let info = build_screening_info("en", Some(&demo), &[]);
         // Should have both cancer screenings and vaccines
@@ -1516,5 +1587,140 @@ mod tests {
         for s in &info {
             assert!(!s.category.is_empty());
         }
+    }
+
+    // --- ALLERGY-01 B9: build_allergy_info tests ---
+
+    fn make_test_allergy(
+        allergen: &str,
+        severity: AllergySeverity,
+        category: Option<AllergenCategory>,
+        verified: bool,
+    ) -> crate::models::Allergy {
+        crate::models::Allergy {
+            id: Uuid::new_v4(),
+            allergen: allergen.to_string(),
+            reaction: Some("Rash".to_string()),
+            severity,
+            allergen_category: category,
+            date_identified: Some(chrono::NaiveDate::from_ymd_opt(2025, 6, 15).unwrap()),
+            source: AllergySource::PatientReported,
+            document_id: None,
+            verified,
+        }
+    }
+
+    #[test]
+    fn allergy_info_basic_fields() {
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let allergy = make_test_allergy(
+            "Penicillin",
+            AllergySeverity::Severe,
+            Some(AllergenCategory::Drug),
+            true,
+        );
+        let infos = build_allergy_info(&[allergy.clone()], &registry);
+        assert_eq!(infos.len(), 1);
+        let info = &infos[0];
+        assert_eq!(info.allergen, "Penicillin");
+        assert_eq!(info.severity, "severe");
+        assert_eq!(info.category.as_deref(), Some("drug"));
+        assert_eq!(info.source, "patient_reported");
+        assert!(info.verified);
+        assert_eq!(info.reaction.as_deref(), Some("Rash"));
+        assert_eq!(info.date_identified.as_deref(), Some("2025-06-15"));
+        assert_eq!(info.id, allergy.id.to_string());
+    }
+
+    #[test]
+    fn allergy_info_no_category() {
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let allergy = make_test_allergy("Something", AllergySeverity::Mild, None, false);
+        let infos = build_allergy_info(&[allergy], &registry);
+        assert_eq!(infos.len(), 1);
+        assert!(infos[0].category.is_none());
+        assert!(!infos[0].verified);
+    }
+
+    #[test]
+    fn allergy_info_empty_list() {
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let infos = build_allergy_info(&[], &registry);
+        assert!(infos.is_empty());
+    }
+
+    #[test]
+    fn allergy_info_multiple() {
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let allergies = vec![
+            make_test_allergy("Penicillin", AllergySeverity::Severe, None, true),
+            make_test_allergy("Peanut", AllergySeverity::LifeThreatening, None, false),
+            make_test_allergy("Dust mite", AllergySeverity::Mild, None, false),
+        ];
+        let infos = build_allergy_info(&allergies, &registry);
+        assert_eq!(infos.len(), 3);
+        assert_eq!(infos[0].allergen, "Penicillin");
+        assert_eq!(infos[1].allergen, "Peanut");
+        assert_eq!(infos[2].allergen, "Dust mite");
+    }
+
+    #[test]
+    fn allergy_info_cross_reactivity_with_loaded_registry() {
+        let candidates = [
+            std::path::PathBuf::from("resources"),
+            std::path::PathBuf::from("src-tauri/resources"),
+        ];
+        let mut registry = crate::invariants::InvariantRegistry::empty();
+        for dir in &candidates {
+            if dir.join("invariants").exists() {
+                registry = crate::invariants::InvariantRegistry::load(dir).unwrap();
+                break;
+            }
+        }
+        if registry.allergen_cross_reactivity().is_empty() {
+            return; // Skip if invariant data not available
+        }
+
+        // Penicillin should have cross-reactivity notes (cephalosporins)
+        let allergy = make_test_allergy("Penicillin", AllergySeverity::Severe, None, false);
+        let infos = build_allergy_info(&[allergy], &registry);
+        assert_eq!(infos.len(), 1);
+        // Cross-reactivity notes capped at 3
+        assert!(infos[0].cross_reactivities.len() <= 3);
+    }
+
+    #[test]
+    fn allergy_info_severity_variants() {
+        let registry = crate::invariants::InvariantRegistry::empty();
+        let severities = [
+            (AllergySeverity::Mild, "mild"),
+            (AllergySeverity::Moderate, "moderate"),
+            (AllergySeverity::Severe, "severe"),
+            (AllergySeverity::LifeThreatening, "life_threatening"),
+        ];
+        for (sev, expected) in &severities {
+            let allergy = make_test_allergy("Test", sev.clone(), None, false);
+            let infos = build_allergy_info(&[allergy], &registry);
+            assert_eq!(infos[0].severity, *expected, "Severity mismatch for {expected}");
+        }
+    }
+
+    // ── BT-01: Blood type on MeIdentity ────────────────────
+
+    #[test]
+    fn format_blood_type_resolves_display() {
+        // Verify the blood_type → blood_type_display mapping helper
+        let key = "o_positive";
+        let info = crate::invariants::blood_types::find_blood_type(key);
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().display, "O+");
+    }
+
+    #[test]
+    fn format_blood_type_negative_resolves() {
+        let key = "ab_negative";
+        let info = crate::invariants::blood_types::find_blood_type(key);
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().display, "AB-");
     }
 }

@@ -87,7 +87,7 @@
   <!-- Empty state -->
   <div class="px-4 py-8 text-center">
     <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-stone-100 dark:bg-gray-800 flex items-center justify-center">
-      <PhoneIcon class="w-6 h-6 text-stone-400 dark:text-gray-500" />
+      <PhoneIcon class="w-6 h-6 text-stone-400 dark:text-gray-400" />
     </div>
     <p class="text-sm text-stone-500 dark:text-gray-400">{$t('devices.no_devices')}</p>
   </div>

@@ -133,6 +133,19 @@ impl SemanticVerifier {
                     terms.push(specialty.to_string());
                 }
             }
+            ExtractionDomain::VitalSign => {
+                // Use the numeric value as a string term for grounding
+                if let Some(val) = item.data.get("value_primary").and_then(|v| v.as_f64()) {
+                    // Convert to int string for matching (e.g., 130.0 -> "130")
+                    terms.push(format!("{}", val as i64));
+                }
+                if let Some(val) = item.data.get("value_secondary").and_then(|v| v.as_f64()) {
+                    terms.push(format!("{}", val as i64));
+                }
+                if let Some(unit) = item.data.get("unit").and_then(|v| v.as_str()) {
+                    terms.push(unit.to_string());
+                }
+            }
         }
 
         terms

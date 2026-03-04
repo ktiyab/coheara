@@ -104,6 +104,18 @@ pub fn structured_search(
         ctx.vital_signs = repository::get_vital_signs_in_range(conn, &six_months_ago, &now)?;
     }
 
+    // ME-06/G5: Include screening and vaccination records
+    if params.include_screening_records {
+        ctx.screening_records = repository::get_all_screening_records(conn)
+            .unwrap_or_default();
+    }
+
+    // B2-G6: Include entity connections (graph edges between entities)
+    if params.include_entity_connections {
+        ctx.entity_connections = repository::get_all_entity_connections(conn)
+            .unwrap_or_default();
+    }
+
     Ok(ctx)
 }
 
@@ -354,6 +366,7 @@ mod tests {
                 allergen: "Penicillin".into(),
                 reaction: Some("Rash".into()),
                 severity: AllergySeverity::Severe,
+                allergen_category: None,
                 date_identified: None,
                 source: AllergySource::DocumentExtracted,
                 document_id: Some(doc_id),
@@ -620,6 +633,7 @@ mod tests {
                 allergen: "Penicillin".into(),
                 reaction: Some("Anaphylaxis".into()),
                 severity: AllergySeverity::LifeThreatening,
+                allergen_category: None,
                 date_identified: None,
                 source: AllergySource::DocumentExtracted,
                 document_id: Some(doc_id),

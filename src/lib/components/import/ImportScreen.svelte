@@ -314,7 +314,7 @@
         </p>
 
         <!-- GAP-H01: Drop hint -->
-        <p class="text-xs text-stone-400 dark:text-gray-500 text-center mb-4">
+        <p class="text-xs text-stone-400 dark:text-gray-400 text-center mb-4">
           {$t('import.drag_drop_hint')}
         </p>
 

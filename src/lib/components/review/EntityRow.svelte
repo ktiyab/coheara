@@ -137,7 +137,7 @@
     {/if}
 
     <ChevronDownIcon
-      class="w-4 h-4 text-stone-400 dark:text-gray-500 transition-transform shrink-0
+      class="w-4 h-4 text-stone-400 dark:text-gray-400 transition-transform shrink-0
              {expanded ? 'rotate-180' : ''}"
     />
   </button>

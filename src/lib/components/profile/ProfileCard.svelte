@@ -65,7 +65,7 @@
         </span>
       {/if}
     </div>
-    <p class="text-xs text-stone-400 dark:text-gray-500 truncate mt-0.5">
+    <p class="text-xs text-stone-400 dark:text-gray-400 truncate mt-0.5">
       {#if profileInfo.managed_by}
         {$t('profile.viewing_managed', { values: { caregiver: profileInfo.managed_by } })}
       {:else}
@@ -95,7 +95,7 @@
     {#if canDelete && !hasDependents}
       <button
         class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg
-               text-stone-400 dark:text-gray-500 hover:bg-red-50 hover:text-red-600
+               text-stone-400 dark:text-gray-400 hover:bg-red-50 hover:text-red-600
                dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
         onclick={onDelete}
         title={$t('settings.delete_profile') ?? 'Delete profile'}

@@ -75,7 +75,7 @@
         {isVaccine ? $t('me.vaccine_record_title') : $t('me.screening_record_btn')}
       </h2>
       <button onclick={onclose}
-        class="text-stone-400 dark:text-gray-500 hover:text-stone-600
+        class="text-stone-400 dark:text-gray-400 hover:text-stone-600
                dark:hover:text-gray-300">
         <CloseIcon class="w-5 h-5" />
       </button>
@@ -87,7 +87,7 @@
         <p class="text-sm font-medium text-stone-800 dark:text-gray-100">
           {screening.label}
         </p>
-        <p class="text-xs text-stone-400 dark:text-gray-500 mt-0.5">
+        <p class="text-xs text-stone-400 dark:text-gray-400 mt-0.5">
           {screening.source}
         </p>
         {#if screening.total_doses > 0}

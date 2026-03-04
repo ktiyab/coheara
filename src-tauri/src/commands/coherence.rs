@@ -33,7 +33,12 @@ use crate::models::enums::{AlertType, DismissedBy};
 
 /// Build a `RepositorySnapshot` from the active profile's database.
 /// Fetches all patient data needed for coherence analysis.
-fn build_snapshot(conn: &rusqlite::Connection) -> Result<RepositorySnapshot, String> {
+///
+/// B2: `demographics` passed separately because it requires CoreState (encrypted profile).
+fn build_snapshot(
+    conn: &rusqlite::Connection,
+    demographics: Option<crate::crypto::profile::PatientDemographics>,
+) -> Result<RepositorySnapshot, String> {
     Ok(RepositorySnapshot {
         medications: repository::get_all_medications(conn).map_err(|e| e.to_string())?,
         diagnoses: repository::get_all_diagnoses(conn).map_err(|e| e.to_string())?,
@@ -47,6 +52,8 @@ fn build_snapshot(conn: &rusqlite::Connection) -> Result<RepositorySnapshot, Str
             .map_err(|e| e.to_string())?,
         dismissed_alert_keys: repository::get_dismissed_alert_keys(conn)
             .map_err(|e| e.to_string())?,
+        vital_signs: repository::get_all_vital_signs(conn).unwrap_or_default(),
+        demographics,
     })
 }
 
@@ -110,7 +117,8 @@ pub fn run_coherence_scan(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let snapshot = build_snapshot(&conn)?;
+    let demographics = state.get_patient_demographics();
+    let snapshot = build_snapshot(&conn, demographics)?;
     let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
 
     let result = engine.analyze_full(&snapshot).map_err(|e| e.to_string())?;
@@ -142,7 +150,8 @@ pub fn run_coherence_scan_document(
     let db_path = state.db_path().map_err(|e| e.to_string())?;
     let db_key = state.db_key().ok();
 
-    let snapshot = build_snapshot(&conn)?;
+    let demographics = state.get_patient_demographics();
+    let snapshot = build_snapshot(&conn, demographics)?;
     let engine = build_engine(&conn, &db_path, db_key, state.invariants().clone())?;
 
     let result = engine
@@ -275,7 +284,7 @@ mod tests {
     #[test]
     fn build_snapshot_empty_db() {
         let conn = open_memory_database().unwrap();
-        let snapshot = build_snapshot(&conn).unwrap();
+        let snapshot = build_snapshot(&conn, None).unwrap();
 
         assert!(snapshot.medications.is_empty());
         assert!(snapshot.diagnoses.is_empty());
@@ -364,7 +373,7 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = build_snapshot(&conn).unwrap();
+        let snapshot = build_snapshot(&conn, None).unwrap();
         assert_eq!(snapshot.medications.len(), 1);
         assert_eq!(snapshot.diagnoses.len(), 1);
         assert_eq!(snapshot.medications[0].generic_name, "Metformin");
@@ -406,7 +415,7 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = build_snapshot(&conn).unwrap();
+        let snapshot = build_snapshot(&conn, None).unwrap();
         let result = engine.analyze_full(&snapshot).unwrap();
 
         assert!(result.new_alerts.is_empty());
@@ -431,7 +440,7 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = build_snapshot(&conn).unwrap();
+        let snapshot = build_snapshot(&conn, None).unwrap();
         assert_eq!(snapshot.dismissed_alert_keys.len(), 1);
         assert!(snapshot.dismissed_alert_keys.contains(&("conflict".to_string(), "id1,id2".to_string())));
     }

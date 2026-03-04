@@ -79,7 +79,7 @@
       <div class="flex items-center gap-2 text-xs">
         <span class="{item.set
           ? 'text-teal-500 dark:text-teal-400'
-          : 'text-stone-400 dark:text-gray-500'}">
+          : 'text-stone-400 dark:text-gray-400'}">
           {item.set ? '\u2713' : '\u25cb'}
         </span>
         <span class="{item.set

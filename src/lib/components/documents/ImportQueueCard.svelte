@@ -101,7 +101,7 @@
 
   let statusDotClass = $derived.by(() => {
     if (isFailed) return 'text-red-500';
-    if (job.state === 'Cancelled') return 'text-stone-400 dark:text-gray-500';
+    if (job.state === 'Cancelled') return 'text-stone-400 dark:text-gray-400';
     if (job.state === 'Done') return 'text-[var(--color-success)]';
     return 'text-blue-500';
   });
@@ -153,7 +153,7 @@
 
     <!-- Elapsed time -->
     {#if elapsedLabel}
-      <span class="shrink-0 text-xs text-stone-400 dark:text-gray-500 tabular-nums">
+      <span class="shrink-0 text-xs text-stone-400 dark:text-gray-400 tabular-nums">
         {elapsedLabel}
       </span>
     {/if}
@@ -162,7 +162,7 @@
     {#if hasDrawerContent}
       <button
         class="shrink-0 min-h-[32px] min-w-[32px] flex items-center justify-center
-               text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
+               text-stone-400 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
         onclick={() => { detailExpanded = !detailExpanded; }}
         aria-expanded={detailExpanded}
         aria-label="Toggle details"
@@ -187,7 +187,7 @@
     </div>
   {:else if job.state === 'Queued' && queuePosition && queueTotal}
     <div class="mt-1 pl-6">
-      <span class="text-xs text-stone-400 dark:text-gray-500">
+      <span class="text-xs text-stone-400 dark:text-gray-400">
         {$t('documents.queue_position', { values: { position: queuePosition, total: queueTotal } })}
       </span>
     </div>
@@ -224,7 +224,7 @@
               step.status === 'done' ? 'text-stone-500 dark:text-gray-400'
               : step.status === 'active' ? 'text-stone-800 dark:text-gray-100 font-medium'
               : step.status === 'failed' ? 'text-red-500 font-medium'
-              : 'text-stone-400 dark:text-gray-500'
+              : 'text-stone-400 dark:text-gray-400'
             }">
               {step.label}
             </span>
@@ -241,11 +241,11 @@
       <div class="space-y-1">
         {#if job.model_used}
           <p class="text-xs text-stone-500 dark:text-gray-400">
-            <span class="text-stone-400 dark:text-gray-500">{$t('documents.queue_detail_model')}:</span> {job.model_used}
+            <span class="text-stone-400 dark:text-gray-400">{$t('documents.queue_detail_model')}:</span> {job.model_used}
           </p>
         {/if}
         <p class="text-xs text-stone-500 dark:text-gray-400 truncate">
-          <span class="text-stone-400 dark:text-gray-500">{$t('documents.queue_detail_file')}:</span> {job.file_path}
+          <span class="text-stone-400 dark:text-gray-400">{$t('documents.queue_detail_file')}:</span> {job.file_path}
         </p>
       </div>
 

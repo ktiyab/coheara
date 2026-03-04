@@ -101,6 +101,7 @@ fn parse_entities_json(
         procedures,
         referrals,
         instructions,
+        blood_type: None,
     };
 
     Ok((entities, meta))

@@ -1,3 +1,4 @@
+use crate::crypto::profile::PatientDemographics;
 use crate::invariants::types::{ClinicalInsight, InsightSeverity};
 use crate::models::*;
 
@@ -45,13 +46,15 @@ fn estimate_tokens(text: &str) -> usize {
 }
 
 /// Assemble retrieved context into a structured prompt section.
-/// Prioritizes: allergies > clinical insights > semantic chunks > medications > diagnoses > labs > vitals > symptoms.
+/// Prioritizes: blood type > allergies > clinical insights > semantic chunks > medications > diagnoses > labs > vitals > screenings > symptoms.
 /// M.7: Budget is language-aware — French text gets a tighter char limit to stay within token budget.
 /// ME-03: Clinical insights inserted at Priority 1.5 (after allergies, before semantic chunks).
+/// BT-01: Blood type at Priority 0.5 (before allergies — identity-level context).
 pub fn assemble_context(
     retrieved: &RetrievedContext,
     query_type: &QueryType,
     insights: &[ClinicalInsight],
+    demographics: Option<&PatientDemographics>,
 ) -> AssembledContext {
     // M.7: Sample content to detect language for token budget adjustment
     let content_sample: String = retrieved
@@ -65,6 +68,12 @@ pub fn assemble_context(
 
     let mut sections = Vec::new();
     let mut total_chars = 0;
+
+    // Priority 0.5: Blood type (identity-level, ultra-compact ~10 tokens)
+    if let Some(bt_section) = format_blood_type(demographics) {
+        total_chars += bt_section.len();
+        sections.push(("PATIENT BLOOD TYPE", bt_section));
+    }
 
     // Priority 1: Allergies (always include — safety critical)
     if !retrieved.structured_data.allergies.is_empty() {
@@ -123,6 +132,18 @@ pub fn assemble_context(
         }
     }
 
+    // Priority 4.5: Entity connections (semantic graph edges)
+    if !retrieved.structured_data.entity_connections.is_empty() && total_chars < budget {
+        let section = format_entity_connections(
+            &retrieved.structured_data.entity_connections,
+            &retrieved.structured_data,
+        );
+        if !section.is_empty() && total_chars + section.len() <= budget {
+            total_chars += section.len();
+            sections.push(("ENTITY RELATIONSHIPS", section));
+        }
+    }
+
     // Priority 5: Lab results (if room)
     if !retrieved.structured_data.lab_results.is_empty() && total_chars < budget {
         let section = format_labs(&retrieved.structured_data.lab_results);
@@ -141,7 +162,16 @@ pub fn assemble_context(
         }
     }
 
-    // Priority 7: Recent symptoms (for symptom queries)
+    // Priority 7: Screening and vaccination records (if room)
+    if !retrieved.structured_data.screening_records.is_empty() && total_chars < budget {
+        let section = format_screening_records(&retrieved.structured_data.screening_records);
+        if total_chars + section.len() <= budget {
+            total_chars += section.len();
+            sections.push(("PREVENTIVE SCREENINGS AND VACCINATIONS", section));
+        }
+    }
+
+    // Priority 8: Recent symptoms (for symptom queries)
     if *query_type == QueryType::Symptom
         && !retrieved.structured_data.symptoms.is_empty()
         && total_chars < budget
@@ -168,15 +198,31 @@ pub fn assemble_context(
     }
 }
 
+/// BT-01: Format blood type for RAG context (~10 tokens).
+fn format_blood_type(demographics: Option<&PatientDemographics>) -> Option<String> {
+    let bt = demographics?.blood_type.as_ref()?;
+    let info = crate::invariants::blood_types::find_blood_type(bt.as_str())?;
+    let rh = if info.rh_positive { "Rh-positive" } else { "Rh-negative" };
+    Some(format!("Blood type: {} ({} {}, {})", info.display, info.abo_group, rh, info.source))
+}
+
 fn format_allergies(allergies: &[Allergy]) -> String {
     allergies
         .iter()
         .map(|a| {
+            let cat_tag = a
+                .allergen_category
+                .as_ref()
+                .map(|c| format!("[{}] ", c.as_str().to_uppercase()))
+                .unwrap_or_default();
+            let verified_tag = if a.verified { " [verified]" } else { "" };
             format!(
-                "- {} (severity: {}, reaction: {})",
+                "- {}{} (severity: {}, reaction: {}){}",
+                cat_tag,
                 a.allergen,
                 a.severity.as_str(),
-                a.reaction.as_deref().unwrap_or("not specified")
+                a.reaction.as_deref().unwrap_or("not specified"),
+                verified_tag,
             )
         })
         .collect::<Vec<_>>()
@@ -292,6 +338,89 @@ fn format_vital_signs(vitals: &[VitalSign]) -> String {
         .join("\n")
 }
 
+/// ME-06/G5: Format screening and vaccination records for LLM context.
+fn format_screening_records(records: &[crate::db::repository::ScreeningRecord]) -> String {
+    records
+        .iter()
+        .map(|r| {
+            let category = if r.screening_key.starts_with("vaccine_") {
+                "Vaccine"
+            } else {
+                "Screening"
+            };
+            let provider_str = r
+                .provider
+                .as_deref()
+                .map(|p| format!(" by {p}"))
+                .unwrap_or_default();
+            let dose_str = if r.dose_number > 1 || r.screening_key.starts_with("vaccine_") {
+                format!(" (dose {})", r.dose_number)
+            } else {
+                String::new()
+            };
+            format!(
+                "- [{}] {}{} - completed {}{}", category, r.screening_key, dose_str, r.completed_at, provider_str
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// B2-G6: Format entity connections as human-readable relationship lines.
+///
+/// Resolves entity UUIDs to names from the already-loaded structured data.
+/// Format: `- Source (Type) → RelationshipType → Target (Type) [confidence: X]`
+fn format_entity_connections(
+    connections: &[crate::models::entity_connection::EntityConnection],
+    ctx: &super::types::StructuredContext,
+) -> String {
+    use crate::models::entity_connection::EntityType;
+
+    let resolve_name = |etype: &EntityType, eid: &uuid::Uuid| -> Option<String> {
+        match etype {
+            EntityType::Medication => ctx
+                .medications
+                .iter()
+                .find(|m| m.id == *eid)
+                .map(|m| m.generic_name.clone()),
+            EntityType::Diagnosis => ctx
+                .diagnoses
+                .iter()
+                .find(|d| d.id == *eid)
+                .map(|d| d.name.clone()),
+            EntityType::LabResult => ctx
+                .lab_results
+                .iter()
+                .find(|l| l.id == *eid)
+                .map(|l| l.test_name.clone()),
+            EntityType::Allergy => ctx
+                .allergies
+                .iter()
+                .find(|a| a.id == *eid)
+                .map(|a| a.allergen.clone()),
+            _ => None,
+        }
+    };
+
+    let lines: Vec<String> = connections
+        .iter()
+        .filter_map(|c| {
+            let source_name = resolve_name(&c.source_type, &c.source_id)?;
+            let target_name = resolve_name(&c.target_type, &c.target_id)?;
+            Some(format!(
+                "- {} ({}) -> {} -> {} ({})",
+                source_name,
+                c.source_type.as_str(),
+                c.relationship_type.as_str(),
+                target_name,
+                c.target_type.as_str(),
+            ))
+        })
+        .collect();
+
+    lines.join("\n")
+}
+
 fn format_symptoms(symptoms: &[Symptom]) -> String {
     symptoms
         .iter()
@@ -323,7 +452,7 @@ mod tests {
     #[test]
     fn empty_context_produces_empty_text() {
         let ctx = empty_context();
-        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
         assert!(assembled.text.is_empty());
         assert_eq!(assembled.estimated_tokens, 0);
     }
@@ -336,13 +465,14 @@ mod tests {
             allergen: "Penicillin".into(),
             reaction: Some("Anaphylaxis".into()),
             severity: AllergySeverity::LifeThreatening,
+            allergen_category: None,
             date_identified: None,
             source: AllergySource::DocumentExtracted,
             document_id: None,
             verified: true,
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
         assert!(assembled.text.contains("KNOWN ALLERGIES"));
         assert!(assembled.text.contains("Penicillin"));
         assert!(assembled.text.contains("life_threatening"));
@@ -365,7 +495,7 @@ mod tests {
             });
         }
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[], None);
         // Allow buffer for XML tags; English content → 4 chars/token budget
         let en_budget = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN_EN;
         assert!(
@@ -400,7 +530,7 @@ mod tests {
             professional_name: None,
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[], None);
         // High score chunk should appear before low score
         let high_pos = assembled.text.find("High relevance").unwrap();
         let low_pos = assembled.text.find("Low relevance").unwrap();
@@ -433,7 +563,7 @@ mod tests {
             document_id: uuid::Uuid::new_v4(),
         });
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &[], None);
         assert!(assembled.text.contains("CURRENT MEDICATIONS"));
         assert!(assembled.text.contains("Metformin"));
     }
@@ -487,7 +617,7 @@ mod tests {
                 professional_name: None,
             });
         }
-        let fr_assembled = assemble_context(&fr_ctx, &QueryType::Factual, &[]);
+        let fr_assembled = assemble_context(&fr_ctx, &QueryType::Factual, &[], None);
 
         // Same chunk count but English content → looser budget
         let mut en_ctx = empty_context();
@@ -505,7 +635,7 @@ mod tests {
                 professional_name: None,
             });
         }
-        let en_assembled = assemble_context(&en_ctx, &QueryType::Factual, &[]);
+        let en_assembled = assemble_context(&en_ctx, &QueryType::Factual, &[], None);
 
         assert!(
             fr_assembled.chunks_included.len() < en_assembled.chunks_included.len(),
@@ -547,7 +677,7 @@ mod tests {
             meaning_factors: MeaningFactors::default(),
         }];
 
-        let assembled = assemble_context(&ctx, &QueryType::Factual, &insights);
+        let assembled = assemble_context(&ctx, &QueryType::Factual, &insights, None);
         assert!(assembled.text.contains("PUBLISHED GUIDELINE REFERENCES"));
         assert!(assembled.text.contains("Grade 1 Hypertension"));
         assert!(assembled.text.contains("BP 145/92 mmHg"));
@@ -562,7 +692,7 @@ mod tests {
     #[test]
     fn empty_insights_produce_no_section() {
         let ctx = empty_context();
-        let assembled = assemble_context(&ctx, &QueryType::General, &[]);
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
         assert!(!assembled.text.contains("PUBLISHED GUIDELINE REFERENCES"));
     }
 
@@ -585,7 +715,7 @@ mod tests {
         }
 
         // Assembly without insights
-        let without = assemble_context(&ctx, &QueryType::Factual, &[]);
+        let without = assemble_context(&ctx, &QueryType::Factual, &[], None);
 
         // Create some insights
         let insights = vec![
@@ -620,10 +750,133 @@ mod tests {
         ];
 
         // Assembly with insights — fewer chunks should fit
-        let with = assemble_context(&ctx, &QueryType::Factual, &insights);
+        let with = assemble_context(&ctx, &QueryType::Factual, &insights, None);
         assert!(
             with.chunks_included.len() <= without.chunks_included.len(),
             "Insights should consume budget, reducing chunk count"
         );
+    }
+
+    // ── ALLERGY-01 B9: Allergy format tests ─────────────────
+
+    #[test]
+    fn allergy_with_category_shows_tag() {
+        let mut ctx = empty_context();
+        ctx.structured_data.allergies.push(Allergy {
+            id: uuid::Uuid::new_v4(),
+            allergen: "Peanut".into(),
+            reaction: Some("Anaphylaxis".into()),
+            severity: AllergySeverity::LifeThreatening,
+            allergen_category: Some(AllergenCategory::Food),
+            date_identified: None,
+            source: AllergySource::PatientReported,
+            document_id: None,
+            verified: false,
+        });
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
+        assert!(assembled.text.contains("[FOOD]"), "Should include category tag");
+        assert!(assembled.text.contains("Peanut"));
+    }
+
+    #[test]
+    fn allergy_verified_shows_tag() {
+        let mut ctx = empty_context();
+        ctx.structured_data.allergies.push(Allergy {
+            id: uuid::Uuid::new_v4(),
+            allergen: "Aspirin".into(),
+            reaction: None,
+            severity: AllergySeverity::Moderate,
+            allergen_category: Some(AllergenCategory::Drug),
+            date_identified: None,
+            source: AllergySource::DocumentExtracted,
+            document_id: None,
+            verified: true,
+        });
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
+        assert!(assembled.text.contains("[verified]"), "Should include verified tag");
+        assert!(assembled.text.contains("[DRUG]"), "Should include category tag");
+        assert!(assembled.text.contains("Aspirin"));
+    }
+
+    #[test]
+    fn allergy_without_category_no_tag() {
+        let mut ctx = empty_context();
+        ctx.structured_data.allergies.push(Allergy {
+            id: uuid::Uuid::new_v4(),
+            allergen: "Latex".into(),
+            reaction: Some("Contact dermatitis".into()),
+            severity: AllergySeverity::Mild,
+            allergen_category: None,
+            date_identified: None,
+            source: AllergySource::DocumentExtracted,
+            document_id: None,
+            verified: false,
+        });
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
+        assert!(assembled.text.contains("Latex"));
+        assert!(!assembled.text.contains("[verified]"));
+        // No category tag prefix before allergen name
+        assert!(assembled.text.contains("- Latex (severity:"));
+    }
+
+    #[test]
+    fn allergy_no_reaction_shows_not_specified() {
+        let mut ctx = empty_context();
+        ctx.structured_data.allergies.push(Allergy {
+            id: uuid::Uuid::new_v4(),
+            allergen: "Sulfonamide".into(),
+            reaction: None,
+            severity: AllergySeverity::Severe,
+            allergen_category: None,
+            date_identified: None,
+            source: AllergySource::DocumentExtracted,
+            document_id: None,
+            verified: false,
+        });
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], None);
+        assert!(assembled.text.contains("not specified"));
+    }
+
+    // ── BT-01: Blood type in RAG context ─────────────────
+
+    #[test]
+    fn blood_type_in_context_when_known() {
+        use crate::crypto::profile::PatientDemographics;
+        use crate::models::enums::BloodType;
+
+        let ctx = empty_context();
+        let demo = PatientDemographics {
+            sex: None,
+            ethnicities: vec![],
+            age_context: None,
+            age_years: None,
+            blood_type: Some(BloodType::OPositive),
+        };
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], Some(&demo));
+        assert!(assembled.text.contains("PATIENT BLOOD TYPE"));
+        assert!(assembled.text.contains("O+"));
+        assert!(assembled.text.contains("Rh-positive"));
+    }
+
+    #[test]
+    fn no_blood_type_section_when_unknown() {
+        use crate::crypto::profile::PatientDemographics;
+
+        let ctx = empty_context();
+        let demo = PatientDemographics {
+            sex: None,
+            ethnicities: vec![],
+            age_context: None,
+            age_years: None,
+            blood_type: None,
+        };
+
+        let assembled = assemble_context(&ctx, &QueryType::General, &[], Some(&demo));
+        assert!(!assembled.text.contains("PATIENT BLOOD TYPE"));
     }
 }

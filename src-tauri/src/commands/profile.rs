@@ -136,6 +136,7 @@ pub async fn unlock_profile(
                 address: None,
                 sex: None,
                 ethnicities: Vec::new(),
+                blood_type: None,
             });
 
         state.set_session(session).map_err(|e| e.to_string())?;
@@ -364,15 +365,18 @@ pub fn update_activity(state: State<'_, Arc<CoreState>>) {
     state.update_activity();
 }
 
-/// ME-04: Update demographics (sex, ethnicities) on an existing profile.
+/// ME-04 + BT-01: Update demographics (sex, ethnicities, blood type) on an existing profile.
 #[tauri::command]
 pub fn update_profile_demographics(
     profile_id: String,
     sex: Option<String>,
     ethnicities: Vec<String>,
+    blood_type: Option<String>,
     state: State<'_, Arc<CoreState>>,
 ) -> Result<ProfileInfo, String> {
     use crate::crypto::profile::{BiologicalSex, EthnicityGroup};
+    use crate::models::enums::BloodType;
+    use std::str::FromStr;
 
     let id = Uuid::parse_str(&profile_id).map_err(|e| format!("Invalid profile ID: {e}"))?;
 
@@ -393,11 +397,17 @@ pub fn update_profile_demographics(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let parsed_blood_type = blood_type
+        .as_deref()
+        .map(|bt| BloodType::from_str(bt).map_err(|_| format!("Invalid blood type: {bt}")))
+        .transpose()?;
+
     profile::update_profile_demographics(
         &state.profiles_dir,
         &id,
         parsed_sex,
         parsed_ethnicities,
+        parsed_blood_type,
     )
     .map_err(|e| e.to_string())
 }

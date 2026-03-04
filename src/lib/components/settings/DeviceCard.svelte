@@ -56,7 +56,7 @@
         {lastSeenText()}
       </span>
     </div>
-    <p class="text-[11px] text-stone-400 dark:text-gray-500">
+    <p class="text-[11px] text-stone-400 dark:text-gray-400">
       {$t('devices.paired_date', { values: { date: formatDate(device.paired_at) } })}
     </p>
   </div>
@@ -72,7 +72,7 @@
   <!-- Unpair button (hover-visible) -->
   <button
     class="flex-shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center
-           rounded-lg text-stone-400 dark:text-gray-500
+           rounded-lg text-stone-400 dark:text-gray-400
            hover:text-red-500 dark:hover:text-red-400
            hover:bg-red-50 dark:hover:bg-red-900/20
            opacity-0 group-hover:opacity-100 focus:opacity-100

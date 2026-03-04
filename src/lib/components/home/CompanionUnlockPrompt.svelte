@@ -70,7 +70,7 @@
         {$t('companion.unlock_heading')}
       </h2>
     </div>
-    <p class="text-xs text-stone-400 dark:text-gray-500 mb-4">
+    <p class="text-xs text-stone-400 dark:text-gray-400 mb-4">
       {$t('companion.unlock_description')}
     </p>
 

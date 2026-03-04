@@ -10,15 +10,18 @@ use super::types::{
 };
 use crate::crypto::ProfileSession;
 use crate::db::{repository, sqlite};
+use crate::invariants::InvariantRegistry;
 use crate::pipeline::structuring::types::StructuringResult;
 
 /// Orchestrates the full storage pipeline:
 /// chunk → embed → vector store → entity store → markdown → update document.
+/// ALLERGY-01 B7: Registry for allergen auto-classification during extraction.
 pub struct DocumentStoragePipeline<C: Chunker, E: EmbeddingModel, V: VectorStore> {
     chunker: C,
     embedder: E,
     vector_store: V,
     profiles_dir: std::path::PathBuf,
+    registry: InvariantRegistry,
 }
 
 impl<C: Chunker, E: EmbeddingModel, V: VectorStore> DocumentStoragePipeline<C, E, V> {
@@ -27,12 +30,14 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> DocumentStoragePipeline<C, E
         embedder: E,
         vector_store: V,
         profiles_dir: &Path,
+        registry: InvariantRegistry,
     ) -> Self {
         Self {
             chunker,
             embedder,
             vector_store,
             profiles_dir: profiles_dir.to_path_buf(),
+            registry,
         }
     }
 }
@@ -121,7 +126,7 @@ impl<C: Chunker, E: EmbeddingModel, V: VectorStore> StoragePipeline
 
         // Step 5: Store entities (inside transaction)
         let (entity_counts, entity_warnings) =
-            entity_store::store_entities(&tx, structuring_result)?;
+            entity_store::store_entities(&tx, structuring_result, &self.registry)?;
         warnings.extend(entity_warnings);
 
         // Step 6: Resolve professional + update document record (inside transaction)
@@ -216,6 +221,7 @@ fn open_profile_db(session: &ProfileSession) -> Result<Connection, StorageError>
 pub fn build_storage_pipeline(
     session: &ProfileSession,
     profiles_dir: &Path,
+    registry: InvariantRegistry,
 ) -> DocumentStoragePipeline<
     super::chunker::MedicalChunker,
     Box<dyn super::types::EmbeddingModel>,
@@ -226,6 +232,7 @@ pub fn build_storage_pipeline(
         super::embedder::build_embedder(),
         super::vectordb::SqliteVectorStore::new(session.db_path().to_path_buf(), Some(*session.key_bytes())),
         profiles_dir,
+        registry,
     )
 }
 
@@ -257,6 +264,7 @@ mod tests {
             MockEmbedder::new(),
             InMemoryVectorStore::new(),
             profiles_dir,
+            InvariantRegistry::empty(),
         )
     }
 
@@ -315,6 +323,7 @@ mod tests {
                     text: "Follow up in 3 months".into(),
                     category: "follow_up".into(),
                 }],
+                blood_type: None,
             },
             structuring_confidence: 0.87,
             markdown_file_path: None,

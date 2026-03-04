@@ -71,7 +71,7 @@
         <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">
           {activeProfile.name}
         </p>
-        <p class="text-xs text-stone-400 dark:text-gray-500 truncate">
+        <p class="text-xs text-stone-400 dark:text-gray-400 truncate">
           {activeProfile.managed_by
             ? $t('profile.viewing_managed', { values: { caregiver: activeProfile.managed_by } })
             : $t('profile.self_managed_label')}
@@ -79,7 +79,7 @@
       </div>
       <button
         class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg
-               text-stone-400 dark:text-gray-500 hover:bg-stone-100 dark:hover:bg-gray-700 transition-colors"
+               text-stone-400 dark:text-gray-400 hover:bg-stone-100 dark:hover:bg-gray-700 transition-colors"
         onclick={onLock}
         title={$t('profile.lock') ?? 'Lock'}
         aria-label={$t('profile.lock') ?? 'Lock'}
@@ -92,7 +92,7 @@
   <!-- Family members section -->
   {#if managedProfiles.length > 0}
     <div class="px-4 py-2 border-b border-stone-100 dark:border-gray-700">
-      <p class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wider mb-1">
+      <p class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wider mb-1">
         {$t('profile.popover_family_heading')}
       </p>
       <ul class="space-y-0.5">
@@ -122,7 +122,7 @@
                text-stone-600 dark:text-gray-400 hover:bg-stone-50 dark:hover:bg-gray-700/50 transition-colors"
         onclick={onAdd}
       >
-        <PlusIcon class="w-5 h-5 text-stone-400 dark:text-gray-500" />
+        <PlusIcon class="w-5 h-5 text-stone-400 dark:text-gray-400" />
         <span class="text-sm">{$t('profile.popover_add')}</span>
       </button>
     {/if}
@@ -131,7 +131,7 @@
              text-stone-600 dark:text-gray-400 hover:bg-stone-50 dark:hover:bg-gray-700/50 transition-colors"
       onclick={onManage}
     >
-      <SettingsIcon class="w-5 h-5 text-stone-400 dark:text-gray-500" />
+      <SettingsIcon class="w-5 h-5 text-stone-400 dark:text-gray-400" />
       <span class="text-sm">{$t('profile.popover_manage')}</span>
     </button>
   </div>

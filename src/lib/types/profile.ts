@@ -24,6 +24,8 @@ export interface ProfileInfo {
   sex: BiologicalSex | null;
   /** ME-04: Ethnicity blend (1-3 populations) for population-specific thresholds. */
   ethnicities: EthnicityGroup[];
+  /** BT-01: ABO/Rh blood type (e.g. "o_positive", "ab_negative"). */
+  blood_type: string | null;
 }
 
 export interface ProfileCreateResult {

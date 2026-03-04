@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::pipeline::rag::scored_context::GroundingLevel;
 use crate::pipeline::rag::types::{BoundaryCheck, Citation, GuidelineCitation, QueryType};
 
 /// Outcome of the safety filter pipeline.
@@ -22,6 +23,8 @@ pub struct FilteredResponse {
     pub query_type: QueryType,
     /// Validated boundary check.
     pub boundary_check: BoundaryCheck,
+    /// ME-01: Data-driven grounding level (passed through from RAG).
+    pub grounding: GroundingLevel,
     /// Filter outcome summary.
     pub filter_outcome: FilterOutcome,
 }

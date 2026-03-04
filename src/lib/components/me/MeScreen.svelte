@@ -1,9 +1,9 @@
-<!-- ME-REDESIGN + ME-06: Health center with reference ranges, screenings, and vaccines. -->
+<!-- ME-REDESIGN + ME-06 + ALLERGY-01: Health center with allergies, reference ranges, screenings, and vaccines. -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t, locale } from 'svelte-i18n';
   import { getMeOverview } from '$lib/api/me';
-  import type { MeOverview, ScreeningInfo } from '$lib/types/me';
+  import type { MeOverview, ScreeningInfo, AllergyInfo } from '$lib/types/me';
   import LoadingState from '$lib/components/ui/LoadingState.svelte';
   import ErrorState from '$lib/components/ui/ErrorState.svelte';
   import ProfileCard from './ProfileCard.svelte';
@@ -12,11 +12,16 @@
   import ScreeningCard from './ScreeningCard.svelte';
   import CalibrationBanner from './CalibrationBanner.svelte';
   import RecordScreeningModal from './RecordScreeningModal.svelte';
+  import AllergyCard from './AllergyCard.svelte';
+  import RecordAllergyModal from './RecordAllergyModal.svelte';
+  import { PlusIcon } from '$lib/components/icons/md';
 
   let data = $state<MeOverview | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
   let recordTarget = $state<ScreeningInfo | null>(null);
+  let allergyModalOpen = $state(false);
+  let editingAllergy = $state<AllergyInfo | null>(null);
 
   async function load() {
     loading = true;
@@ -49,6 +54,22 @@
     recordTarget = null;
     load();
   }
+
+  function handleAllergyAdd() {
+    editingAllergy = null;
+    allergyModalOpen = true;
+  }
+
+  function handleAllergyEdit(a: AllergyInfo) {
+    editingAllergy = a;
+    allergyModalOpen = true;
+  }
+
+  function handleAllergySaved() {
+    allergyModalOpen = false;
+    editingAllergy = null;
+    load();
+  }
 </script>
 
 <div class="flex flex-col bg-stone-50 dark:bg-gray-950 min-h-full">
@@ -57,7 +78,7 @@
     <h1 class="text-2xl font-bold text-stone-800 dark:text-gray-100">
       {$t('me.heading')}
     </h1>
-    <p class="text-xs text-stone-400 dark:text-gray-500 mt-1">
+    <p class="text-xs text-stone-400 dark:text-gray-400 mt-1">
       {$t('me.heading_subtitle')}
     </p>
   </header>
@@ -76,6 +97,35 @@
 
       <!-- ME-04 B6: Calibration explainer -->
       <CalibrationBanner identity={data.identity} />
+
+      <!-- ALLERGY-01 B6: Allergy section — safety-first positioning -->
+      <section>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-stone-600 dark:text-gray-400 uppercase tracking-wide">
+            {$t('me.allergies_section')}
+          </h2>
+          <button
+            onclick={handleAllergyAdd}
+            class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium
+                   bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300
+                   hover:bg-teal-100 dark:hover:bg-teal-900/50 transition-colors"
+          >
+            <PlusIcon class="w-3.5 h-3.5" />
+            {$t('me.allergy_add')}
+          </button>
+        </div>
+        {#if data.allergies.length > 0}
+          <div class="flex flex-col gap-2">
+            {#each data.allergies as allergy (allergy.id)}
+              <AllergyCard {allergy} onedit={handleAllergyEdit} onrefresh={load} />
+            {/each}
+          </div>
+        {:else}
+          <p class="text-sm text-stone-500 dark:text-gray-400">
+            {$t('me.allergies_empty')}
+          </p>
+        {/if}
+      </section>
 
       <!-- Guideline Notes -->
       {#if data.alerts.length > 0}
@@ -167,5 +217,14 @@
     screening={recordTarget}
     onrecorded={handleRecorded}
     onclose={() => { recordTarget = null; }}
+  />
+{/if}
+
+<!-- ALLERGY-01 B6: Record/edit allergy modal -->
+{#if allergyModalOpen}
+  <RecordAllergyModal
+    allergy={editingAllergy}
+    onrecorded={handleAllergySaved}
+    onclose={() => { allergyModalOpen = false; editingAllergy = null; }}
   />
 {/if}

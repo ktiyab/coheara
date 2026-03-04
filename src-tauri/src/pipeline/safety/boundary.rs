@@ -7,6 +7,7 @@ const ALLOWED_BOUNDARIES: &[BoundaryCheck] = &[
     BoundaryCheck::Understanding,
     BoundaryCheck::Awareness,
     BoundaryCheck::Preparation,
+    BoundaryCheck::NoContext,
 ];
 
 /// Layer 1: Validate that the boundary check is within acceptable scope.
@@ -43,6 +44,11 @@ mod tests {
     #[test]
     fn preparation_passes() {
         assert!(check_boundary(&BoundaryCheck::Preparation).is_empty());
+    }
+
+    #[test]
+    fn no_context_passes() {
+        assert!(check_boundary(&BoundaryCheck::NoContext).is_empty());
     }
 
     #[test]

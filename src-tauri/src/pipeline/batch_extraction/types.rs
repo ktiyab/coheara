@@ -10,13 +10,14 @@ use serde::{Deserialize, Serialize};
 // Domain Enum
 // ═══════════════════════════════════════════
 
-/// The three extractable domains from conversations.
+/// The four extractable domains from conversations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionDomain {
     Symptom,
     Medication,
     Appointment,
+    VitalSign,
 }
 
 impl ExtractionDomain {
@@ -25,6 +26,7 @@ impl ExtractionDomain {
             Self::Symptom => "symptom",
             Self::Medication => "medication",
             Self::Appointment => "appointment",
+            Self::VitalSign => "vital_sign",
         }
     }
 
@@ -33,12 +35,13 @@ impl ExtractionDomain {
             "symptom" => Some(Self::Symptom),
             "medication" => Some(Self::Medication),
             "appointment" => Some(Self::Appointment),
+            "vital_sign" => Some(Self::VitalSign),
             _ => None,
         }
     }
 
     pub fn all() -> &'static [ExtractionDomain] {
-        &[Self::Symptom, Self::Medication, Self::Appointment]
+        &[Self::Symptom, Self::Medication, Self::Appointment, Self::VitalSign]
     }
 }
 
@@ -311,6 +314,23 @@ pub struct ExtractedAppointmentData {
     pub location: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_flexible_source_messages")]
+    pub source_messages: Vec<usize>,
+}
+
+/// Vital sign extracted from conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedVitalSignData {
+    pub vital_type: String,
+    pub value_primary: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_secondary: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recorded_at_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, deserialize_with = "deserialize_flexible_source_messages")]
@@ -591,6 +611,7 @@ mod tests {
         assert_eq!(ExtractionDomain::Symptom.to_string(), "symptom");
         assert_eq!(ExtractionDomain::Medication.to_string(), "medication");
         assert_eq!(ExtractionDomain::Appointment.to_string(), "appointment");
+        assert_eq!(ExtractionDomain::VitalSign.to_string(), "vital_sign");
     }
 
     #[test]
@@ -600,8 +621,8 @@ mod tests {
     }
 
     #[test]
-    fn extraction_domain_all_has_three() {
-        assert_eq!(ExtractionDomain::all().len(), 3);
+    fn extraction_domain_all_has_four() {
+        assert_eq!(ExtractionDomain::all().len(), 4);
     }
 
     #[test]
@@ -663,6 +684,33 @@ mod tests {
         assert_eq!(json, "\"symptom\"");
         let parsed: ExtractionDomain = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, domain);
+    }
+
+    #[test]
+    fn extraction_domain_vital_sign_serde_roundtrip() {
+        let domain = ExtractionDomain::VitalSign;
+        let json = serde_json::to_string(&domain).unwrap();
+        assert_eq!(json, "\"vital_sign\"");
+        let parsed: ExtractionDomain = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, domain);
+    }
+
+    #[test]
+    fn extracted_vital_sign_data_serde() {
+        let data = ExtractedVitalSignData {
+            vital_type: "blood_pressure".to_string(),
+            value_primary: 130.0,
+            value_secondary: Some(85.0),
+            unit: Some("mmHg".to_string()),
+            recorded_at_hint: Some("2026-02-20".to_string()),
+            notes: None,
+            source_messages: vec![0, 2],
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("blood_pressure"));
+        assert!(json.contains("130"));
+        assert!(json.contains("85"));
+        assert!(!json.contains("notes"));
     }
 
     #[test]

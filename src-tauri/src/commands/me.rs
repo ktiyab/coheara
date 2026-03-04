@@ -12,7 +12,7 @@ use tauri::State;
 
 use crate::core_state::CoreState;
 use crate::me::MeOverview;
-use crate::models::{VitalSign, VitalSource, VitalType};
+use crate::models::{VitalSign, VitalSource, VitalTrendPoint, VitalType};
 
 /// Fetches all Me screen data in a single call.
 ///
@@ -131,6 +131,23 @@ pub fn record_screening(
 
     state.update_activity();
     Ok(record_id)
+}
+
+/// REVIEW-01: Get recent vital sign trend data for sparkline charts.
+///
+/// Returns lightweight `(value, recorded_at)` pairs for the last N days,
+/// ordered chronologically. Used by MetricTile sparklines.
+#[tauri::command]
+pub fn get_vital_trend(
+    vital_type: String,
+    days: Option<u32>,
+    state: State<'_, Arc<CoreState>>,
+) -> Result<Vec<VitalTrendPoint>, String> {
+    let vtype = VitalType::from_str(&vital_type)
+        .ok_or_else(|| format!("Invalid vital type: {vital_type}"))?;
+    let conn = state.open_db().map_err(|e| e.to_string())?;
+    crate::db::get_vital_trend(&conn, &vtype, days.unwrap_or(30))
+        .map_err(|e| e.to_string())
 }
 
 /// ME-06: Delete a screening record by ID.

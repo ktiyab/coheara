@@ -3,8 +3,22 @@
 export interface MeOverview {
 	identity: MeIdentity;
 	alerts: MeInsight[];
+	allergies: AllergyInfo[];
 	reference_ranges: ReferenceRange[];
 	screenings: ScreeningInfo[];
+}
+
+/** ALLERGY-01 B6: Allergy info from MeOverview. */
+export interface AllergyInfo {
+	id: string;
+	allergen: string;
+	reaction: string | null;
+	severity: string;
+	category: string | null;
+	date_identified: string | null;
+	source: string;
+	verified: boolean;
+	cross_reactivities: string[];
 }
 
 export interface MeIdentity {
@@ -13,6 +27,10 @@ export interface MeIdentity {
 	age: number | null;
 	sex: string | null;
 	ethnicities: string[];
+	/** BT-01: Blood type key (e.g. "o_positive"). */
+	blood_type: string | null;
+	/** BT-01: Human-readable blood type (e.g. "O+"). */
+	blood_type_display: string | null;
 	weight_kg: number | null;
 	height_cm: number | null;
 	bmi: number | null;
@@ -73,4 +91,10 @@ export interface CompletedDose {
 	dose_number: number;
 	completed_at: string;
 	provider: string | null;
+}
+
+/** REVIEW-01: Lightweight trend data for sparkline charts. */
+export interface VitalTrendPoint {
+	value: number;
+	recorded_at: string;
 }

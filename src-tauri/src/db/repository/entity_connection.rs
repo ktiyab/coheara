@@ -156,6 +156,20 @@ pub fn get_connections_for_entity(
     parse_connection_rows(&mut stmt, params![entity_type.as_str(), entity_id.to_string()])
 }
 
+/// Get all entity connections for the profile.
+/// Profile-agnostic (DB connection is already profile-scoped).
+pub fn get_all_entity_connections(
+    conn: &Connection,
+) -> Result<Vec<EntityConnection>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_type, source_id, target_type, target_id, relationship_type, confidence, document_id, created_at
+         FROM entity_connections
+         ORDER BY created_at ASC",
+    )?;
+
+    parse_connection_rows(&mut stmt, [])
+}
+
 /// Delete all entity connections for a document.
 pub fn delete_connections_for_document(
     conn: &Connection,

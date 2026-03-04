@@ -32,7 +32,7 @@
     bg-[var(--color-interactive)] text-white
     hover:bg-[var(--color-interactive-hover)]
     active:bg-[var(--color-interactive-active)]
-    disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-500 disabled:cursor-not-allowed`;
+    disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-400 disabled:cursor-not-allowed`;
 
   const btnGhost = `${btnInteractive}
     bg-transparent text-stone-600 dark:text-gray-300 border border-stone-200 dark:border-gray-700
@@ -115,7 +115,7 @@
   <div class="grid grid-cols-3 gap-3 w-full p-6 bg-white dark:bg-gray-900 rounded-xl border border-stone-200 dark:border-gray-700 shadow-sm">
     {#each words as word, i}
       <div class="flex items-center gap-1.5 px-2 py-2 bg-stone-50 dark:bg-gray-950 rounded-lg overflow-hidden">
-        <span class="text-stone-400 dark:text-gray-500 text-xs w-5 text-right flex-shrink-0">{i + 1}.</span>
+        <span class="text-stone-400 dark:text-gray-400 text-xs w-5 text-right flex-shrink-0">{i + 1}.</span>
         <span class="text-stone-800 dark:text-gray-100 font-mono text-sm truncate">{word}</span>
       </div>
     {/each}
@@ -132,7 +132,7 @@
   </div>
 
   <!-- Clipboard warning — always holds space -->
-  <p class="text-xs text-stone-400 dark:text-gray-500 text-center {copied ? '' : 'invisible'}">
+  <p class="text-xs text-stone-400 dark:text-gray-400 text-center {copied ? '' : 'invisible'}">
     {$t('profile.recovery_clipboard_warning')}
   </p>
 

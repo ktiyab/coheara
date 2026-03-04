@@ -62,6 +62,7 @@ impl SafetyFilter for SafetyFilterImpl {
                 confidence: response.confidence,
                 query_type: response.query_type.clone(),
                 boundary_check: BoundaryCheck::OutOfBounds,
+                grounding: response.grounding,
                 filter_outcome: FilterOutcome::Blocked {
                     violations: boundary_violations,
                     fallback_message: fallback,
@@ -78,6 +79,7 @@ impl SafetyFilter for SafetyFilterImpl {
             confidence: response.confidence,
             query_type: response.query_type.clone(),
             boundary_check: response.boundary_check.clone(),
+            grounding: response.grounding,
             filter_outcome: FilterOutcome::Passed,
         })
     }
@@ -121,6 +123,7 @@ fn log_violations(violations: &[super::types::Violation]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipeline::rag::scored_context::GroundingLevel;
     use crate::pipeline::rag::types::{BoundaryCheck, ContextSummary, QueryType, RagResponse};
 
     fn make_rag_response(text: &str, boundary: BoundaryCheck) -> RagResponse {
@@ -136,6 +139,7 @@ mod tests {
                 total_context_tokens: 500,
             },
             boundary_check: boundary,
+            grounding: GroundingLevel::Moderate,
         }
     }
 
@@ -204,6 +208,18 @@ mod tests {
         );
         let result = filter().filter_response(&resp).unwrap();
         assert!(result.text.is_empty(), "Blocked response text should be empty");
+    }
+
+    #[test]
+    fn no_context_passes_through_with_text() {
+        // BUG-1 fix: NoContext is safe — "import documents first" message passes.
+        let resp = make_rag_response(
+            "I don't have any documents to reference yet.",
+            BoundaryCheck::NoContext,
+        );
+        let result = filter().filter_response(&resp).unwrap();
+        assert_eq!(result.filter_outcome, FilterOutcome::Passed);
+        assert_eq!(result.text, resp.text);
     }
 
     // =================================================================

@@ -8,6 +8,7 @@
   import { triggerExtractionBatch } from '$lib/api/extraction';
   import { extraction } from '$lib/stores/extraction.svelte';
   import { isTauriEnv } from '$lib/utils/tauri';
+  import { getVersion } from '@tauri-apps/api/app';
   import LanguageSelector from './LanguageSelector.svelte';
   import { soundManager } from '$lib/utils/sound';
   import { theme, type Theme } from '$lib/stores/theme.svelte';
@@ -21,7 +22,7 @@
   import { SETTINGS_HUES, colorfulStyle } from '$lib/theme/colorful-mappings';
   import type { Component } from 'svelte';
 
-  const APP_VERSION = '0.2.0';
+  let appVersion = $state('...');
 
   /** Shared row button class — focus-visible outline for keyboard a11y (LR-13). */
   const rowBtn = `w-full flex items-center gap-4 px-4 py-3 min-h-[52px] text-left
@@ -60,6 +61,7 @@
 
   onMount(async () => {
     if (!isTauriEnv()) return;
+    appVersion = await getVersion().catch(() => '?.?.?');
     const enabledPref = await getUserPreference('extraction_enabled').catch(() => null);
     if (enabledPref !== null) extractionEnabled = enabledPref !== 'false';
     const hourPref = await getUserPreference('batch_start_hour').catch(() => null);
@@ -289,7 +291,7 @@
           <InfoIcon class="w-9 h-9 text-[var(--color-success)] flex-shrink-0" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-stone-800 dark:text-gray-200">{$t('settings.hub_about_title')}</p>
-            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: APP_VERSION } })}</p>
+            <p class="text-xs text-stone-500 dark:text-gray-400">{$t('settings.hub_about_version', { values: { version: appVersion } })}</p>
           </div>
         </div>
       </div>

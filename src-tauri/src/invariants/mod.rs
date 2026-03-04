@@ -17,6 +17,8 @@ pub mod loader;
 pub mod enrich;
 pub mod demographics;
 pub mod screening;
+pub mod allergens;
+pub mod blood_types;
 
 use std::path::Path;
 
@@ -113,6 +115,52 @@ impl InvariantRegistry {
         &self.bundled.monitoring_schedules
     }
 
+    /// Allergen-specific cross-reactivity chains (loaded from JSON).
+    /// Includes OAS, food-food, insect venom, and extended latex-fruit chains.
+    pub fn allergen_cross_reactivity(&self) -> &[loader::CrossReactivityChain] {
+        &self.bundled.allergen_cross_reactivity
+    }
+
+    /// Allergen aliases mapping common names to canonical keys (loaded from JSON).
+    pub fn allergen_aliases(&self) -> &[loader::AllergenAlias] {
+        &self.bundled.allergen_aliases
+    }
+
+    // ── Const tier access (allergens) ───────────────────────
+
+    // ── Const tier access (blood types) ─────────────────────
+
+    /// All 8 ABO/Rh blood type references (compiled in).
+    pub fn blood_type_references(&self) -> &'static [blood_types::BloodTypeInfo] {
+        blood_types::BLOOD_TYPES
+    }
+
+    /// Find a blood type by exact key.
+    pub fn find_blood_type(&self, key: &str) -> Option<&'static blood_types::BloodTypeInfo> {
+        blood_types::find_blood_type(key)
+    }
+
+    /// Check RBC transfusion compatibility between donor and recipient.
+    pub fn check_rbc_compatibility(
+        &self,
+        donor: &str,
+        recipient: &str,
+    ) -> blood_types::Compatibility {
+        blood_types::check_rbc_compatibility(donor, recipient)
+    }
+
+    // ── Const tier access (allergens) ───────────────────────
+
+    /// All 46 canonical allergen references (compiled in).
+    pub fn allergen_references(&self) -> &'static [allergens::CanonicalAllergen] {
+        allergens::CANONICAL_ALLERGENS
+    }
+
+    /// Find a canonical allergen by exact key.
+    pub fn find_canonical_allergen(&self, key: &str) -> Option<&'static allergens::CanonicalAllergen> {
+        allergens::find_allergen(key)
+    }
+
     // ── Lookup helpers ────────────────────────────────────
 
     /// Find which drug family a medication belongs to (by generic name).
@@ -173,7 +221,7 @@ impl InvariantRegistry {
             .collect()
     }
 
-    /// Find cross-reactivity chains for a given allergen.
+    /// Find cross-reactivity chains for a given allergen (drug chains only).
     pub fn find_cross_reactivity(
         &self,
         allergen: &str,
@@ -187,6 +235,93 @@ impl InvariantRegistry {
                     || c.cross_reactive.to_lowercase() == normalized
             })
             .collect()
+    }
+
+    /// Find ALL cross-reactivity chains for a given allergen.
+    ///
+    /// Searches BOTH drug cross-reactivity AND allergen cross-reactivity
+    /// (OAS, food-food, insect venom, extended latex-fruit).
+    /// Uses canonical key resolution: tries alias lookup first for better matching.
+    pub fn find_all_cross_reactivity(
+        &self,
+        allergen: &str,
+    ) -> Vec<&loader::CrossReactivityChain> {
+        let normalized = allergen.trim().to_lowercase();
+
+        // Try to resolve to canonical key via alias for precise matching
+        let canonical_key = self
+            .bundled
+            .allergen_aliases
+            .iter()
+            .find(|a| a.alias.to_lowercase() == normalized)
+            .map(|a| a.canonical_key.as_str());
+
+        let search_terms: Vec<&str> = match canonical_key {
+            Some(key) => vec![key, &normalized],
+            None => vec![&normalized],
+        };
+
+        let matches_term = |field: &str| -> bool {
+            let lower = field.to_lowercase();
+            search_terms
+                .iter()
+                .any(|term| lower == *term || lower.contains(term))
+        };
+
+        // Search drug cross-reactivity chains
+        let drug_chains = self
+            .bundled
+            .cross_reactivity
+            .iter()
+            .filter(|c| matches_term(&c.primary) || matches_term(&c.cross_reactive));
+
+        // Search allergen cross-reactivity chains
+        let allergen_chains = self
+            .bundled
+            .allergen_cross_reactivity
+            .iter()
+            .filter(|c| matches_term(&c.primary) || matches_term(&c.cross_reactive));
+
+        drug_chains.chain(allergen_chains).collect()
+    }
+
+    /// Classify a free-text allergen string to a canonical allergen.
+    ///
+    /// Resolution order:
+    /// 1. Exact canonical key match (e.g., "drug_beta_lactam")
+    /// 2. Alias match (e.g., "penicillin" -> drug_beta_lactam)
+    /// 3. Fuzzy label match (substring on EN/FR/DE labels)
+    ///
+    /// Returns the first match. For autocomplete use `allergens::match_allergens()`.
+    pub fn classify_allergen(
+        &self,
+        free_text: &str,
+    ) -> Option<&'static allergens::CanonicalAllergen> {
+        let normalized = free_text.trim().to_lowercase();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        // 1. Exact key match
+        if let Some(a) = allergens::find_allergen(&normalized) {
+            return Some(a);
+        }
+
+        // 2. Alias match
+        if let Some(alias) = self
+            .bundled
+            .allergen_aliases
+            .iter()
+            .find(|a| a.alias.to_lowercase() == normalized)
+        {
+            if let Some(a) = allergens::find_allergen(&alias.canonical_key) {
+                return Some(a);
+            }
+        }
+
+        // 3. Fuzzy label match (first result)
+        let matches = allergens::match_allergens(&normalized);
+        matches.into_iter().next()
     }
 }
 
@@ -218,6 +353,44 @@ mod tests {
         assert!(reg.interaction_pairs().is_empty());
         assert!(reg.cross_reactivity().is_empty());
         assert!(reg.monitoring_schedules().is_empty());
+        assert!(reg.allergen_cross_reactivity().is_empty());
+        assert!(reg.allergen_aliases().is_empty());
+    }
+
+    #[test]
+    fn empty_registry_has_allergen_references() {
+        let reg = InvariantRegistry::empty();
+        // Const tier allergens always available
+        assert_eq!(reg.allergen_references().len(), 46);
+        assert!(reg.find_canonical_allergen("food_peanut").is_some());
+        assert!(reg.find_canonical_allergen("nonexistent").is_none());
+    }
+
+    #[test]
+    fn registry_has_blood_type_references() {
+        let reg = InvariantRegistry::empty();
+        assert_eq!(reg.blood_type_references().len(), 8);
+    }
+
+    #[test]
+    fn registry_find_blood_type() {
+        let reg = InvariantRegistry::empty();
+        assert!(reg.find_blood_type("o_positive").is_some());
+        assert!(reg.find_blood_type("ab_negative").is_some());
+        assert!(reg.find_blood_type("unknown").is_none());
+    }
+
+    #[test]
+    fn registry_check_rbc_compatibility() {
+        let reg = InvariantRegistry::empty();
+        assert_eq!(
+            reg.check_rbc_compatibility("o_negative", "ab_positive"),
+            blood_types::Compatibility::Compatible,
+        );
+        assert_eq!(
+            reg.check_rbc_compatibility("b_positive", "a_positive"),
+            blood_types::Compatibility::Incompatible,
+        );
     }
 
     #[test]
@@ -277,5 +450,113 @@ mod tests {
         assert_eq!(reg.glucose_classifications().len(), 3);
         assert_eq!(reg.temperature_classifications().len(), 7);
         assert_eq!(reg.lab_thresholds().len(), 10);
+    }
+
+    // ── B3: classify_allergen + find_all_cross_reactivity ──
+
+    #[test]
+    fn classify_allergen_exact_key() {
+        let reg = InvariantRegistry::empty();
+        let result = reg.classify_allergen("food_peanut");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().key, "food_peanut");
+    }
+
+    #[test]
+    fn classify_allergen_fuzzy_label() {
+        // Empty registry has no aliases, so falls through to fuzzy label match
+        let reg = InvariantRegistry::empty();
+        let result = reg.classify_allergen("peanut");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().key, "food_peanut");
+    }
+
+    #[test]
+    fn classify_allergen_empty_returns_none() {
+        let reg = InvariantRegistry::empty();
+        assert!(reg.classify_allergen("").is_none());
+        assert!(reg.classify_allergen("  ").is_none());
+    }
+
+    #[test]
+    fn classify_allergen_unknown_returns_none() {
+        let reg = InvariantRegistry::empty();
+        assert!(reg.classify_allergen("xyznonexistent123").is_none());
+    }
+
+    #[test]
+    fn find_all_cross_reactivity_empty_registry() {
+        let reg = InvariantRegistry::empty();
+        assert!(reg.find_all_cross_reactivity("penicillin").is_empty());
+    }
+
+    #[test]
+    fn classify_allergen_with_real_aliases() {
+        let candidates = [
+            std::path::PathBuf::from("resources"),
+            std::path::PathBuf::from("src-tauri/resources"),
+        ];
+        let Some(dir) = candidates.into_iter().find(|p| p.join("invariants").exists()) else {
+            return;
+        };
+        let reg = InvariantRegistry::load(&dir).unwrap();
+
+        // Alias: "penicillin" -> drug_beta_lactam
+        let result = reg.classify_allergen("penicillin");
+        assert!(result.is_some(), "penicillin should classify");
+        assert_eq!(result.unwrap().key, "drug_beta_lactam");
+
+        // Alias: "amoxicillin" -> drug_beta_lactam
+        let result = reg.classify_allergen("amoxicillin");
+        assert!(result.is_some(), "amoxicillin should classify");
+        assert_eq!(result.unwrap().key, "drug_beta_lactam");
+
+        // Alias: "ibuprofen" -> drug_nsaid
+        let result = reg.classify_allergen("ibuprofen");
+        assert!(result.is_some(), "ibuprofen should classify");
+        assert_eq!(result.unwrap().key, "drug_nsaid");
+
+        // Alias: French "arachide" -> food_peanut
+        let result = reg.classify_allergen("arachide");
+        assert!(result.is_some(), "arachide should classify");
+        assert_eq!(result.unwrap().key, "food_peanut");
+
+        // Alias: "dust mite" -> env_dust_mite
+        let result = reg.classify_allergen("dust mite");
+        assert!(result.is_some(), "dust mite should classify");
+        assert_eq!(result.unwrap().key, "env_dust_mite");
+    }
+
+    #[test]
+    fn find_all_cross_reactivity_with_real_data() {
+        let candidates = [
+            std::path::PathBuf::from("resources"),
+            std::path::PathBuf::from("src-tauri/resources"),
+        ];
+        let Some(dir) = candidates.into_iter().find(|p| p.join("invariants").exists()) else {
+            return;
+        };
+        let reg = InvariantRegistry::load(&dir).unwrap();
+
+        // Penicillin: should find drug cross-reactivity chains
+        let penicillin_chains = reg.find_all_cross_reactivity("penicillin");
+        assert!(
+            !penicillin_chains.is_empty(),
+            "Penicillin should have cross-reactivity chains"
+        );
+
+        // Birch: should find allergen (OAS) cross-reactivity chains
+        let birch_chains = reg.find_all_cross_reactivity("env_pollen_tree_birch");
+        assert!(
+            !birch_chains.is_empty(),
+            "Birch pollen should have OAS cross-reactivity chains"
+        );
+
+        // Peanut: should find food-food cross-reactivity
+        let peanut_chains = reg.find_all_cross_reactivity("food_peanut");
+        assert!(
+            !peanut_chains.is_empty(),
+            "Peanut should have food cross-reactivity chains"
+        );
     }
 }

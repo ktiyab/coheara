@@ -424,10 +424,10 @@
           <p class="text-sm text-stone-500 dark:text-gray-400 text-center mt-3">
             {$t('pairing.scan_qr_instruction')}
           </p>
-          <p class="text-xs text-stone-400 dark:text-gray-500 text-center mt-1">
+          <p class="text-xs text-stone-400 dark:text-gray-400 text-center mt-1">
             {$t('pairing.same_wifi')}
           </p>
-          <p class="text-xs text-stone-400 dark:text-gray-500 text-center mt-2">
+          <p class="text-xs text-stone-400 dark:text-gray-400 text-center mt-2">
             {$t('pairing.code_expires', { values: { time: countdownText } })}
           </p>
           <div class="mt-4">

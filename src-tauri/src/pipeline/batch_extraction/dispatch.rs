@@ -27,6 +27,7 @@ pub fn dispatch_item(
         ExtractionDomain::Symptom => dispatch_symptom(conn, item),
         ExtractionDomain::Medication => dispatch_medication(conn, item),
         ExtractionDomain::Appointment => dispatch_appointment(conn, item),
+        ExtractionDomain::VitalSign => dispatch_vital_sign(conn, item),
     }
 }
 
@@ -308,6 +309,93 @@ fn dispatch_appointment(
         error: None,
         correlations: None,
         duplicate_warning: None,
+    })
+}
+
+/// Dispatch a vital sign extraction to the vital_signs table.
+///
+/// Validates vital_type against the VitalType enum, applies default units,
+/// and stores with VitalSource::Extracted.
+fn dispatch_vital_sign(
+    conn: &Connection,
+    item: &PendingReviewItem,
+) -> Result<DispatchResult, ExtractionError> {
+    use crate::models::{VitalSign, VitalSource, VitalType};
+
+    let data = &item.extracted_data;
+
+    let vital_type_str = data
+        .get("vital_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ExtractionError::Validation("VitalSign missing vital_type".into()))?;
+
+    let vital_type = VitalType::from_str(vital_type_str)
+        .ok_or_else(|| ExtractionError::Validation(format!("Unknown vital type: {vital_type_str}")))?;
+
+    let value_primary = data
+        .get("value_primary")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| ExtractionError::Validation("VitalSign missing value_primary".into()))?;
+
+    let value_secondary = data
+        .get("value_secondary")
+        .and_then(|v| v.as_f64());
+
+    let unit = data
+        .get("unit")
+        .and_then(|v| v.as_str())
+        .unwrap_or(vital_type.default_unit())
+        .to_string();
+
+    let notes = data
+        .get("notes")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let recorded_at = data
+        .get("recorded_at_hint")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+        .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+        .unwrap_or_else(|| chrono::Local::now().naive_local());
+
+    let vs_id = Uuid::new_v4();
+    let vital_sign = VitalSign {
+        id: vs_id,
+        vital_type,
+        value_primary,
+        value_secondary,
+        unit,
+        recorded_at,
+        notes,
+        source: VitalSource::Extracted,
+        created_at: chrono::Local::now().naive_local(),
+    };
+
+    crate::db::repository::insert_vital_sign(conn, &vital_sign)
+        .map_err(ExtractionError::Database)?;
+
+    // Check for duplicate warning
+    let duplicate_warning = match check_duplicate(
+        conn,
+        ExtractionDomain::VitalSign,
+        data,
+        chrono::Local::now().naive_local().date(),
+    ) {
+        DuplicateStatus::PossibleDuplicate { .. } => {
+            Some(format!("Similar {vital_type_str} reading recently recorded"))
+        }
+        _ => None,
+    };
+
+    Ok(DispatchResult {
+        item_id: item.id.clone(),
+        domain: ExtractionDomain::VitalSign,
+        success: true,
+        created_record_id: Some(vs_id.to_string()),
+        error: None,
+        correlations: None,
+        duplicate_warning,
     })
 }
 
@@ -863,6 +951,134 @@ mod tests {
             )
             .unwrap();
         assert_eq!(specialty, "Other", "Invalid specialty should default to Other");
+    }
+
+    fn make_vital_sign_item() -> PendingReviewItem {
+        create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::VitalSign,
+            serde_json::json!({
+                "vital_type": "blood_pressure",
+                "value_primary": 130.0,
+                "value_secondary": 85.0,
+                "unit": "mmHg",
+                "recorded_at_hint": "2026-02-20",
+                "notes": "morning reading"
+            }),
+            0.9,
+            Grounding::Grounded,
+            None,
+            vec!["msg-0".to_string()],
+            None,
+        )
+    }
+
+    #[test]
+    fn dispatches_vital_sign_to_vital_signs_table() {
+        let conn = setup_db();
+        let item = make_vital_sign_item();
+
+        let result = dispatch_item(&conn, &item).unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.domain, ExtractionDomain::VitalSign);
+        assert!(result.created_record_id.is_some());
+
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM vital_signs WHERE vital_type = 'blood_pressure'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn vital_sign_missing_type_returns_error() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::VitalSign,
+            serde_json::json!({"value_primary": 37.0}),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+            None,
+        );
+
+        let result = dispatch_item(&conn, &item);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn vital_sign_missing_value_returns_error() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::VitalSign,
+            serde_json::json!({"vital_type": "temperature"}),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+            None,
+        );
+
+        let result = dispatch_item(&conn, &item);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn vital_sign_uses_default_unit_when_missing() {
+        let conn = setup_db();
+        let item = create_pending_item(
+            "conv-1",
+            "batch-1",
+            ExtractionDomain::VitalSign,
+            serde_json::json!({
+                "vital_type": "temperature",
+                "value_primary": 37.5
+            }),
+            0.8,
+            Grounding::Grounded,
+            None,
+            vec![],
+            None,
+        );
+
+        let result = dispatch_item(&conn, &item).unwrap();
+        assert!(result.success);
+
+        let unit: String = conn
+            .query_row(
+                "SELECT unit FROM vital_signs WHERE vital_type = 'temperature'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(unit, "\u{00b0}C", "Should use default unit for temperature");
+    }
+
+    #[test]
+    fn vital_sign_stores_extracted_source() {
+        let conn = setup_db();
+        let item = make_vital_sign_item();
+
+        dispatch_item(&conn, &item).unwrap();
+
+        let source: String = conn
+            .query_row(
+                "SELECT source FROM vital_signs WHERE vital_type = 'blood_pressure'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source, "extracted", "Source should be 'extracted' for batch-extracted vitals");
     }
 
     #[test]

@@ -119,6 +119,38 @@ impl MessageTemplates {
             symptom,
         )
     }
+
+    /// B2: INTERACTION message (drug-drug interaction from invariant engine).
+    pub fn interaction(description: &str) -> String {
+        format!(
+            "{}. You may want to mention this to your pharmacist or doctor.",
+            description.trim_end_matches('.'),
+        )
+    }
+
+    /// B2: MONITORING message (missing lab monitoring from invariant engine).
+    pub fn monitoring(description: &str) -> String {
+        format!(
+            "{}. You may want to ask your doctor about scheduling this test.",
+            description.trim_end_matches('.'),
+        )
+    }
+
+    /// B2: SCREENING message (overdue screening from invariant engine).
+    pub fn screening(description: &str) -> String {
+        format!(
+            "{}. Consider discussing this with your doctor at your next visit.",
+            description.trim_end_matches('.'),
+        )
+    }
+
+    /// B2: TREND message (vital sign trend from invariant engine).
+    pub fn trend(description: &str) -> String {
+        format!(
+            "{}. You may want to discuss this pattern with your doctor.",
+            description.trim_end_matches('.'),
+        )
+    }
 }
 
 /// I18N-07/08/09: Localized message template builder.

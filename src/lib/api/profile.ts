@@ -115,13 +115,14 @@ export async function getButlerStatus(): Promise<ButlerStatus> {
   return invoke<ButlerStatus>('get_butler_status');
 }
 
-/** ME-04: Update demographics (sex, ethnicities) on an existing profile. */
+/** ME-04 + BT-01: Update demographics (sex, ethnicities, blood type) on an existing profile. */
 export async function updateProfileDemographics(
   profileId: string,
   sex: BiologicalSex | null,
   ethnicities: EthnicityGroup[],
+  bloodType: string | null = null,
 ): Promise<ProfileInfo> {
-  return invoke<ProfileInfo>('update_profile_demographics', { profileId, sex, ethnicities });
+  return invoke<ProfileInfo>('update_profile_demographics', { profileId, sex, ethnicities, bloodType });
 }
 
 export async function deleteProfile(profileId: string): Promise<void> {

@@ -69,7 +69,7 @@
             </button>
           </div>
           <button
-            class="shrink-0 text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300
+            class="shrink-0 text-stone-400 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300
                    min-h-[44px] min-w-[44px] flex items-center justify-center"
             onclick={() => onDismiss(suggestion.suggestion_type, extractEntityId(suggestion))}
             aria-label={$t('common.dismiss')}

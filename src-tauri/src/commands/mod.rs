@@ -1,4 +1,5 @@
 pub mod ai_setup;
+pub mod allergy;
 pub mod appointment;
 pub mod chat;
 pub mod coherence;

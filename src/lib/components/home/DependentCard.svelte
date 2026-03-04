@@ -51,7 +51,7 @@
       </div>
 
       {#if isStale()}
-        <p class="text-xs text-stone-400 dark:text-gray-500 mt-1">
+        <p class="text-xs text-stone-400 dark:text-gray-400 mt-1">
           {$t('caregiver.stale_summary')}
         </p>
       {/if}

@@ -27,23 +27,23 @@
   const colorClasses: Record<string, { active: string; inactive: string }> = {
     blue: {
       active: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-700',
-      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-500 border-stone-200 dark:border-gray-700',
+      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-400 border-stone-200 dark:border-gray-700',
     },
     green: {
       active: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700',
-      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-500 border-stone-200 dark:border-gray-700',
+      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-400 border-stone-200 dark:border-gray-700',
     },
     purple: {
       active: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-200 dark:border-purple-700',
-      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-500 border-stone-200 dark:border-gray-700',
+      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-400 border-stone-200 dark:border-gray-700',
     },
     amber: {
       active: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-200 dark:border-amber-700',
-      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-500 border-stone-200 dark:border-gray-700',
+      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-400 border-stone-200 dark:border-gray-700',
     },
     gray: {
       active: 'bg-stone-200 text-stone-700 dark:bg-gray-700 dark:text-gray-300 border-stone-300 dark:border-gray-600',
-      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-500 border-stone-200 dark:border-gray-700',
+      inactive: 'bg-stone-100 text-stone-400 dark:bg-gray-800 dark:text-gray-400 border-stone-200 dark:border-gray-700',
     },
   };
 

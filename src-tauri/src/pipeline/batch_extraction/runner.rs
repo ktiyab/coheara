@@ -406,6 +406,7 @@ mod tests {
                 Box::new(SymptomExtractor::new()),
                 Box::new(MedicationExtractor::new()),
                 Box::new(AppointmentExtractor::new()),
+                Box::new(VitalSignExtractor::new()),
             ],
             config,
         )

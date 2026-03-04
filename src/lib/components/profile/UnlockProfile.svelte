@@ -86,7 +86,7 @@
              bg-[var(--color-interactive)] text-white
              hover:bg-[var(--color-interactive-hover)]
              active:bg-[var(--color-interactive-active)]
-             disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-500 disabled:cursor-not-allowed"
+             disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-400 disabled:cursor-not-allowed"
       onclick={handleUnlock}
       disabled={!password}
     >

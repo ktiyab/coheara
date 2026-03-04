@@ -51,7 +51,7 @@
   <!-- Skip button -->
   <div class="absolute top-6 right-6">
     <button
-      class="text-sm text-stone-400 dark:text-gray-500 hover:text-stone-600 dark:hover:text-gray-300 min-h-[44px] min-w-[44px]
+      class="text-sm text-stone-400 dark:text-gray-400 hover:text-stone-600 dark:hover:text-gray-300 min-h-[44px] min-w-[44px]
              flex items-center justify-center cursor-pointer"
       onclick={onComplete}
     >

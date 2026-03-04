@@ -51,7 +51,7 @@
       <h2 class="text-sm font-medium text-stone-700 dark:text-gray-200">
         {$t('home.progress_heading')}
       </h2>
-      <span class="text-xs font-medium text-stone-400 dark:text-gray-500">
+      <span class="text-xs font-medium text-stone-400 dark:text-gray-400">
         {completedCount} / {steps.length}
       </span>
     </div>
@@ -74,10 +74,10 @@
 
           <!-- Step label -->
           <span class="text-sm {state === 'completed'
-            ? 'text-stone-400 dark:text-gray-500 line-through'
+            ? 'text-stone-400 dark:text-gray-400 line-through'
             : state === 'active'
               ? 'text-stone-800 dark:text-gray-100 font-medium'
-              : 'text-stone-400 dark:text-gray-500'}">
+              : 'text-stone-400 dark:text-gray-400'}">
             {$t(step.labelKey)}
           </span>
 

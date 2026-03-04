@@ -99,7 +99,7 @@
   {#if conversations.length > 0}
     <div class="px-[var(--spacing-page-x)] pb-3">
       <div class="relative">
-        <SearchIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-gray-500" />
+        <SearchIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-gray-400" />
         <input
           type="text"
           bind:value={searchQuery}
@@ -141,10 +141,10 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline justify-between gap-2">
                     <p class="text-sm font-medium text-stone-800 dark:text-gray-100 truncate">{conv.title}</p>
-                    <span class="text-xs text-stone-400 dark:text-gray-500 flex-shrink-0">{relativeTime(conv.last_message_at)}</span>
+                    <span class="text-xs text-stone-400 dark:text-gray-400 flex-shrink-0">{relativeTime(conv.last_message_at)}</span>
                   </div>
                   <p class="text-xs text-stone-500 dark:text-gray-400 truncate mt-1">{conv.last_message_preview || $t('chat.no_messages')}</p>
-                  <p class="text-xs text-stone-400 dark:text-gray-500 mt-0.5">
+                  <p class="text-xs text-stone-400 dark:text-gray-400 mt-0.5">
                     {$t('chat.message_count', { values: { count: conv.message_count } })}
                   </p>
                 </div>
@@ -155,7 +155,7 @@
             <button
               class="absolute right-3 top-1/2 -translate-y-1/2 min-h-[36px] min-w-[36px]
                      flex items-center justify-center rounded-lg
-                     text-stone-400 dark:text-gray-500
+                     text-stone-400 dark:text-gray-400
                      hover:text-[var(--color-danger)] hover:bg-stone-100 dark:hover:bg-gray-800
                      opacity-0 group-hover:opacity-100 focus:opacity-100
                      transition-all"

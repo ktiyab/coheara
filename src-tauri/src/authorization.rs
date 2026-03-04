@@ -267,6 +267,7 @@ mod tests {
                 address: None,
                 sex: None,
                 ethnicities: Vec::new(),
+                blood_type: None,
             },
             ProfileInfo {
                 id: bob_id,
@@ -284,6 +285,7 @@ mod tests {
                 address: None,
                 sex: None,
                 ethnicities: Vec::new(),
+                blood_type: None,
             },
             ProfileInfo {
                 id: child_id,
@@ -301,6 +303,7 @@ mod tests {
                 address: None,
                 sex: None,
                 ethnicities: Vec::new(),
+                blood_type: None,
             },
         ]
     }

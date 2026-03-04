@@ -1,7 +1,9 @@
 <!-- ME-REDESIGN: Per-metric card with icon, value, range bar, classification. -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import type { ReferenceRange } from '$lib/types/me';
+  import { getVitalTrend } from '$lib/api/me';
   import {
     HeartIcon,
     PersonIcon,
@@ -10,10 +12,33 @@
     ClipboardIcon
   } from '$lib/components/icons/md';
   import RangeBar from './RangeBar.svelte';
+  import Sparkline from './Sparkline.svelte';
 
   let { range }: { range: ReferenceRange } = $props();
 
   let hasValue = $derived(range.current_value != null);
+
+  /** REVIEW-01: Map metric key to backend vital_type for trend queries. */
+  const VITAL_TYPE_MAP: Record<string, string> = {
+    blood_pressure: 'blood_pressure',
+    heart_rate: 'heart_rate',
+    spo2: 'oxygen_saturation',
+    glucose: 'blood_glucose',
+    temperature: 'temperature',
+  };
+
+  let trendPoints: number[] = $state([]);
+
+  onMount(async () => {
+    const vitalType = VITAL_TYPE_MAP[range.key];
+    if (!vitalType) return;
+    try {
+      const trend = await getVitalTrend(vitalType, 30);
+      trendPoints = trend.map(p => p.value);
+    } catch {
+      // Silently fail — sparkline is decorative
+    }
+  });
 
   const METRIC_STYLES: Record<string, { icon: typeof HeartIcon; bg: string }> = {
     blood_pressure: { icon: HeartIcon, bg: 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300' },
@@ -52,13 +77,18 @@
     <div class="min-w-0 flex-1">
       <p class="text-xs font-medium text-stone-700 dark:text-gray-200 truncate">{range.label}</p>
     </div>
-    <span class="text-[10px] text-stone-400 dark:text-gray-500 flex-shrink-0">{range.unit}</span>
+    <span class="text-[10px] text-stone-400 dark:text-gray-400 flex-shrink-0">{range.unit}</span>
   </div>
 
-  <!-- Value -->
-  <p class="text-lg font-semibold mb-2 {hasValue ? 'text-stone-800 dark:text-gray-100' : 'text-stone-300 dark:text-gray-600'}">
-    {range.current_display ?? $t('me.no_value')}
-  </p>
+  <!-- Value + sparkline -->
+  <div class="flex items-end justify-between mb-2">
+    <p class="text-lg font-semibold {hasValue ? 'text-stone-800 dark:text-gray-100' : 'text-stone-300 dark:text-gray-600'}">
+      {range.current_display ?? $t('me.no_value')}
+    </p>
+    {#if trendPoints.length >= 2}
+      <Sparkline points={trendPoints} width={64} height={20} />
+    {/if}
+  </div>
 
   <!-- Range bar -->
   <RangeBar
@@ -70,13 +100,13 @@
 
   <!-- Classification or normal hint -->
   <div class="mt-1.5 flex items-baseline justify-between">
-    <p class="text-[11px] {hasValue ? 'text-stone-600 dark:text-gray-300' : 'text-stone-400 dark:text-gray-500'}">
+    <p class="text-[11px] {hasValue ? 'text-stone-600 dark:text-gray-300' : 'text-stone-400 dark:text-gray-400'}">
       {#if range.current_tier_label}
         {range.current_tier_label}
       {:else}
         {$t('me.normal_range_hint', { values: { range: `${range.normal_min}\u2013${range.normal_max}` } })}
       {/if}
     </p>
-    <p class="text-[10px] text-stone-400 dark:text-gray-500">{range.source}</p>
+    <p class="text-[10px] text-stone-400 dark:text-gray-400">{range.source}</p>
   </div>
 </div>

@@ -1058,6 +1058,8 @@ mod tests {
             dose_changes: vec![],
             compound_ingredients: vec![],
             dismissed_alert_keys: HashSet::new(),
+            vital_signs: vec![],
+            demographics: None,
         }
     }
 
@@ -1544,6 +1546,7 @@ mod tests {
             allergen: "penicillin".into(),
             reaction: Some("anaphylaxis".into()),
             severity: AllergySeverity::Severe,
+            allergen_category: None,
             date_identified: None,
             source: AllergySource::DocumentExtracted,
             document_id: Some(Uuid::new_v4()),
@@ -1571,6 +1574,7 @@ mod tests {
             allergen: "aspirin".into(),
             reaction: None,
             severity: AllergySeverity::Moderate,
+            allergen_category: None,
             date_identified: None,
             source: AllergySource::PatientReported,
             document_id: None,

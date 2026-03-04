@@ -443,6 +443,7 @@ mod tests {
             procedures: vec![],
             referrals: vec![],
             instructions: vec![],
+            blood_type: None,
         }
     }
 

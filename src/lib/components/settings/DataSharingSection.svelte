@@ -118,7 +118,7 @@
 
   <div class="px-4 py-4">
   {#if loading}
-    <p class="text-sm text-stone-400 dark:text-gray-500">{$t('common.loading')}</p>
+    <p class="text-sm text-stone-400 dark:text-gray-400">{$t('common.loading')}</p>
   {:else}
     <!-- Success message -->
     {#if successMsg}
@@ -136,11 +136,11 @@
 
     <!-- WHO CAN VIEW MY DATA -->
     <div class="mb-4">
-      <h3 class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+      <h3 class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wide mb-2">
         {$t('settings.data_sharing_who_can_view')}
       </h3>
       {#if grantsOut.length === 0}
-        <p class="text-sm text-stone-400 dark:text-gray-500 italic">
+        <p class="text-sm text-stone-400 dark:text-gray-400 italic">
           {$t('settings.data_sharing_no_grants_out')}
         </p>
       {:else}
@@ -157,7 +157,7 @@
                 <p class="text-sm text-stone-700 dark:text-gray-200 font-medium truncate">
                   {grant.grantee_name}
                 </p>
-                <p class="text-xs text-stone-400 dark:text-gray-500">
+                <p class="text-xs text-stone-400 dark:text-gray-400">
                   {$t('settings.data_sharing_granted_at', { values: { date: formatDate(grant.granted_at) } })}
                 </p>
               </div>
@@ -202,11 +202,11 @@
 
     <!-- DATA YOU CAN VIEW -->
     <div class="mb-4">
-      <h3 class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+      <h3 class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wide mb-2">
         {$t('settings.data_sharing_data_you_view')}
       </h3>
       {#if grantsIn.length === 0}
-        <p class="text-sm text-stone-400 dark:text-gray-500 italic">
+        <p class="text-sm text-stone-400 dark:text-gray-400 italic">
           {$t('settings.data_sharing_no_grants_in')}
         </p>
       {:else}
@@ -223,7 +223,7 @@
                 <p class="text-sm text-stone-700 dark:text-gray-200 font-medium truncate">
                   {grant.granter_name}
                 </p>
-                <p class="text-xs text-stone-400 dark:text-gray-500">
+                <p class="text-xs text-stone-400 dark:text-gray-400">
                   {$t('settings.data_sharing_granted_by')}
                 </p>
               </div>
@@ -244,7 +244,7 @@
     <!-- GRANT ACCESS (self-managed only) -->
     {#if profile.isSelfManaged && grantableProfiles.length > 0}
       <div class="border-t border-stone-100 dark:border-gray-800 pt-4">
-        <h3 class="text-xs font-medium text-stone-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+        <h3 class="text-xs font-medium text-stone-400 dark:text-gray-400 uppercase tracking-wide mb-2">
           {$t('settings.data_sharing_grant_heading')}
         </h3>
         <div class="flex items-end gap-2">
@@ -289,7 +289,7 @@
         </div>
       </div>
     {:else if !profile.isSelfManaged}
-      <p class="text-xs text-stone-400 dark:text-gray-500 italic border-t border-stone-100 dark:border-gray-800 pt-3">
+      <p class="text-xs text-stone-400 dark:text-gray-400 italic border-t border-stone-100 dark:border-gray-800 pt-3">
         {$t('settings.data_sharing_self_managed_only')}
       </p>
     {/if}

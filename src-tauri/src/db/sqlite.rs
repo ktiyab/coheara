@@ -71,6 +71,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
         (18, include_str!("../../resources/migrations/018_model_enabled.sql")),
         (19, include_str!("../../resources/migrations/019_butler_v2.sql")),
         (20, include_str!("../../resources/migrations/020_document_page_count.sql")),
+        (21, include_str!("../../resources/migrations/021_screening_records.sql")),
+        (22, include_str!("../../resources/migrations/022_vital_source_extracted.sql")),
+        (23, include_str!("../../resources/migrations/023_allergen_category.sql")),
     ];
 
     for (version, sql) in migrations {
@@ -124,7 +127,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 20);
+        assert_eq!(version, 23);
     }
 
     #[test]

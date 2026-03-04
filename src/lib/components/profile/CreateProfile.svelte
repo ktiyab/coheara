@@ -214,7 +214,7 @@
         <div class="flex flex-col gap-1">
           <span class="text-stone-600 dark:text-gray-400 text-sm font-medium">{$t('profile.dob_label')}</span>
           <DateOfBirthInput value={dateOfBirth} onchange={(v) => dateOfBirth = v} />
-          <p class="text-stone-400 dark:text-gray-500 text-xs mt-1">
+          <p class="text-stone-400 dark:text-gray-400 text-xs mt-1">
             {$t('profile.step_identity_dob_hint')}
           </p>
         </div>
@@ -224,7 +224,7 @@
                  bg-[var(--color-interactive)] text-white
                  hover:bg-[var(--color-interactive-hover)]
                  active:bg-[var(--color-interactive-active)]
-                 disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-500 disabled:cursor-not-allowed"
+                 disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-400 disabled:cursor-not-allowed"
           onclick={nextStep}
           disabled={!nameValid}
         >
@@ -263,7 +263,7 @@
               </button>
             {/each}
           </div>
-          <p class="text-stone-400 dark:text-gray-500 text-xs">
+          <p class="text-stone-400 dark:text-gray-400 text-xs">
             {$t('profile.step_health_sex_hint')}
           </p>
         </fieldset>
@@ -291,13 +291,13 @@
             {/each}
           </div>
           {#if selectedEthnicities.length > 0}
-            <p class="text-stone-400 dark:text-gray-500 text-xs">
+            <p class="text-stone-400 dark:text-gray-400 text-xs">
               {atEthnicityMax
                 ? $t('profile.ethnicity_count_max', { values: { count: selectedEthnicities.length, max: MAX_ETHNICITIES } })
                 : $t('profile.ethnicity_count', { values: { count: selectedEthnicities.length, max: MAX_ETHNICITIES } })}
             </p>
           {:else}
-            <p class="text-stone-400 dark:text-gray-500 text-xs">
+            <p class="text-stone-400 dark:text-gray-400 text-xs">
               {$t('profile.step_health_ethnicity_hint')}
             </p>
           {/if}
@@ -322,7 +322,7 @@
                   bg-white dark:bg-gray-900 text-stone-800 dark:text-gray-100"
               />
               <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs
-                           text-stone-400 dark:text-gray-500">
+                           text-stone-400 dark:text-gray-400">
                 {$t('profile.weight_unit')}
               </span>
             </div>
@@ -347,7 +347,7 @@
                   bg-white dark:bg-gray-900 text-stone-800 dark:text-gray-100"
               />
               <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs
-                           text-stone-400 dark:text-gray-500">
+                           text-stone-400 dark:text-gray-400">
                 {$t('profile.height_unit')}
               </span>
             </div>
@@ -356,12 +356,12 @@
             {/if}
           </div>
         </div>
-        <p class="text-stone-400 dark:text-gray-500 text-xs">
+        <p class="text-stone-400 dark:text-gray-400 text-xs">
           {$t('profile.step_health_body_hint')}
         </p>
 
         <!-- Privacy note -->
-        <p class="text-stone-400 dark:text-gray-500 text-xs text-center italic">
+        <p class="text-stone-400 dark:text-gray-400 text-xs text-center italic">
           {$t('profile.step_health_privacy')}
         </p>
 
@@ -387,7 +387,7 @@
           </div>
           <button
             type="button"
-            class="text-stone-400 dark:text-gray-500 text-xs text-center hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
+            class="text-stone-400 dark:text-gray-400 text-xs text-center hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
             onclick={nextStep}
           >
             {$t('profile.step_health_skip')}
@@ -415,7 +415,7 @@
               <option value={c.code}>{c.name}</option>
             {/each}
           </select>
-          <p class="text-stone-400 dark:text-gray-500 text-xs">
+          <p class="text-stone-400 dark:text-gray-400 text-xs">
             {$t('profile.step_location_country_hint')}
           </p>
         </label>
@@ -432,7 +432,7 @@
                    focus:border-[var(--color-primary)] focus:outline-none resize-none"
             autocomplete="street-address"
           ></textarea>
-          <p class="text-stone-400 dark:text-gray-500 text-xs">
+          <p class="text-stone-400 dark:text-gray-400 text-xs">
             {$t('profile.step_location_address_hint')}
           </p>
         </label>
@@ -459,7 +459,7 @@
           </div>
           <button
             type="button"
-            class="text-stone-400 dark:text-gray-500 text-xs text-center hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
+            class="text-stone-400 dark:text-gray-400 text-xs text-center hover:text-stone-600 dark:hover:text-gray-300 transition-colors"
             onclick={nextStep}
           >
             {$t('profile.step_location_skip')}
@@ -508,7 +508,7 @@
         <p class="text-[var(--color-danger)] text-sm {tooShortVisible ? '' : 'invisible'}">{$t('profile.password_too_short')}</p>
         <p class="text-[var(--color-danger)] text-sm {mismatchVisible ? '' : 'invisible'}">{$t('profile.password_mismatch')}</p>
 
-        <p class="text-stone-400 dark:text-gray-500 text-xs">
+        <p class="text-stone-400 dark:text-gray-400 text-xs">
           {$t('profile.step_security_password_hint')}
         </p>
 
@@ -526,7 +526,7 @@
                    bg-[var(--color-interactive)] text-white
                    hover:bg-[var(--color-interactive-hover)]
                    active:bg-[var(--color-interactive-active)]
-                   disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-500 disabled:cursor-not-allowed"
+                   disabled:bg-stone-300 disabled:dark:bg-gray-700 disabled:text-stone-500 disabled:dark:text-gray-400 disabled:cursor-not-allowed"
             onclick={handleCreate}
             disabled={!formValid}
           >
@@ -535,7 +535,7 @@
         </div>
 
         {#if isCaregiverPath}
-          <p class="text-stone-400 dark:text-gray-500 text-xs text-center">
+          <p class="text-stone-400 dark:text-gray-400 text-xs text-center">
             {$t('profile.caregiver_note_bottom')}
           </p>
         {/if}

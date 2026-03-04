@@ -17,9 +17,11 @@ use crate::pipeline::structuring::types::{ExtractedProfessional, StructuringResu
 ///
 /// P.3: Idempotent — clears any existing entities for this document before
 /// inserting fresh ones, making reprocessing safe.
+/// ALLERGY-01 B7: Registry threaded for allergen auto-classification.
 pub fn store_entities(
     conn: &Connection,
     result: &StructuringResult,
+    registry: &crate::invariants::InvariantRegistry,
 ) -> Result<(EntitiesStoredCount, Vec<StorageWarning>), StorageError> {
     // P.3: Clear existing entities for idempotent reprocessing
     repository::clear_document_entities(conn, &result.document_id)?;
@@ -71,6 +73,8 @@ pub fn store_entities(
         conn,
         &result.extracted_entities.allergies,
         &result.document_id,
+        result.document_date,
+        registry,
         &mut stored_entities,
     )?;
 
@@ -359,6 +363,8 @@ fn store_allergies(
     conn: &Connection,
     allergies: &[crate::pipeline::structuring::types::ExtractedAllergy],
     document_id: &Uuid,
+    document_date: Option<NaiveDate>,
+    registry: &crate::invariants::InvariantRegistry,
     stored_entities: &mut Vec<StoredEntity>,
 ) -> Result<usize, StorageError> {
     let mut count = 0;
@@ -370,12 +376,18 @@ fn store_allergies(
             .and_then(|s| AllergySeverity::from_str(s).ok())
             .unwrap_or(AllergySeverity::Moderate);
 
+        // ALLERGY-01 B7: Auto-classify via invariant registry
+        let allergen_category = registry
+            .classify_allergen(&extracted.allergen)
+            .and_then(|a| AllergenCategory::from_str(a.category).ok());
+
         let allergy = Allergy {
             id: Uuid::new_v4(),
             allergen: extracted.allergen.clone(),
             reaction: extracted.reaction.clone(),
             severity,
-            date_identified: None,
+            allergen_category,
+            date_identified: document_date,
             source: AllergySource::DocumentExtracted,
             document_id: Some(*document_id),
             verified: false,
@@ -492,6 +504,7 @@ fn store_instructions(
 mod tests {
     use super::*;
     use crate::db::sqlite::open_memory_database;
+    use crate::invariants::InvariantRegistry;
     use crate::pipeline::structuring::types::*;
 
     fn test_db() -> Connection {
@@ -548,7 +561,7 @@ mod tests {
         let doc_id = make_document(&conn);
         let result = minimal_structuring_result(doc_id);
 
-        let (counts, warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.medications, 0);
         assert_eq!(counts.lab_results, 0);
         assert_eq!(counts.diagnoses, 0);
@@ -581,7 +594,7 @@ mod tests {
             confidence: 0.9,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.medications, 1);
     }
 
@@ -605,7 +618,7 @@ mod tests {
             confidence: 0.95,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.lab_results, 1);
     }
 
@@ -623,7 +636,7 @@ mod tests {
             confidence: 0.9,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.diagnoses, 1);
     }
 
@@ -640,7 +653,7 @@ mod tests {
             confidence: 0.85,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.allergies, 1);
     }
 
@@ -659,7 +672,7 @@ mod tests {
             confidence: 0.9,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.procedures, 1);
     }
 
@@ -676,7 +689,7 @@ mod tests {
             confidence: 0.8,
         });
 
-        let (counts, _warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, _warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.referrals, 1);
     }
 
@@ -719,7 +732,7 @@ mod tests {
             confidence: 0.9,
         });
 
-        let (counts, _) = store_entities(&conn, &result).unwrap();
+        let (counts, _) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.medications, 2);
 
         // Professional should only be created once
@@ -748,7 +761,7 @@ mod tests {
             confidence: 0.8,
         });
 
-        let (counts, warnings) = store_entities(&conn, &result).unwrap();
+        let (counts, warnings) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.diagnoses, 1);
         assert!(warnings.is_empty());
     }
@@ -785,7 +798,7 @@ mod tests {
             confidence: 0.85,
         });
 
-        let (counts, _) = store_entities(&conn, &result).unwrap();
+        let (counts, _) = store_entities(&conn, &result, &InvariantRegistry::empty()).unwrap();
         assert_eq!(counts.medications, 1);
 
         let ingredient_count: i64 = conn

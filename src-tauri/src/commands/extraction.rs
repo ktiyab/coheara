@@ -22,7 +22,7 @@ use crate::pipeline::batch_extraction::{
     scheduler::SqliteBatchScheduler,
     runner::{BatchRunner, run_full_batch},
     analyzer::RuleBasedAnalyzer,
-    extractors::{SymptomExtractor, MedicationExtractor, AppointmentExtractor},
+    extractors::{SymptomExtractor, MedicationExtractor, AppointmentExtractor, VitalSignExtractor},
 };
 
 /// Fetch all pending extraction items for the morning review.
@@ -182,6 +182,7 @@ pub async fn trigger_extraction_batch(
                 Box::new(SymptomExtractor::new()),
                 Box::new(MedicationExtractor::new()),
                 Box::new(AppointmentExtractor::new()),
+                Box::new(VitalSignExtractor::new()),
             ],
             config.clone(),
         );

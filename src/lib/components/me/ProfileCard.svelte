@@ -62,6 +62,8 @@
     identity.height_cm != null ? `${identity.height_cm} cm` : null
   );
 
+  let bloodTypeText = $derived(identity.blood_type_display ?? null);
+
   let bmiText = $derived(
     identity.bmi != null
       ? `${identity.bmi.toFixed(1)} kg/m\u00b2`
@@ -74,6 +76,7 @@
   let fields = $derived<DemoField[]>([
     { label: $t('me.field_sex'), value: sexLabel },
     { label: $t('me.field_age'), value: ageText, auto: true },
+    { label: $t('me.field_blood_type'), value: bloodTypeText },
     { label: $t('me.field_ethnicity'), value: ethnicityText },
     { label: $t('me.field_weight'), value: weightText },
     { label: $t('me.field_height'), value: heightText },
@@ -94,13 +97,22 @@
     <div class="flex-1 min-w-0">
       <p class="text-lg font-semibold text-stone-800 dark:text-gray-100
                 truncate">{identity.name}</p>
-      <p class="text-sm text-stone-500 dark:text-gray-400">
-        {#if ageText}{ageText}{/if}
-        {#if ageText && sexLabel}
-          <span class="text-stone-300 dark:text-gray-600"> &middot; </span>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <p class="text-sm text-stone-500 dark:text-gray-400">
+          {#if ageText}{ageText}{/if}
+          {#if ageText && sexLabel}
+            <span class="text-stone-300 dark:text-gray-600"> &middot; </span>
+          {/if}
+          {#if sexLabel}{sexLabel}{/if}
+        </p>
+        {#if bloodTypeText}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px]
+                       font-bold bg-red-50 dark:bg-red-900/30 text-red-700
+                       dark:text-red-300 border border-red-200 dark:border-red-800">
+            {bloodTypeText}
+          </span>
         {/if}
-        {#if sexLabel}{sexLabel}{/if}
-      </p>
+      </div>
     </div>
     <button
       onclick={() => showEditModal = true}
@@ -128,10 +140,10 @@
           </span>
           <span class="flex-1 {field.value
             ? 'text-stone-700 dark:text-gray-200'
-            : 'text-stone-400 dark:text-gray-500 italic'}">
+            : 'text-stone-400 dark:text-gray-400 italic'}">
             {field.value ?? $t('me.field_not_set')}
             {#if field.auto && field.value}
-              <span class="text-[10px] text-stone-400 dark:text-gray-500 ml-1">
+              <span class="text-[10px] text-stone-400 dark:text-gray-400 ml-1">
                 ({$t('me.field_auto')})
               </span>
             {/if}

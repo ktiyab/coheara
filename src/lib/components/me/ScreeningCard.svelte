@@ -51,7 +51,7 @@
         ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300'
         : screening.eligible
           ? 'bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-300'
-          : 'bg-stone-100 dark:bg-gray-800 text-stone-400 dark:text-gray-500'
+          : 'bg-stone-100 dark:bg-gray-800 text-stone-400 dark:text-gray-400'
   );
 
   function requestDelete(dose: CompletedDose) {
@@ -120,7 +120,7 @@
           {$t('me.screenings_eligible')}
         </p>
       {:else}
-        <p class="text-xs text-stone-400 dark:text-gray-500 mt-0.5">
+        <p class="text-xs text-stone-400 dark:text-gray-400 mt-0.5">
           {$t('me.screenings_not_eligible')}
         </p>
       {/if}
@@ -129,7 +129,7 @@
       <p class="text-[11px] text-stone-500 dark:text-gray-400 mt-1">
         {intervalText} · {ageText}{#if sexText} · {sexText}{/if}
       </p>
-      <p class="text-[10px] text-stone-400 dark:text-gray-500 mt-0.5">{screening.source}</p>
+      <p class="text-[10px] text-stone-400 dark:text-gray-400 mt-0.5">{screening.source}</p>
     </div>
   </div>
 
@@ -192,7 +192,7 @@
   {#if isVaccine && screening.total_doses > 0 && screening.completed_doses.length < screening.total_doses}
     <div class="flex flex-col gap-1">
       {#each Array(screening.total_doses - screening.completed_doses.length) as _, i}
-        <div class="flex items-center gap-1.5 text-xs text-stone-400 dark:text-gray-500">
+        <div class="flex items-center gap-1.5 text-xs text-stone-400 dark:text-gray-400">
           <span class="w-3 h-3 rounded-full border border-stone-300 dark:border-gray-600 flex-shrink-0"></span>
           <span class="truncate">
             {$t('me.vaccine_dose_of', { values: { current: screening.completed_doses.length + i + 1, total: screening.total_doses } })}

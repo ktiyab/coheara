@@ -109,8 +109,26 @@ Each lab test includes **aliases** for multilingual matching. 88 aliases across 
 |---|---|---|
 | Drug Families | WHO Essential Medicines List | 20 families (statins, NSAIDs, penicillins, ACE inhibitors, SSRIs, DOACs, opioids...) with all member drugs |
 | Drug Interactions | WHO EML, ESC, KDIGO | 20+ clinically significant pairs (Warfarin+NSAID, ACEi+K-sparing, Metformin+contrast...) |
-| Cross-Reactivity | EAACI 2020, WAO 2024 | 10 allergen cross-reactivity chains (penicillin→cephalosporin, NSAID phenotypes...) |
-| Monitoring Schedules | ADA/KDIGO, ESC/EAS, EHRA, STOPP/START v3 | 24 drug-to-lab monitoring rules (Metformin→HbA1c/90d, Statin→ALT/365d, Warfarin→INR/30d...) |
+| Drug Cross-Reactivity | EAACI 2020, WAO 2024 | 10 allergen cross-reactivity chains (penicillin-cephalosporin, NSAID phenotypes...) |
+| Allergen Cross-Reactivity | WAO 2024, JCM 2024 | OAS (birch-apple), food-food (peanut-tree nut), insect venom, latex-fruit |
+| Canonical Allergens | FDA FALCPA, EU 1169/2011, AAAAI 2022, WAO/ARIA 2024 | 46 allergen classes across 5 categories (food, drug, environmental, insect, other) |
+| Allergen Aliases | Clinical consensus | 88 common name-to-canonical mappings for multilingual resolution |
+| Monitoring Schedules | ADA/KDIGO, ESC/EAS, EHRA, STOPP/START v3 | 24 drug-to-lab monitoring rules (Metformin-HbA1c/90d, Statin-ALT/365d, Warfarin-INR/30d...) |
+
+#### Blood Types (I-BT)
+
+| Domain | Guideline | What It Provides |
+|---|---|---|
+| ABO/Rh System | ISBT 2023, AABB Technical Manual 21st Ed. | 8 blood types with antigens, antibodies, global frequencies |
+| Transfusion Compatibility | AABB Table 14-1 | RBC compatibility matrix (donor-recipient pairs) |
+| Pregnancy Awareness | ACOG Practice Bulletin 181, RCOG Green-top Guideline 65 | Rh-negative awareness for childbearing-age females |
+
+#### Screening and Vaccines (I-SCR)
+
+| Domain | Guideline | What It Provides |
+|---|---|---|
+| Cancer Screening | IARC 2019/2024, WHO 2021, EAU 2024, ESC 2024, IOF 2024 | 6 age+sex-gated screening schedules |
+| Vaccine Schedules | WHO 2024, WHO SAGE 2024 | 8 adult vaccine schedules with dose series and validity windows |
 
 ### Curation Principles
 
@@ -145,15 +163,30 @@ The invariant system uses two storage tiers, chosen for different update frequen
 │  - Temperature (7)     │ Cross-reactivity chains          │
 │                        │  - 10 allergen family chains     │
 │ Lab thresholds         │                                  │
-│  - 10 tests            │ Monitoring schedules             │
-│  - 47 classification   │  - 24 drug-to-lab rules          │
+│  - 10 tests            │ Allergen cross-reactivity        │
+│  - 47 classification   │  - OAS, food-food, insect, latex │
 │    tiers               │                                  │
-│  - 88 multilingual     │ Location:                        │
-│    aliases             │  resources/invariants/*.json     │
+│  - 88 multilingual     │ Allergen aliases                 │
+│    aliases             │  - 88 common name → canonical    │
 │                        │                                  │
-│ Location:              │ Update: edit JSON, restart app   │
+│ Canonical allergens    │ Monitoring schedules             │
+│  - 46 allergen classes │  - 24 drug-to-lab rules          │
+│  - 5 categories        │                                  │
+│                        │ Location:                        │
+│ Blood types            │  resources/invariants/*.json     │
+│  - 8 ABO/Rh types      │                                  │
+│  - Compatibility matrix │ Update: edit JSON, restart app  │
+│                        │                                  │
+│ Screening schedules    │                                  │
+│  - 6 cancer screenings │                                  │
+│  - 8 vaccine schedules │                                  │
+│                        │                                  │
+│ Location:              │                                  │
 │  invariants/vitals.rs  │                                  │
 │  invariants/labs.rs    │                                  │
+│  invariants/allergens.rs│                                 │
+│  invariants/blood_types.rs│                               │
+│  invariants/screening.rs│                                 │
 │                        │                                  │
 │ Update: recompile      │                                  │
 └────────────────────────┴──────────────────────────────────┘
@@ -202,8 +235,9 @@ When a patient asks a question in chat, the RAG pipeline runs:
       │
       ▼
 4. ASSEMBLE    Build the SLM's context window:
+      │         - Patient's blood type (Priority 0.5)        ← Identity-level context
       │         - Patient's allergies (Priority 1)
-      │         - CLINICAL INSIGHTS section (Priority 1.5)  ← Insights injected here
+      │         - CLINICAL INSIGHTS section (Priority 1.5)   ← Insights injected here
       │         - Relevant document excerpts (Priority 2)
       │         - Medications, labs, symptoms, vitals (Priority 3-6)
       │
@@ -217,9 +251,9 @@ When a patient asks a question in chat, the RAG pipeline runs:
                - [Guideline: ISH 2020] (from invariant sources, deterministic)
 ```
 
-### The Seven Detection Algorithms
+### The Ten Detection Algorithms
 
-The `enrich()` function runs seven deterministic sub-algorithms:
+The `enrich()` function runs ten deterministic sub-algorithms:
 
 #### 1. Classify Vital Signs
 Matches each vital sign against const-tier thresholds.
@@ -290,37 +324,79 @@ Output: [INFO] Mammography screening recommended (source: IARC/WHO 2024)
         [INFO] Colorectal cancer screening recommended (source: IARC 2019)
 ```
 
-Covers: mammography, cervical (Pap/HPV), prostate (PSA), colorectal (FIT), AAA ultrasound, osteoporosis (DXA). All severity = Info (reminders, not alarms). Graceful degradation: no demographics = no screening insights.
+Covers: mammography, cervical (Pap/HPV), prostate (PSA), colorectal (FIT), AAA ultrasound, osteoporosis (DXA), plus 8 vaccine schedules. All severity = Info (reminders, not alarms). Graceful degradation: no demographics = no screening insights. Record-aware: suppresses reminders when screening records show the patient is up to date.
+
+#### 8. Detect Vital Trends
+Compares multiple readings of the same vital type over time to detect clinically significant trends.
+
+```
+Input:  BP readings: 125/80 (Jan), 135/85 (Apr), 148/92 (Jul)
+Window: 6-12 months, >= +20 mmHg systolic (ISH 2020)
+Output: [WARNING] Blood pressure trending upward (source: ISH 2020)
+```
+
+Covers: BP trend (systolic/diastolic), weight loss (moderate >5%, severe >10% in 6 months), weight gain (>=5% in 6 months). Sources: ISH 2020 (BP), GLIM 2019 (weight).
+
+#### 9. Detect Food/Environmental Cross-Reactivity
+Checks allergen records against allergen-specific cross-reactivity chains (OAS, food-food, insect venom, latex-fruit).
+
+```
+Input:  Allergy: Birch pollen | Registry: OAS cross-reactivity
+Chain:  Birch pollen → Apple, pear, cherry, hazelnut (30-70%)
+Output: [WARNING] Birch pollen allergy: oral allergy syndrome risk with apple, pear (source: WAO 2024)
+```
+
+Uses the bundled allergen cross-reactivity JSON (distinct from drug cross-reactivity). Resolution through canonical allergen keys and aliases.
+
+#### 10. Detect Rh-Negative Awareness (BT-01)
+When patient blood type is Rh-negative and the patient is a female of childbearing age, produces an awareness insight about anti-D prophylaxis.
+
+```
+Input:  Blood type: O- | Sex: Female | Age: 28
+Guards: Rh-negative = true, Female = true, age 15-50 = true
+Output: [WARNING] Rh-negative blood type - discuss anti-D prophylaxis
+         with your doctor if pregnancy is relevant (source: ACOG PB 181, RCOG GTG 65)
+```
+
+Guards: blood type must be set and Rh-negative, sex must be Female, age must be 15-50 (ACOG childbearing range). If any guard fails, no insight is produced.
 
 ### What the SLM Sees
 
 After enrichment, the assembled context contains a `<CLINICAL INSIGHTS>` section:
 
 ```xml
+<PATIENT BLOOD TYPE>
+Blood type: O- (O Rh-negative, ISBT 2023 / AABB 21st Ed.)
+</PATIENT BLOOD TYPE>
+
 <CLINICAL INSIGHTS>
-[CRITICAL] eGFR 28 mL/min: KDIGO Stage G4, Severely decreased kidney function (source: KDIGO 2024)
-[CRITICAL] Penicillin allergy → Amoxicillin (same Penicillin family) (source: WHO EML)
-[WARNING] BP 145/92 mmHg: Grade 1 Hypertension (source: ISH 2020)
-[WARNING] Metformin: HbA1c overdue (last: 2025-11-01, interval: 90 days) (source: ADA/KDIGO 2022)
-[INFO] BMI 27.8 kg/m²: Overweight (source: WHO TRS 894)
+[Notable] eGFR 28 mL/min: KDIGO Stage G4, Severely decreased kidney function (source: KDIGO 2024)
+[Notable] Penicillin allergy - Amoxicillin (same Penicillin family) (source: WHO EML)
+[Guideline note] BP 145/92 mmHg: Grade 1 Hypertension (source: ISH 2020)
+[Guideline note] Metformin: HbA1c overdue (last: 2025-11-01, interval: 90 days) (source: ADA/KDIGO 2022)
+[Guideline note] Rh-negative blood type - discuss anti-D prophylaxis if pregnancy is relevant (source: ACOG PB 181)
+[For reference] BMI 27.8 kg/m2: Overweight (source: WHO TRS 894)
 </CLINICAL INSIGHTS>
 ```
 
-Insights are sorted by severity (Critical first). The SLM reads these as established facts and weaves them into its response. It doesn't need to classify BP, detect interactions, or compute monitoring gaps. That work is already done, deterministically, with full traceability to published guidelines.
+Blood type is injected at Priority 0.5 (before allergies) as identity-level context (~10 tokens). Insights are sorted by severity (Notable first) and use regulatory-compliant labels per REG-01 (Notable/Guideline note/For reference instead of Critical/Warning/Info). The SLM reads these as established facts and weaves them into its response. It doesn't need to classify BP, detect interactions, or compute monitoring gaps. That work is already done, deterministically, with full traceability to published guidelines.
 
 ---
 
 ## Where Invariants Also Operate
 
-The invariant registry is not limited to the chat pipeline. It feeds three systems:
+The invariant registry is not limited to the chat pipeline. It feeds four systems:
 
 ### 1. Chat Pipeline (RAG Enrichment)
 As described above. Every chat response benefits from pre-computed clinical insights. The SLM articulates; invariants ground.
 
-### 2. Coherence Engine (Drug Family Detection)
+### 2. Me Screen (Health Center)
+The Me Screen calls `enrich()` with all patient data on every load, displaying clinical insights as severity-coded cards (InsightCard). It also shows screening/vaccine schedules via `build_screening_info()` with record-aware status (due, up-to-date, expired), blood type as a profile badge, and demographic-aware insight filtering. The Me Screen is the primary surface where patients see their invariant-derived health overview.
+
+### 3. Coherence Engine (Drug Family Detection)
 The intelligence module uses the registry for allergy-medication conflict detection during document review. When a new prescription is imported, the coherence engine checks: does this medication conflict with a known allergy? It resolves through the same drug family registry.
 
-### 3. Guideline Citations
+### 4. Guideline Citations
 Clinical insight sources (ISH 2020, KDIGO 2024, etc.) are extracted as `GuidelineCitation` objects and streamed to the frontend alongside document citations. These are deterministic: they come from the invariant registry, never from LLM output.
 
 ---
@@ -341,7 +417,7 @@ An SLM is good at language: understanding questions, generating natural response
 This separation means:
 - **Medical accuracy doesn't depend on model size, prompt engineering, or temperature settings**
 - **Insights are reproducible**: the same data always produces the same insights
-- **Insights are testable**: 200+ unit tests verify every classification, interaction, detection, and screening algorithm
+- **Insights are testable**: 300+ unit tests verify every classification, interaction, detection, screening, and blood type algorithm
 - **Insights are auditable**: every single output traces to a published guideline and year
 
 ### Pure Functions, No Side Effects
@@ -371,27 +447,31 @@ This means the app never fails because of the invariant system. It only gets sma
 
 ```
 src-tauri/src/invariants/
-├── mod.rs          InvariantRegistry: single access point, load(), lookup helpers
-├── types.rs        ClinicalInsight, InsightKind, InsightSeverity, InvariantLabel, MeaningFactors
-├── vitals.rs       31 vital sign tiers (BP, HR, SpO2, BMI, Glucose, Temperature)
-├── labs.rs         10 lab tests, 47 tiers, 88 multilingual aliases
-├── loader.rs       JSON deserializer for bundled tier (DrugFamily, InteractionPair, etc.)
-├── enrich.rs       7 sub-algorithms: classify, detect, match, screen (the enrichment engine)
-├── demographics.rs Male hemoglobin tiers (WHO 2024), Asian BMI thresholds (WHO 2004)
-└── screening.rs    6 evidence-based preventive screening schedules (ME-04)
+├── mod.rs            InvariantRegistry: single access point, load(), lookup helpers
+├── types.rs          ClinicalInsight, InsightKind, InsightSeverity, InvariantLabel, MeaningFactors
+├── vitals.rs         31 vital sign tiers (BP, HR, SpO2, BMI, Glucose, Temperature)
+├── labs.rs           10 lab tests, 47 tiers, 88 multilingual aliases
+├── loader.rs         JSON deserializer for bundled tier (DrugFamily, InteractionPair, etc.)
+├── enrich.rs         10 sub-algorithms: classify, detect, match, screen, trend, cross-react (the enrichment engine)
+├── demographics.rs   Male hemoglobin tiers (WHO 2024), Asian BMI thresholds (WHO 2004)
+├── screening.rs      14 schedules: 6 cancer screenings + 8 vaccine schedules (ME-04/ME-06)
+├── allergens.rs      46 canonical allergen classes with mechanism + category (ALLERGY-01)
+└── blood_types.rs    8 ABO/Rh blood types with compatibility matrix (BT-01)
 
 src-tauri/resources/invariants/
-├── drug_families.json          20 drug families with member medications
-├── interaction_pairs.json      20+ clinically significant drug-drug interactions
-├── cross_reactivity.json       10 allergen cross-reactivity chains
-└── monitoring_schedules.json   24 drug-to-lab monitoring rules
+├── drug_families.json              20 drug families with member medications
+├── interaction_pairs.json          20+ clinically significant drug-drug interactions
+├── cross_reactivity.json           10 allergen cross-reactivity chains
+├── monitoring_schedules.json       24 drug-to-lab monitoring rules
+├── allergen_cross_reactivity.json  OAS, food-food, insect venom, latex-fruit chains
+└── allergen_aliases.json           88 common name → canonical allergen key mappings
 ```
 
 ---
 
 ## Verification
 
-The invariant system is covered by **200+ unit tests** across the module, including:
+The invariant system is covered by **300+ unit tests** across the module, including:
 
 - Threshold classification accuracy for every vital sign and lab test
 - Boundary condition testing (exact threshold values)
@@ -404,25 +484,31 @@ The invariant system is covered by **200+ unit tests** across the module, includ
 - Full patient scenario integration tests (multiple concurrent insights)
 - Sex-aware hemoglobin classification (male vs female thresholds)
 - Ethnicity-aware BMI classification (Asian vs standard thresholds)
-- Age+sex-gated screening schedule eligibility
+- Age+sex-gated screening schedule eligibility (6 cancer + 8 vaccine)
 - Demographics backward compatibility (None = universal defaults)
+- Canonical allergen lookup (46 allergens, exact key + fuzzy label + alias match)
+- Allergen classification and cross-reactivity (OAS, food-food, drug families)
+- Blood type lookup, compatibility matrix (8 types, universal donor/recipient)
+- Rh-negative awareness detection (sex+age guards)
+- Screening record awareness (due, up-to-date, expired status)
+- Vital sign trend detection (BP trending, weight loss/gain)
 
 All tests run deterministically with no external dependencies: no database, no network, no model.
 
 ---
 
-## What Comes Next
+## Invariant Class Status
 
-The current implementation covers 6 of the 7 invariant classes defined in ME-02:
+All 7 planned invariant classes are implemented, plus one additional class (I-BT) added in BT-01:
 
 | Class | Status | What It Does |
 |---|---|---|
-| **I-VIT** Vital Signs | Implemented | 6 vital types, 31 classification tiers. ME-04: Ethnicity-aware BMI (Asian thresholds) |
+| **I-VIT** Vital Signs | Implemented | 6 vital types, 31 classification tiers, trend detection. ME-04: Ethnicity-aware BMI (Asian thresholds) |
 | **I-LAB** Laboratory | Implemented | 10 tests, 47 tiers, 88 aliases. ME-04: Sex-aware hemoglobin (Male 13.0, Female 12.0 g/dL) |
 | **I-MED** Medications | Implemented | 20 families, 20+ interactions, 24 monitoring schedules |
-| **I-ALG** Allergies | Implemented | 10 cross-reactivity chains + same-family detection |
-| **I-SCR** Screening | **Implemented (ME-04)** | 6 evidence-based age+sex-gated screening schedules |
-| **I-VAX** Vaccination | Future | Expiry-driven lifecycle, age-gated schedules |
+| **I-ALG** Allergies | Implemented | 46 canonical allergens, 10 drug cross-reactivity chains, allergen cross-reactivity (OAS, food-food, latex-fruit), 88 aliases, auto-classification |
+| **I-SCR** Screening | Implemented (ME-04/ME-06) | 14 schedules: 6 cancer screenings + 8 vaccine schedules. Record-aware (due/up-to-date/expired) |
+| **I-BT** Blood Type | **Implemented (BT-01)** | 8 ABO/Rh types, compatibility matrix, Rh-negative pregnancy awareness |
 | **I-FAM** Family Risk | Future | Family history risk modifiers for screening intervals |
 
 The architecture is designed so that adding new invariant classes follows the same pattern: curate from guidelines, encode as const or JSON, add a detection algorithm to `enrich()`, write tests.
@@ -441,20 +527,22 @@ The enrichment engine accepts an optional `PatientDemographics` parameter contai
 
 The demographics that personalize invariant thresholds originate from the **profile creation wizard** (UX-04). During onboarding, the user provides:
 
-| Wizard Step | Field | Invariant Use |
+| Source | Field | Invariant Use |
 |---|---|---|
-| Step 1: Identity | Date of birth | Computed into `age_years`, which gates 6 preventive screening schedules |
-| Step 2: Health | Biological sex | Selects sex-specific hemoglobin thresholds; gates sex-specific screenings (mammography, prostate) |
-| Step 2: Health | Ethnicity (up to 3) | Selects Asian BMI thresholds when South Asian, East Asian, or Pacific Islander is present |
+| Profile Wizard Step 1 | Date of birth | Computed into `age_years`, which gates 14 preventive screening/vaccine schedules |
+| Profile Wizard Step 2 | Biological sex | Selects sex-specific hemoglobin thresholds; gates sex-specific screenings (mammography, prostate); Rh-negative pregnancy awareness |
+| Profile Wizard Step 2 | Ethnicity (up to 3) | Selects Asian BMI thresholds when South Asian, East Asian, or Pacific Islander is present |
+| Me Screen Edit | Blood type (BT-01) | Rh-negative pregnancy awareness (enrich sub-algo 10); RAG identity context (Priority 0.5); compatibility matrix lookup |
 
 The data chain flows through five components:
 
 ```
-Profile Wizard (Svelte)
-    → ProfileInfo (stored on disk, unencrypted metadata)
+Profile Wizard / Me Screen Edit (Svelte)
+    → ProfileInfo (stored on disk, encrypted)
         → CoreState.get_patient_demographics()
-            → PatientDemographics { sex, ethnicities, age_context, age_years }
+            → PatientDemographics { sex, ethnicities, age_context, age_years, blood_type }
                 → enrich(..., demographics) in RAG pipeline
+                → assemble_context(..., demographics) for blood type in RAG context
 ```
 
 **Key design decisions**:
@@ -779,6 +867,10 @@ Each lab test includes multilingual **aliases** for name normalization. 88 alias
 
 **Same-family detection**: In addition to cross-family chains, the system detects when an allergen and an active medication belong to the **same drug family** (e.g., penicillin allergy + amoxicillin prescription). This uses the drug family registry above.
 
+**Allergen-specific cross-reactivity** (ALLERGY-01): A separate set of chains covers non-drug allergen relationships: oral allergy syndrome (OAS, e.g., birch pollen - apple), food-food (e.g., peanut - tree nut), insect venom (e.g., bee - wasp), and extended latex-fruit (latex - banana, avocado, kiwi, chestnut). These are stored in `allergen_cross_reactivity.json` and searched via `find_all_cross_reactivity()` which combines both drug and allergen chains.
+
+**Canonical allergen classification** (ALLERGY-01): 46 canonical allergens in const tier (`allergens.rs`) enable auto-classification of free-text allergen entries. Resolution runs: exact key -> alias match (88 aliases from JSON) -> fuzzy label match (substring on EN/FR/DE). See I-ALG section in the Complete Invariant Reference below.
+
 ---
 
 ### I-MED: Monitoring Schedules (Bundled Tier, JSON)
@@ -816,22 +908,102 @@ Each lab test includes multilingual **aliases** for name normalization. 88 alias
 
 ---
 
-### I-SCR: Screening Schedules (ME-04)
+### I-SCR: Screening and Vaccine Schedules (ME-04/ME-06)
 
-6 evidence-based preventive screening schedules, age+sex-gated. All produce `InsightKind::ScreeningDue` with `InsightSeverity::Info`.
+14 evidence-based schedules (6 cancer screenings + 8 vaccine schedules), age+sex-gated. All produce `InsightKind::ScreeningDue` with `InsightSeverity::Info`. Record-aware: screening records (migration 021) track completion dates and suppress reminders when up to date.
+
+#### Cancer Screenings (6)
 
 | # | Screening | Sex | Age Range | Interval | Source |
 |---|---|---|---|---|---|
-| 1 | Mammography | Female | 50–74 | 24 months | IARC/WHO 2024 |
-| 2 | Cervical (Pap/HPV) | Female | 25–65 | 36 months | WHO 2021 |
-| 3 | Prostate (PSA) | Male | 50–70 | 12 months | EAU 2024 |
-| 4 | Colorectal (FIT/colonoscopy) | Both | 50–75 | 24 months | IARC 2019 |
-| 5 | AAA Ultrasound | Male | 65–75 | One-time | ESC 2024 |
+| 1 | Mammography | Female | 50-74 | 24 months | IARC/WHO 2024 |
+| 2 | Cervical (Pap/HPV) | Female | 25-65 | 36 months | WHO 2021 |
+| 3 | Prostate (PSA) | Male | 50-70 | 12 months | EAU 2024 |
+| 4 | Colorectal (FIT/colonoscopy) | Both | 50-75 | 24 months | IARC 2019 |
+| 5 | AAA Ultrasound | Male | 65-75 | One-time | ESC 2024 |
 | 6 | Osteoporosis (DXA) | Female | 65+ | 24 months | IOF 2024 |
 
-**Phase 1** (current): Generates reminders for all eligible patients. No check against prior screening records.
+#### Vaccine Schedules (8)
 
-**Phase 2** (future): Compare against screening records to suppress reminders when screening is up to date.
+| # | Vaccine | Sex | Age Range | Interval / Doses | Validity | Source |
+|---|---|---|---|---|---|---|
+| 7 | Influenza (seasonal) | Both | 18+ | 12 months (recurring) | 12 months | WHO 2024 |
+| 8 | Tdap (Tetanus-Diphtheria-Pertussis) | Both | 18+ | 120 months (recurring) | 120 months | WHO 2024 |
+| 9 | Pneumococcal (PCV/PPSV) | Both | 65+ | 1 dose | Lifetime | WHO 2024 |
+| 10 | Shingles (Herpes Zoster) | Both | 50+ | 2-dose series | Lifetime | WHO 2024 |
+| 11 | Hepatitis B | Both | 18+ | 3-dose series | Lifetime | WHO 2024 |
+| 12 | HPV | Both | 18-26 | 3-dose series | Lifetime | WHO 2024 |
+| 13 | MMR | Both | 18+ | 2-dose series | Lifetime | WHO 2024 |
+| 14 | COVID-19 | Both | 18+ | 12 months (recurring) | 12 months | WHO SAGE 2024 |
+
+**Record awareness (ME-06)**: Each schedule is checked against screening records stored in `screening_records` (SQLite table). Status per schedule: **due** (no record or interval expired), **up-to-date** (record within interval or series complete), **expired** (validity window elapsed). The `build_screening_info()` function in `me.rs` computes status; `enrich()` stays pure (no DB access).
+
+---
+
+### I-ALG: Canonical Allergens (Const Tier, ALLERGY-01)
+
+46 canonical allergen classes compiled into binary. Each entry carries a machine key, category, immune mechanism, trilingual label, and clinical guideline source. Used for auto-classification of free-text allergen entries and cross-reactivity resolution.
+
+#### Categories (5)
+
+| Category | Count | Examples | Source |
+|---|---|---|---|
+| Food | 15 | Peanut, tree nuts, milk, egg, shellfish, wheat, soy, sesame, fish, mustard, celery, lupin, mollusks, buckwheat, corn | FDA FALCPA 2004, FASTER Act 2021, EU 1169/2011 |
+| Drug | 13 | Beta-lactam, NSAID, sulfonamide, fluoroquinolone, opioid, local anesthetic, contrast media, anticonvulsant, statin, ACE inhibitor, PEG, polysorbate | AAAAI 2022, EAACI/ENDA 2022 |
+| Environmental | 10 | Dust mite, cat, dog, tree pollen (birch, cedar, oak), grass pollen, ragweed, mold (Alternaria, Aspergillus) | WAO/ARIA 2024 |
+| Insect | 4 | Honeybee, wasp, fire ant, mosquito | AAAAI 2016 |
+| Other | 4 | Latex, nickel, formaldehyde, sunscreen (benzophenone) | EAACI/ENDA 2022, ESCD 2020 |
+
+#### Resolution Pipeline
+
+1. **Exact key match**: `"food_peanut"` -> food_peanut
+2. **Alias match** (88 aliases from bundled JSON): `"arachide"` -> food_peanut, `"penicillin"` -> drug_beta_lactam
+3. **Fuzzy label match**: `"peanut"` -> substring match on EN/FR/DE labels -> food_peanut
+
+The registry's `classify_allergen()` method runs all three steps in order, returning the first match.
+
+---
+
+### I-BT: Blood Types (Const Tier, BT-01)
+
+8 ABO/Rh blood types compiled into binary with full transfusion compatibility matrix.
+
+#### Blood Type Catalog
+
+| Key | Display | ABO Group | Rh Factor | Global Frequency | Source |
+|---|---|---|---|---|---|
+| `o_positive` | O+ | O | + | ~38% | ISBT 2023, AABB 21st Ed. |
+| `o_negative` | O- | O | - | ~7% | ISBT 2023, AABB 21st Ed. |
+| `a_positive` | A+ | A | + | ~27% | ISBT 2023, AABB 21st Ed. |
+| `a_negative` | A- | A | - | ~6% | ISBT 2023, AABB 21st Ed. |
+| `b_positive` | B+ | B | + | ~22% | ISBT 2023, AABB 21st Ed. |
+| `b_negative` | B- | B | - | ~2% | ISBT 2023, AABB 21st Ed. |
+| `ab_positive` | AB+ | AB | + | ~5% | ISBT 2023, AABB 21st Ed. |
+| `ab_negative` | AB- | AB | - | ~1% | ISBT 2023, AABB 21st Ed. |
+
+#### RBC Transfusion Compatibility Matrix
+
+| Recipient | Can Receive RBC From |
+|---|---|
+| O+ | O+, O- |
+| O- | O- (universal donor) |
+| A+ | A+, A-, O+, O- |
+| A- | A-, O- |
+| B+ | B+, B-, O+, O- |
+| B- | B-, O- |
+| AB+ | All 8 types (universal recipient) |
+| AB- | AB-, A-, B-, O- |
+
+#### Clinical Significance
+
+- **Universal donor**: O- can donate RBCs to all types (emergency transfusion)
+- **Universal recipient**: AB+ can receive RBCs from all types
+- **Rh sensitization**: Rh-negative individuals risk anti-D antibodies if exposed to Rh-positive blood
+- **Pregnancy awareness**: Rh-negative mother may need anti-D prophylaxis (ACOG PB 181, RCOG GTG 65)
+
+#### Storage and Display
+
+Blood type is stored on `ProfileInfo` (encrypted, not SQLite) alongside sex and ethnicities. Displayed as a compact badge on the Me Screen ProfileCard ("O+", "AB-"). Editable via 4x2 grid selector in EditDemographicsModal. Injected into RAG context at Priority 0.5 as identity-level information.
 
 ---
 
@@ -841,9 +1013,13 @@ All guidelines referenced in the invariant system, alphabetically:
 
 | Abbreviation | Full Name | Year |
 |---|---|---|
+| AABB | American Association of Blood Banks, Technical Manual 21st Ed. | 2023 |
+| AAAAI | American Academy of Allergy, Asthma and Immunology | 2016/2022 |
+| ACOG | American College of Obstetricians and Gynecologists, Practice Bulletin 181 | 2017 |
 | ADA/KDIGO | American Diabetes Association / Kidney Disease: Improving Global Outcomes | 2022 |
 | BNF | British National Formulary | - |
 | BTS | British Thoracic Society: Guideline for Oxygen Use | 2017 |
+| CDC ACIP | Centers for Disease Control, Advisory Committee on Immunization Practices | 2024 |
 | EAU | European Association of Urology | 2024 |
 | EAACI | European Academy of Allergy and Clinical Immunology | 2020/2024 |
 | EAACI/ENDA | EAACI / European Network for Drug Allergy | 2022 |
@@ -852,9 +1028,13 @@ All guidelines referenced in the invariant system, alphabetically:
 | EMA | European Medicines Agency | - |
 | ESC | European Society of Cardiology | 2018/2019/2021/2023/2024 |
 | ESC/EAS | ESC / European Atherosclerosis Society | 2019/2025 |
+| ESCD | European Society of Contact Dermatitis | 2020 |
 | ESUR | European Society of Urogenital Radiology | 2025 |
 | ETA | European Thyroid Association | - |
+| EU 1169/2011 | EU Food Information to Consumers Regulation | 2011 |
 | FAERS | FDA Adverse Event Reporting System | 2025 |
+| FDA FALCPA | Food Allergen Labeling and Consumer Protection Act | 2004 |
+| FASTER Act | Food Allergy Safety, Treatment, Education, and Research Act | 2021 |
 | GLIM | Global Leadership Initiative on Malnutrition | 2019 |
 | IARC | International Agency for Research on Cancer | 2019/2024 |
 | ICON | International Consensus on Drug Allergy | 2014 |
@@ -862,14 +1042,18 @@ All guidelines referenced in the invariant system, alphabetically:
 | ILAE | International League Against Epilepsy | - |
 | IOF | International Osteoporosis Foundation | 2024 |
 | ISH | International Society of Hypertension: Global Practice Guidelines | 2020 |
+| ISBT | International Society of Blood Transfusion | 2023 |
 | ISTH | International Society on Thrombosis and Haemostasis | - |
 | KDIGO | Kidney Disease: Improving Global Outcomes | 2024 |
 | MHRA | Medicines and Healthcare products Regulatory Agency (UK) | - |
 | NICE | National Institute for Health and Care Excellence (UK) | - |
+| RCOG | Royal College of Obstetricians and Gynaecologists, Green-top Guideline 65 | 2017 |
 | STOPP/START v3 | Screening Tool of Older Persons' Prescriptions / Screening Tool to Alert to Right Treatment, v3 | - |
 | WAO | World Allergy Organization | 2024 |
+| WAO/ARIA | World Allergy Organization / Allergic Rhinitis and its Impact on Asthma | 2024 |
 | WHO | World Health Organization | Various |
 | WHO EML | WHO Essential Medicines List | - |
+| WHO SAGE | WHO Strategic Advisory Group of Experts on Immunization | 2024 |
 | WHO TRS 894 | WHO Technical Report Series 894: Obesity | 2000 |
 
 ---
@@ -878,6 +1062,6 @@ All guidelines referenced in the invariant system, alphabetically:
 
 Invariants in Coheara are not a feature. They are the reason Coheara can be trusted with medical data.
 
-A model that guesses whether blood pressure is dangerous is a liability. A system that looks it up in ISH 2020 and tells the model the answer is a safety architecture. The invariant engine ensures that the hardest, most safety-critical medical reasoning (classification, interaction detection, allergy contraindication, monitoring compliance) is never delegated to a component that can be wrong.
+A model that guesses whether blood pressure is dangerous is a liability. A system that looks it up in ISH 2020 and tells the model the answer is a safety architecture. The invariant engine ensures that the hardest, most safety-critical medical reasoning (classification, interaction detection, allergy contraindication, blood type compatibility, monitoring compliance, screening schedules) is never delegated to a component that can be wrong.
 
 The SLM speaks. The invariants know.

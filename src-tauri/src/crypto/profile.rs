@@ -10,6 +10,7 @@ use super::keys::{generate_salt, ProfileKey, SALT_LENGTH};
 use super::recovery::RecoveryPhrase;
 use super::CryptoError;
 use crate::db::sqlite;
+use crate::models::enums::BloodType;
 
 const VERIFICATION_PLAINTEXT: &[u8] = b"COHEARA_PROFILE_VERIFICATION_V1";
 
@@ -39,6 +40,9 @@ pub struct ProfileInfo {
     /// Ethnicity blend (ME-04) — 1-3 populations for population-specific thresholds.
     #[serde(default)]
     pub ethnicities: Vec<EthnicityGroup>,
+    /// Blood type (BT-01) — ABO/Rh classification for transfusion safety and Rh awareness.
+    #[serde(default)]
+    pub blood_type: Option<BloodType>,
 }
 
 impl ProfileInfo {
@@ -139,6 +143,8 @@ pub struct PatientDemographics {
     pub ethnicities: Vec<EthnicityGroup>,
     pub age_context: Option<AgeContext>,
     pub age_years: Option<u16>,
+    /// BT-01: Blood type for Rh-awareness enrichment and RAG context.
+    pub blood_type: Option<BloodType>,
 }
 
 impl PatientDemographics {
@@ -158,6 +164,7 @@ impl PatientDemographics {
             ethnicities: profile.ethnicities.clone(),
             age_context,
             age_years,
+            blood_type: profile.blood_type.clone(),
         }
     }
 
@@ -302,6 +309,7 @@ pub fn create_profile(
         address: address.map(|s| s.to_string()),
         sex: None,
         ethnicities: Vec::new(),
+        blood_type: None,
     };
     save_profile_info(profiles_dir, &info)?;
 
@@ -470,13 +478,14 @@ pub fn change_password(
 /// Maximum number of ethnicity selections allowed (ME-04).
 pub const MAX_ETHNICITIES: usize = 3;
 
-/// Update demographics (sex, ethnicities) on an existing profile.
+/// Update demographics (sex, ethnicities, blood type) on an existing profile.
 /// Validates ethnicity count (0-3). Deduplicates ethnicities. Rewrites profiles.json.
 pub fn update_profile_demographics(
     profiles_dir: &Path,
     profile_id: &Uuid,
     sex: Option<BiologicalSex>,
     ethnicities: Vec<EthnicityGroup>,
+    blood_type: Option<BloodType>,
 ) -> Result<ProfileInfo, CryptoError> {
     // Validate ethnicity count
     if ethnicities.len() > MAX_ETHNICITIES {
@@ -502,6 +511,7 @@ pub fn update_profile_demographics(
 
     profile.sex = sex;
     profile.ethnicities = deduped;
+    profile.blood_type = blood_type;
     let updated = profile.clone();
 
     let json =
@@ -1024,6 +1034,7 @@ mod tests {
             address: None,
             sex: None,
             ethnicities: Vec::new(),
+            blood_type: None,
         };
         assert!(info.is_self_managed());
     }
@@ -1042,6 +1053,7 @@ mod tests {
             address: None,
             sex: None,
             ethnicities: Vec::new(),
+            blood_type: None,
         };
         assert!(!info.is_self_managed());
     }
@@ -1149,6 +1161,7 @@ mod tests {
             address: None,
             sex: Some(BiologicalSex::Male),
             ethnicities: vec![EthnicityGroup::SouthAsian, EthnicityGroup::European],
+            blood_type: None,
         };
         let demo = PatientDemographics::from_profile(&info);
         assert_eq!(demo.sex, Some(BiologicalSex::Male));
@@ -1171,6 +1184,7 @@ mod tests {
             address: None,
             sex: None,
             ethnicities: Vec::new(),
+            blood_type: None,
         };
         let demo = PatientDemographics::from_profile(&info);
         assert_eq!(demo.sex, None);
@@ -1186,6 +1200,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::SouthAsian],
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(demo.has_asian_bmi_thresholds());
 
@@ -1194,6 +1209,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::EastAsian],
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(demo2.has_asian_bmi_thresholds());
 
@@ -1202,6 +1218,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::PacificIslander],
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(demo3.has_asian_bmi_thresholds());
     }
@@ -1213,6 +1230,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::European, EthnicityGroup::African],
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(!demo.has_asian_bmi_thresholds());
     }
@@ -1224,6 +1242,7 @@ mod tests {
             ethnicities: vec![EthnicityGroup::European, EthnicityGroup::EastAsian],
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(demo.has_asian_bmi_thresholds());
     }
@@ -1235,6 +1254,7 @@ mod tests {
             ethnicities: Vec::new(),
             age_context: None,
             age_years: None,
+            blood_type: None,
         };
         assert!(!demo.has_asian_bmi_thresholds());
     }
@@ -1267,6 +1287,7 @@ mod tests {
             &info.id,
             Some(BiologicalSex::Female),
             Vec::new(),
+            None,
         )
         .unwrap();
         assert_eq!(updated.sex, Some(BiologicalSex::Female));
@@ -1288,6 +1309,7 @@ mod tests {
             &info.id,
             None,
             vec![EthnicityGroup::European, EthnicityGroup::African],
+            None,
         )
         .unwrap();
         assert_eq!(updated.ethnicities.len(), 2);
@@ -1309,6 +1331,7 @@ mod tests {
                 EthnicityGroup::SouthAsian,
                 EthnicityGroup::EastAsian,
             ],
+            None,
         );
         assert!(matches!(result, Err(CryptoError::ValidationError(_))));
     }
@@ -1328,6 +1351,7 @@ mod tests {
                 EthnicityGroup::European,
                 EthnicityGroup::African,
             ],
+            None,
         )
         .unwrap();
         assert_eq!(updated.ethnicities.len(), 2);
@@ -1339,7 +1363,7 @@ mod tests {
     fn update_demographics_nonexistent_profile() {
         let dir = test_dir();
         let fake_id = Uuid::new_v4();
-        let result = update_profile_demographics(dir.path(), &fake_id, None, Vec::new());
+        let result = update_profile_demographics(dir.path(), &fake_id, None, Vec::new(), None);
         assert!(matches!(result, Err(CryptoError::ProfileNotFound(_))));
     }
 
@@ -1363,6 +1387,7 @@ mod tests {
             &info.id,
             Some(BiologicalSex::Male),
             vec![EthnicityGroup::Hispanic],
+            None,
         )
         .unwrap();
 
@@ -1388,6 +1413,7 @@ mod tests {
             address: None,
             sex: Some(BiologicalSex::Female),
             ethnicities: vec![EthnicityGroup::African, EthnicityGroup::Hispanic],
+            blood_type: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         let parsed: ProfileInfo = serde_json::from_str(&json).unwrap();

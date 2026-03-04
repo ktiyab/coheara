@@ -71,7 +71,7 @@
         <span class="text-stone-500 dark:text-gray-400">{$t('profile.sex_skip')}</span>
       </label>
     </div>
-    <span class="text-stone-400 dark:text-gray-500 text-xs">{$t('profile.sex_hint')}</span>
+    <span class="text-stone-400 dark:text-gray-400 text-xs">{$t('profile.sex_hint')}</span>
   </fieldset>
 
   <!-- Ethnicity blend -->
@@ -92,7 +92,7 @@
     {#if selectedEthnicities.length >= 3}
       <span class="text-amber-600 dark:text-amber-400 text-xs">{$t('profile.ethnicity_max_reached')}</span>
     {:else}
-      <span class="text-stone-400 dark:text-gray-500 text-xs">{$t('profile.ethnicity_hint')}</span>
+      <span class="text-stone-400 dark:text-gray-400 text-xs">{$t('profile.ethnicity_hint')}</span>
     {/if}
   </fieldset>
 
