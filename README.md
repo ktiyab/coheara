@@ -230,17 +230,20 @@ Without these demographics, conservative defaults apply. The system never fails,
 
 | Category | Coverage |
 |----------|----------|
-| Vital sign types | 6 (BP, HR, SpO2, BMI, Glucose, Temperature) |
+| Vital sign types | 6 (BP, HR, SpO2, BMI, Glucose, Temperature) with trend detection |
 | Lab tests | 10 (eGFR, HbA1c, LDL, K+, Na+, ALT, Hemoglobin, TSH, uACR, Vitamin D) |
-| Multilingual aliases | 88 (EN/FR/DE lab name matching) |
+| Multilingual aliases | 88 lab aliases + 88 allergen aliases (EN/FR/DE matching) |
 | Drug families | 20 families, 125+ member drugs |
 | Drug interactions | 17 clinically significant pairs |
-| Cross-reactivity chains | 10 allergen families |
+| Cross-reactivity chains | 10 drug allergen families + OAS, food-food, insect, latex-fruit chains |
+| Canonical allergens | 46 classes across 5 categories (food, drug, environmental, insect, other) |
 | Monitoring schedules | 24 drug-to-lab rules |
-| Screening schedules | 6 age+sex-gated (mammography, cervical, prostate, colorectal, AAA, osteoporosis) |
-| Unit tests | 200+ (deterministic, no external dependencies) |
+| Screening schedules | 14 age+sex-gated (6 cancer screenings + 8 WHO vaccine schedules), record-aware |
+| Blood types | 8 ABO/Rh types with transfusion compatibility matrix |
+| Detection algorithms | 10 (classify vitals/labs, interactions, cross-reactivity, monitoring, screening, trends, Rh-negative awareness) |
+| Unit tests | 300+ (deterministic, no external dependencies) |
 
-Every threshold traces to a published guideline (ISH, ESC, WHO, KDIGO, IDF, EAACI, and [25 more](INVARIANTS.md#source-guideline-index)). Nothing is invented. Nothing is approximated.
+Every threshold traces to a published guideline (ISH, ESC, WHO, KDIGO, IDF, EAACI, ISBT, AABB, ACOG, and [30+ more](INVARIANTS.md#source-guideline-index)). Nothing is invented. Nothing is approximated.
 
 For the complete reference (every threshold, every interaction pair, every alias, every source), see **[INVARIANTS.md](INVARIANTS.md)**.
 
